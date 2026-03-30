@@ -2714,7 +2714,9 @@ function addPersonToClassTab_(ss, tabName, personName) {
 
   var data = sheet.getDataRange().getValues();
   var WHITE = "#FFFFFF", ALT_BLUE = "#EBF0F7";
+  var NAVY = "#1F3864";
 
+  // First try to fill an open seat
   for (var r = 7; r < data.length; r++) {
     var cellName = data[r][1] ? data[r][1].toString().trim() : "";
     if (isOpenSeatMarker(cellName)) {
@@ -2741,7 +2743,33 @@ function addPersonToClassTab_(ss, tabName, personName) {
       return true;
     }
   }
-  return false;
+
+  // No open seat — append a new row at the end
+  var lastDataRow = data.length;
+  var nextNum = 1;
+  for (var r = 7; r < data.length; r++) {
+    var numVal = data[r][0];
+    if (typeof numVal === "number" && numVal >= nextNum) {
+      nextNum = numVal + 1;
+    }
+  }
+
+  var insertRow = lastDataRow + 1;
+  var rowBg = ((nextNum - 1) % 2 === 0) ? WHITE : ALT_BLUE;
+
+  sheet.getRange(insertRow, 1, 1, 7).setValues([[nextNum, personName, "Added", "", "NEEDS TRAINING", false, ""]]);
+  sheet.getRange(insertRow, 1, 1, 7).setFontFamily("Arial").setFontSize(10).setBackground(rowBg);
+  sheet.getRange(insertRow, 5).setFontColor("#FFFFFF").setBackground(NAVY).setFontWeight("bold");
+  sheet.getRange(insertRow, 6).insertCheckboxes();
+
+  // Update capacity count
+  var capData = sheet.getRange(5, 1, 1, 2).getValues()[0];
+  var capStr = capData[1] ? capData[1].toString() : "";
+  var capMatch = capStr.match(/(\d+)\s*\/\s*(\d+)/);
+  if (capMatch) {
+    sheet.getRange(5, 2).setValue((parseInt(capMatch[1]) + 1) + " / " + capMatch[2]);
+  }
+  return true;
 }
 
 function addToScheduledSheet_(ss, trainingType, classTabName, personName) {
