@@ -244,13 +244,16 @@ function generateRosters() {
 
 function generateRostersSilent() {
   try {
+    // Ensure all pending writes are committed before reading data
+    SpreadsheetApp.flush();
+
     // Clean garbled dates before building rosters
     cleanGarbledDates();
 
     var result = buildRosterData(true); // silent = true
     if (!result) return;
     writeRosterSheet(result.ss, result.allRosters, result.today);
-    Logger.log("Training Rosters auto-refreshed at " + new Date().toString());
+    Logger.log("Training Rosters refreshed at " + new Date().toString());
   } catch (err) {
     Logger.log("Roster auto-refresh error: " + err.toString());
   }
@@ -2042,6 +2045,7 @@ function installOverviewSyncTrigger() {
  */
 function rebuildScheduledOverview_(ss) {
   try {
+    SpreadsheetApp.flush();
     var rosterResult = buildRosterData(true);
     if (!rosterResult) return;
     var allRosters = rosterResult.allRosters;
