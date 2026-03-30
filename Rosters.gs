@@ -613,7 +613,11 @@ function syncScheduledTrainings() {
   summary += "\n";
   summary += "Backfilled (from needs list): " + totalBackfilled + "\n\n";
   for (var sl = 0; sl < summaryLines.length; sl++) summary += summaryLines[sl] + "\n";
-  summary += "\nScheduled sheet updated.\nOverview tab rebuilt.\nUse EVC Tools > 5a. Refresh All to update rosters.";
+
+  // Refresh Training Rosters so everything is current
+  generateRostersSilent();
+
+  summary += "\nScheduled sheet updated.\nOverview tab rebuilt.\nTraining Rosters refreshed.";
   ui.alert(summary);
 }
 
