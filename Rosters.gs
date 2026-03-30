@@ -2683,8 +2683,19 @@ function removeFromScheduledSheet_(ss, trainingType, classTabName, personName) {
   var sheet = ss.getSheetByName(SCHEDULED_SHEET_NAME);
   if (!sheet) return;
 
-  // Pull the date string out of the tab name by stripping the training prefix
-  var datePart = classTabName.substring(trainingType.length).trim();
+  // Resolve training type
+  var resolvedType = resolveTrainingName_(trainingType) || trainingType;
+
+  // Extract date from tab name — try both resolved and original prefix
+  var datePart = "";
+  if (classTabName.indexOf(resolvedType + " ") === 0) {
+    datePart = classTabName.substring(resolvedType.length).trim();
+  } else if (classTabName.indexOf(trainingType + " ") === 0) {
+    datePart = classTabName.substring(trainingType.length).trim();
+  } else {
+    var spIdx = classTabName.indexOf(" ");
+    if (spIdx > -1) datePart = classTabName.substring(spIdx + 1).trim();
+  }
 
   var data = sheet.getDataRange().getValues();
   var lastType = "";
@@ -2701,7 +2712,8 @@ function removeFromScheduledSheet_(ss, trainingType, classTabName, personName) {
     if (colA) lastType = colA;
 
     if (!colE) continue;
-    if (sessionType.toLowerCase().trim() !== trainingType.toLowerCase().trim()) continue;
+    var resolvedSession = resolveTrainingName_(sessionType) || sessionType;
+    if (resolvedSession.toLowerCase() !== resolvedType.toLowerCase()) continue;
 
     var dateDisplay = "";
     if (colB_raw instanceof Date && !isNaN(colB_raw.getTime())) {
@@ -2795,7 +2807,21 @@ function addToScheduledSheet_(ss, trainingType, classTabName, personName) {
   var sheet = ss.getSheetByName(SCHEDULED_SHEET_NAME);
   if (!sheet) return;
 
-  var datePart = classTabName.substring(trainingType.length).trim();
+  // Resolve the passed training type to its config name
+  var resolvedType = resolveTrainingName_(trainingType) || trainingType;
+
+  // Extract date from the tab name — try both resolved and original prefix
+  var datePart = "";
+  if (classTabName.indexOf(resolvedType + " ") === 0) {
+    datePart = classTabName.substring(resolvedType.length).trim();
+  } else if (classTabName.indexOf(trainingType + " ") === 0) {
+    datePart = classTabName.substring(trainingType.length).trim();
+  } else {
+    // Fallback: take everything after the first space
+    var spIdx = classTabName.indexOf(" ");
+    if (spIdx > -1) datePart = classTabName.substring(spIdx + 1).trim();
+  }
+
   var data = sheet.getDataRange().getValues();
   var lastType = "";
 
@@ -2808,7 +2834,10 @@ function addToScheduledSheet_(ss, trainingType, classTabName, personName) {
     if (colA === "Type" || colA === "a. Upcoming Training") continue;
     var sessionType = colA || lastType;
     if (colA) lastType = colA;
-    if (sessionType.toLowerCase().trim() !== trainingType.toLowerCase().trim()) continue;
+
+    // Resolve the scheduled sheet type to config name, then compare
+    var resolvedSession = resolveTrainingName_(sessionType) || sessionType;
+    if (resolvedSession.toLowerCase() !== resolvedType.toLowerCase()) continue;
 
     var dateDisplay = "";
     if (colB_raw instanceof Date && !isNaN(colB_raw.getTime())) dateDisplay = formatClassDate(colB_raw);
