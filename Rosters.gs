@@ -3261,6 +3261,12 @@ function smartRemove() {
   var matchedTraining = info.trainingType;
   var sourceTab = info.sourceTab;
 
+  // ── FROM TRAINING ROSTERS: Add to class flow ──
+  if (sourceTab === ROSTER_SHEET_NAME) {
+    addToClassFromRoster_(ui, ss, name, matchedTraining);
+    return;
+  }
+
   // ── STEP 2: Check their Training sheet status ──
 
   var status = checkPersonTrainingStatus_(ss, name, matchedTraining);
@@ -3411,6 +3417,126 @@ function smartRemove() {
       executeRemoval_(ss, sheet, sheetName, row, name, matchedTraining, sourceTab, "Removed — still needs " + matchedTraining + " (no other classes)");
       ui.alert("Removed " + name + "\n\nStill needs " + matchedTraining + " — will appear on Training Rosters.\nUse EVC Tools > 5a. Refresh All to update rosters.");
     }
+  }
+}
+
+
+/**
+ * addToClassFromRoster_ — when Smart Remove/Move is run from
+ * the Training Rosters tab, offers to add the selected person
+ * to an existing class or create a new one.
+ */
+function addToClassFromRoster_(ui, ss, name, trainingType) {
+  var msg = name + "\n";
+  msg += "Training: " + trainingType + "\n";
+  msg += "───────────────────────\n\n";
+  msg += "This person needs " + trainingType + ".\n\n";
+
+  // Find all future classes for this training
+  var allClasses = findAllFutureClasses_(ss, trainingType, "");
+
+  // Check if already scheduled
+  var alreadyScheduled = buildFullScheduledMap_(ss);
+  var tk = trainingType.toLowerCase();
+  var sm = alreadyScheduled[tk] || {};
+  var nameLower = name.toLowerCase().trim();
+  if (sm[nameLower]) {
+    msg += "NOTE: Already scheduled for " + sm[nameLower] + "\n\n";
+  }
+
+  if (allClasses.length > 0) {
+    msg += "Add to an existing class:\n";
+    for (var i = 0; i < allClasses.length; i++) {
+      var c = allClasses[i];
+      if (c.isFull) {
+        msg += "  " + (i + 1) + ".  " + c.tabName + " (FULL — " + c.filled + "/" + c.capacity + ", override)\n";
+      } else {
+        msg += "  " + (i + 1) + ".  " + c.tabName + " (" + c.openSeats + " open)\n";
+      }
+    }
+    msg += "\nOr:\n";
+    msg += "  N.  Create a NEW class\n";
+    msg += "  C.  Cancel\n";
+  } else {
+    msg += "No " + trainingType + " classes found.\n\n";
+    msg += "  N.  Create a NEW class\n";
+    msg += "  C.  Cancel\n";
+  }
+
+  var choice = ui.prompt("Add to Class", msg, ui.ButtonSet.OK_CANCEL);
+  if (choice.getSelectedButton() !== ui.Button.OK) return;
+  var input = choice.getResponseText().trim().toUpperCase();
+
+  if (input === "C") return;
+
+  if (input === "N") {
+    // Create a new class with this person
+    var dateResp = ui.prompt(
+      "New Class — " + trainingType,
+      "Enter the class date (M/D/YYYY):",
+      ui.ButtonSet.OK_CANCEL
+    );
+    if (dateResp.getSelectedButton() !== ui.Button.OK) return;
+    var classDate = parseClassDate(dateResp.getResponseText().trim());
+    if (!classDate) { ui.alert("Invalid date."); return; }
+
+    // Find the training config
+    var config = null;
+    for (var i = 0; i < CLASS_ROSTER_CONFIG.length; i++) {
+      if (CLASS_ROSTER_CONFIG[i].name === trainingType) { config = CLASS_ROSTER_CONFIG[i]; break; }
+    }
+    if (!config) { ui.alert("Could not find config for " + trainingType); return; }
+
+    var tabName = buildTabName(trainingType, classDate);
+    var existingTab = ss.getSheetByName(tabName);
+
+    if (existingTab) {
+      // Tab already exists — add to it instead
+      var personInfo = { name: name, status: "Needs training", bucket: "needed", lastDate: "", expDate: "" };
+      appendToExistingTab_(ss, tabName, personInfo, trainingType);
+      addToScheduledSheet_(ss, trainingType, tabName, name);
+    } else {
+      // Create new tab
+      var today = new Date(); today.setHours(0, 0, 0, 0);
+      var personInfo = { name: name, status: "Needs training", bucket: "needed", lastDate: "", expDate: "" };
+      createNewTabWithPerson_(ss, config, classDate, personInfo, today);
+      addSessionToScheduledSheet_(ss, trainingType, classDate, "", "", [name]);
+    }
+
+    rebuildScheduledOverview_(ss);
+    generateRostersSilent();
+    orderClassRosterTabs(ss);
+    ui.alert("Added " + name + " to " + tabName + "!\n\nScheduled Overview & Training Rosters updated.");
+    return;
+  }
+
+  // Numeric selection — add to existing class
+  var idx = parseInt(input) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= allClasses.length) { ui.alert("Invalid selection."); return; }
+
+  var target = allClasses[idx];
+
+  // If full, confirm override
+  if (target.isFull) {
+    var override = ui.alert(
+      "Class is Full",
+      target.tabName + " is at " + target.filled + "/" + target.capacity + ".\n\n" +
+      "Add " + name + " anyway (over capacity)?",
+      ui.ButtonSet.YES_NO
+    );
+    if (override !== ui.Button.YES) return;
+  }
+
+  var added = addPersonToClassTab_(ss, target.tabName, name);
+  if (added) {
+    addToScheduledSheet_(ss, trainingType, target.tabName, name);
+    rebuildScheduledOverview_(ss);
+    generateRostersSilent();
+    ui.alert("Added " + name + " to " + target.tabName +
+             (target.isFull ? " (over capacity)" : "") +
+             "!\n\nScheduled Overview & Training Rosters updated.");
+  } else {
+    ui.alert("Could not find an open seat on " + target.tabName + ".\n\nTry creating a new class instead.");
   }
 }
 
@@ -3581,6 +3707,35 @@ function identifyPersonForRemoval_(ss, sheet, sheetName, row, ui) {
     if (!trainingType) { ui.alert("Could not determine the training type for this row."); return null; }
     sourceTab = trainingType + (sessionDate ? " " + sessionDate : "");
 
+  } else if (sheetName === ROSTER_SHEET_NAME) {
+    // ── Training Rosters tab: identify person and training ──
+    var allData = sheet.getDataRange().getValues();
+    var rowData = allData[row - 1]; // 0-indexed
+
+    name = rowData[0] ? rowData[0].toString().trim() : "";
+    if (!name) { ui.alert("No name found on this row. Select a person's row."); return null; }
+
+    // Check it's not a header/section row
+    var priority = rowData[4] ? rowData[4].toString().trim() : "";
+    if (!priority || priority === "Priority") {
+      ui.alert("Select a person's row (not a header), then run this again.");
+      return null;
+    }
+
+    // Scan upward to find the training section header (navy merged row with training name)
+    for (var r = row - 2; r >= 0; r--) {
+      var cellA = allData[r][0] ? allData[r][0].toString().trim() : "";
+      // Training headers look like "CPR/FA  (2 Year Renewal | REQUIRED FOR ALL)"
+      var headerMatch = cellA.match(/^(.+?)\s+\(/);
+      if (headerMatch) {
+        trainingType = headerMatch[1].trim();
+        break;
+      }
+    }
+
+    if (!trainingType) { ui.alert("Could not determine the training type. Select a row within a training section."); return null; }
+    sourceTab = ROSTER_SHEET_NAME;
+
   } else {
     var prefixes = getClassRosterPrefixes();
     for (var p = 0; p < prefixes.length; p++) {
@@ -3590,7 +3745,7 @@ function identifyPersonForRemoval_(ss, sheet, sheetName, row, ui) {
     }
 
     if (!trainingType) {
-      ui.alert("Not a class roster or Overview tab.\n\nNavigate to a class roster tab or the Scheduled Overview, click on a person's row, then run this.");
+      ui.alert("Not a class roster, Training Rosters, or Overview tab.\n\nNavigate to one of those tabs, click on a person's row, then run this.");
       return null;
     }
 
