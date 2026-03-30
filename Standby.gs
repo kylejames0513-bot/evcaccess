@@ -1,5 +1,5 @@
 // ============================================================
-// EVC Training System — Standby & Class Creation
+// EVC Training System — Rescheduled & Class Creation
 // ============================================================
 // HR Program Coordinator: Kyle Mahoney
 // Emory Valley Center
@@ -7,17 +7,17 @@
 //
 // CONTENTS:
 //   1. Create a Class (menu item)
-//   2. Add to Standby (menu item)
-//   3. View Standby List (menu item)
-//   4. Standby sheet management (read, write, clear)
-//   5. Standby display helpers (for Training Rosters)
+//   2. Add to Rescheduled (menu item)
+//   3. View Rescheduled List (menu item)
+//   4. Rescheduled sheet management (read, write, clear)
+//   5. Rescheduled display helpers (for Training Rosters)
 //
 // DEPENDS ON: Config.gs, Utilities.gs, Core.gs, Rosters.gs
 //
 // ============================================================
 
 
-var STANDBY_SHEET_NAME = "Standby";
+var RESCHEDULED_SHEET_NAME = "Rescheduled";
 
 
 // ************************************************************
@@ -25,7 +25,7 @@ var STANDBY_SHEET_NAME = "Standby";
 //   1. CREATE A CLASS
 //
 //   Menu item: pick training, date, time, location.
-//   Shows standby people first, then priority pool.
+//   Shows rescheduled people first, then priority pool.
 //   User picks who goes in. Creates the class tab.
 //
 // ************************************************************
@@ -99,25 +99,24 @@ function createClass() {
 
   // ── Step 5: Build the candidate list ──
 
-  // Get standby people
-  var allStandby = readStandbyList_();
-  var standbyThisDate = [];
-  var standbyNext = [];
+  // Get rescheduled people
+  var allRescheduled = readRescheduledList_();
+  var reschedThisDate = [];
+  var reschedNext = [];
   var classDateStr = formatClassDate(classDate);
 
-  for (var s = 0; s < allStandby.length; s++) {
-    var sb = allStandby[s];
+  for (var s = 0; s < allRescheduled.length; s++) {
+    var sb = allRescheduled[s];
     if (sb.training.toLowerCase() !== config.name.toLowerCase()) continue;
 
     if (sb.targetDate === "next") {
-      standbyNext.push(sb);
+      reschedNext.push(sb);
     } else if (sb.targetDate === classDateStr) {
-      standbyThisDate.push(sb);
+      reschedThisDate.push(sb);
     } else {
-      // Check if the standby date matches this class date
       var sbDate = parseClassDate(sb.targetDate);
       if (sbDate && sbDate.getTime() === classDate.getTime()) {
-        standbyThisDate.push(sb);
+        reschedThisDate.push(sb);
       }
     }
   }
@@ -140,15 +139,15 @@ function createClass() {
     pool = buildPriorityPool(rosterData, alreadyScheduled, config.name);
   }
 
-  // Remove standby people from the pool (they're listed separately)
-  var standbyNames = {};
-  for (var s = 0; s < standbyThisDate.length; s++) standbyNames[standbyThisDate[s].name.toLowerCase().trim()] = true;
-  for (var s = 0; s < standbyNext.length; s++) standbyNames[standbyNext[s].name.toLowerCase().trim()] = true;
-  pool = pool.filter(function(p) { return !standbyNames[p.name.toLowerCase().trim()]; });
+  // Remove rescheduled people from the pool (they're listed separately)
+  var reschedNames = {};
+  for (var s = 0; s < reschedThisDate.length; s++) reschedNames[reschedThisDate[s].name.toLowerCase().trim()] = true;
+  for (var s = 0; s < reschedNext.length; s++) reschedNames[reschedNext[s].name.toLowerCase().trim()] = true;
+  pool = pool.filter(function(p) { return !reschedNames[p.name.toLowerCase().trim()]; });
 
   // ── Step 6: Show the selection list ──
 
-  var totalCandidates = standbyThisDate.length + standbyNext.length + pool.length;
+  var totalCandidates = reschedThisDate.length + reschedNext.length + pool.length;
 
   if (totalCandidates === 0) {
     var proceed = ui.alert(
@@ -172,23 +171,23 @@ function createClass() {
   var candidateList = []; // unified numbered list
   var num = 1;
 
-  if (standbyThisDate.length > 0) {
-    selMsg += "★ STANDBY — THIS DATE (" + standbyThisDate.length + "):\n";
-    for (var i = 0; i < standbyThisDate.length; i++) {
-      selMsg += "  " + num + ".  " + standbyThisDate[i].name + "\n";
-      candidateList.push({ name: standbyThisDate[i].name, source: "standby-date", standbyRow: standbyThisDate[i].row,
-        status: "Standby (" + standbyThisDate[i].targetDate + ")", bucket: "needed" });
+  if (reschedThisDate.length > 0) {
+    selMsg += "★ RESCHEDULED — THIS DATE (" + reschedThisDate.length + "):\n";
+    for (var i = 0; i < reschedThisDate.length; i++) {
+      selMsg += "  " + num + ".  " + reschedThisDate[i].name + "\n";
+      candidateList.push({ name: reschedThisDate[i].name, source: "resched-date", reschedRow: reschedThisDate[i].row,
+        status: "Rescheduled (" + reschedThisDate[i].targetDate + ")", bucket: "needed" });
       num++;
     }
     selMsg += "\n";
   }
 
-  if (standbyNext.length > 0) {
-    selMsg += "★ STANDBY — NEXT AVAILABLE (" + standbyNext.length + "):\n";
-    for (var i = 0; i < standbyNext.length; i++) {
-      selMsg += "  " + num + ".  " + standbyNext[i].name + "\n";
-      candidateList.push({ name: standbyNext[i].name, source: "standby-next", standbyRow: standbyNext[i].row,
-        status: "Standby (next)", bucket: "needed" });
+  if (reschedNext.length > 0) {
+    selMsg += "★ RESCHEDULED — NEXT AVAILABLE (" + reschedNext.length + "):\n";
+    for (var i = 0; i < reschedNext.length; i++) {
+      selMsg += "  " + num + ".  " + reschedNext[i].name + "\n";
+      candidateList.push({ name: reschedNext[i].name, source: "resched-next", reschedRow: reschedNext[i].row,
+        status: "Rescheduled (next)", bucket: "needed" });
       num++;
     }
     selMsg += "\n";
@@ -204,7 +203,7 @@ function createClass() {
       else if (p.bucket === "needed") tag = " [NEEDS]";
       else if (p.bucket === "expiringSoon") tag = " [EXPIRING]";
       selMsg += "  " + num + ".  " + p.name + tag + "\n";
-      candidateList.push({ name: p.name, source: "pool", standbyRow: -1,
+      candidateList.push({ name: p.name, source: "pool", reschedRow: -1,
         status: p.status, bucket: p.bucket, lastDate: p.lastDate || "", expDate: p.expDate || "" });
       num++;
     }
@@ -225,7 +224,7 @@ function createClass() {
   var selectedPeople = [];
 
   if (pickInput.toUpperCase() === "ALL") {
-    // Take standby first, then pool, up to capacity
+    // Take rescheduled first, then pool, up to capacity
     for (var i = 0; i < candidateList.length && selectedPeople.length < capacity; i++) {
       selectedPeople.push(candidateList[i]);
     }
@@ -262,13 +261,13 @@ function createClass() {
 
   createClassTab_(ss, config, classDate, classTime, classLocation, selectedPeople, rosterResult.today);
 
-  // ── Step 8: Clear standby entries for enrolled people ──
+  // ── Step 8: Clear rescheduled entries for enrolled people ──
 
-  var clearedStandby = 0;
+  var clearedResched = 0;
   for (var i = 0; i < selectedPeople.length; i++) {
-    if (selectedPeople[i].source === "standby-date" || selectedPeople[i].source === "standby-next") {
-      removeFromStandby_(ss, selectedPeople[i].name, config.name);
-      clearedStandby++;
+    if (selectedPeople[i].source === "resched-date" || selectedPeople[i].source === "resched-next") {
+      removeFromRescheduled_(ss, selectedPeople[i].name, config.name);
+      clearedResched++;
     }
   }
 
@@ -283,7 +282,7 @@ function createClass() {
   if (classTime) summary += "Time: " + classTime + "\n";
   if (classLocation) summary += "Location: " + classLocation + "\n";
   summary += "Enrolled: " + selectedPeople.length + " / " + capacity + "\n";
-  if (clearedStandby > 0) summary += "Cleared from standby: " + clearedStandby + "\n";
+  if (clearedResched > 0) summary += "Cleared from rescheduled: " + clearedResched + "\n";
   summary += "\nTab: " + tabName;
   summary += "\nTraining Rosters refreshed.";
 
@@ -327,11 +326,11 @@ function createClassTab_(ss, config, classDate, classTime, classLocation, select
 
 // ************************************************************
 //
-//   2. ADD TO STANDBY (menu item)
+//   2. ADD TO RESCHEDULED (menu item)
 //
 // ************************************************************
 
-function addToStandby() {
+function addToRescheduled() {
   var ui = SpreadsheetApp.getUi();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -342,7 +341,7 @@ function addToStandby() {
   }
   msg += "\nEnter a number:";
 
-  var choice = ui.prompt("Add to Standby — Pick Training", msg, ui.ButtonSet.OK_CANCEL);
+  var choice = ui.prompt("Add to Rescheduled — Pick Training", msg, ui.ButtonSet.OK_CANCEL);
   if (choice.getSelectedButton() !== ui.Button.OK) return;
 
   var idx = parseInt(choice.getResponseText().trim()) - 1;
@@ -354,7 +353,7 @@ function addToStandby() {
 
   // Enter name
   var nameResp = ui.prompt(
-    "Add to Standby — " + training,
+    "Add to Rescheduled — " + training,
     "Enter the person's name (First Last):",
     ui.ButtonSet.OK_CANCEL
   );
@@ -364,7 +363,7 @@ function addToStandby() {
 
   // Enter date or "next"
   var dateResp = ui.prompt(
-    "Add to Standby — " + training,
+    "Add to Rescheduled — " + training,
     "Enter the target class date (M/D/YYYY)\nor type NEXT for the next available class:",
     ui.ButtonSet.OK_CANCEL
   );
@@ -382,45 +381,48 @@ function addToStandby() {
     targetDate = formatClassDate(parsed);
   }
 
-  // Check if already on standby
-  var existing = readStandbyList_();
+  // Check if already on rescheduled list
+  var existing = readRescheduledList_();
   for (var i = 0; i < existing.length; i++) {
     if (existing[i].name.toLowerCase().trim() === name.toLowerCase().trim() &&
         existing[i].training.toLowerCase() === training.toLowerCase()) {
-      ui.alert(name + " is already on standby for " + training +
+      ui.alert(name + " is already on the rescheduled list for " + training +
                " (" + existing[i].targetDate + ").\n\nRemove the existing entry first if you want to change the date.");
       return;
     }
   }
 
-  writeStandbyEntry_(ss, name, training, targetDate, "Manual");
+  writeRescheduledEntry_(ss, name, training, targetDate, "Manual");
 
   // Refresh rosters so the Scheduled column updates immediately
   generateRostersSilent();
 
-  ui.alert("Added to standby!\n\n" +
+  ui.alert("Added to rescheduled!\n\n" +
            "Name: " + name + "\n" +
            "Training: " + training + "\n" +
            "Target: " + targetDate);
 }
 
+// Keep old name as alias for backward compatibility with existing triggers
+var addToStandby = addToRescheduled;
+
 
 // ************************************************************
 //
-//   3. VIEW STANDBY LIST (menu item)
+//   3. VIEW RESCHEDULED LIST (menu item)
 //
 // ************************************************************
 
-function viewStandbyList() {
+function viewRescheduledList() {
   var ui = SpreadsheetApp.getUi();
-  var list = readStandbyList_();
+  var list = readRescheduledList_();
 
   if (list.length === 0) {
-    ui.alert("No one is on standby.");
+    ui.alert("No one is on the rescheduled list.");
     return;
   }
 
-  var msg = "Current Standby List (" + list.length + "):\n\n";
+  var msg = "Current Rescheduled List (" + list.length + "):\n\n";
 
   // Group by training
   var byTraining = {};
@@ -441,27 +443,30 @@ function viewStandbyList() {
     msg += "\n";
   }
 
-  msg += "To remove someone, use Smart Remove or edit the Standby sheet directly (it's hidden — right-click column headers to unhide).";
+  msg += "To remove someone, use Smart Remove or edit the Rescheduled sheet directly (it's hidden — right-click column headers to unhide).";
 
   ui.alert(msg);
 }
 
+// Keep old name as alias for backward compatibility with existing triggers
+var viewStandbyList = viewRescheduledList;
+
 
 // ************************************************************
 //
-//   4. STANDBY SHEET MANAGEMENT
+//   4. RESCHEDULED SHEET MANAGEMENT
 //
 // ************************************************************
 
 /**
- * getOrCreateStandbySheet_ — creates the Standby sheet if
+ * getOrCreateRescheduledSheet_ — creates the Rescheduled sheet if
  * it doesn't exist, with headers. Always hidden.
  */
-function getOrCreateStandbySheet_(ss) {
-  var sheet = ss.getSheetByName(STANDBY_SHEET_NAME);
+function getOrCreateRescheduledSheet_(ss) {
+  var sheet = ss.getSheetByName(RESCHEDULED_SHEET_NAME);
   if (sheet) return sheet;
 
-  sheet = ss.insertSheet(STANDBY_SHEET_NAME);
+  sheet = ss.insertSheet(RESCHEDULED_SHEET_NAME);
   sheet.getRange(1, 1, 1, 5).setValues([["Name", "Training", "Target Date", "Date Added", "Source"]]);
   sheet.getRange(1, 1, 1, 5).setFontWeight("bold").setBackground("#1F3864").setFontColor("#FFFFFF");
   sheet.setColumnWidth(1, 200);
@@ -476,21 +481,21 @@ function getOrCreateStandbySheet_(ss) {
 }
 
 /**
- * writeStandbyEntry_ — adds a row to the Standby sheet.
+ * writeRescheduledEntry_ — adds a row to the Rescheduled sheet.
  */
-function writeStandbyEntry_(ss, name, training, targetDate, source) {
-  var sheet = getOrCreateStandbySheet_(ss);
+function writeRescheduledEntry_(ss, name, training, targetDate, source) {
+  var sheet = getOrCreateRescheduledSheet_(ss);
   var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "M/d/yyyy");
   sheet.appendRow([name, training, targetDate, today, source || ""]);
 }
 
 /**
- * readStandbyList_ — reads all standby entries.
+ * readRescheduledList_ — reads all rescheduled entries.
  * Returns array of { name, training, targetDate, dateAdded, source, row }.
  */
-function readStandbyList_() {
+function readRescheduledList_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(STANDBY_SHEET_NAME);
+  var sheet = ss.getSheetByName(RESCHEDULED_SHEET_NAME);
   if (!sheet) return [];
 
   var data = sheet.getDataRange().getValues();
@@ -527,11 +532,14 @@ function readStandbyList_() {
   return list;
 }
 
+// Backward-compatible aliases
+var readStandbyList_ = readRescheduledList_;
+
 /**
- * removeFromStandby_ — removes a specific person + training from standby.
+ * removeFromRescheduled_ — removes a specific person + training from rescheduled list.
  */
-function removeFromStandby_(ss, name, training) {
-  var sheet = ss.getSheetByName(STANDBY_SHEET_NAME);
+function removeFromRescheduled_(ss, name, training) {
+  var sheet = ss.getSheetByName(RESCHEDULED_SHEET_NAME);
   if (!sheet) return;
 
   var data = sheet.getDataRange().getValues();
@@ -549,15 +557,18 @@ function removeFromStandby_(ss, name, training) {
   }
 }
 
+// Backward-compatible alias
+var removeFromStandby_ = removeFromRescheduled_;
+
 /**
- * addToStandbyFromSmartRemove_ — called by smartRemove after
+ * addToRescheduledFromSmartRemove_ — called by smartRemove after
  * removing someone who still needs training. Prompts for date.
  */
-function addToStandbyFromSmartRemove_(ui, ss, name, trainingType) {
+function addToRescheduledFromSmartRemove_(ui, ss, name, trainingType) {
   var addPrompt = ui.alert(
-    "Add to Standby?",
+    "Add to Rescheduled?",
     name + " still needs " + trainingType + ".\n\n" +
-    "Add them to the standby list so they populate\n" +
+    "Add them to the rescheduled list so they populate\n" +
     "first when a new class is created?",
     ui.ButtonSet.YES_NO
   );
@@ -565,7 +576,7 @@ function addToStandbyFromSmartRemove_(ui, ss, name, trainingType) {
   if (addPrompt !== ui.Button.YES) return;
 
   var dateResp = ui.prompt(
-    "Standby — Target Date",
+    "Rescheduled — Target Date",
     "Enter the target class date (M/D/YYYY)\nor type NEXT for the next available class:",
     ui.ButtonSet.OK_CANCEL
   );
@@ -588,12 +599,12 @@ function addToStandbyFromSmartRemove_(ui, ss, name, trainingType) {
           if (existingClass.isFull) {
             classMsg += " (FULL — " + existingClass.filled + "/" + existingClass.capacity + ").\n\n" +
                         "1. Add to this class anyway (over capacity)\n" +
-                        "2. Put on standby for this date\n" +
+                        "2. Add to rescheduled for this date\n" +
                         "3. Cancel";
           } else {
             classMsg += " (" + existingClass.openSeats + " open).\n\n" +
                         "1. Add directly to this class\n" +
-                        "2. Put on standby for this date\n" +
+                        "2. Add to rescheduled for this date\n" +
                         "3. Cancel";
           }
           var directChoice = ui.prompt("Class Found", classMsg, ui.ButtonSet.OK_CANCEL);
@@ -610,13 +621,13 @@ function addToStandbyFromSmartRemove_(ui, ss, name, trainingType) {
                        (existingClass.isFull ? " (over capacity)" : "") +
                        "!\n\nTraining Rosters refreshed.");
             } else {
-              ui.alert("Could not add to " + existingClass.tabName + " — no open seat rows found.\nAdding to standby instead.");
-              writeStandbyEntry_(ss, name, trainingType, targetDate, "Smart Remove");
+              ui.alert("Could not add to " + existingClass.tabName + " — no open seat rows found.\nAdding to rescheduled instead.");
+              writeRescheduledEntry_(ss, name, trainingType, targetDate, "Smart Remove");
               generateRostersSilent();
             }
             return;
           } else if (directPick === "2") {
-            // Fall through to write standby
+            // Fall through to write rescheduled
             break;
           } else {
             return;
@@ -633,7 +644,7 @@ function addToStandbyFromSmartRemove_(ui, ss, name, trainingType) {
       var nextClass = openClasses[0];
       var nextMsg = nextClass.tabName + " has " + nextClass.openSeats + " open seat(s).\n\n" +
                     "1. Add directly to this class now\n" +
-                    "2. Put on standby (next available)\n" +
+                    "2. Add to rescheduled (next available)\n" +
                     "3. Cancel";
       var nextChoice = ui.prompt("Class Available Now", nextMsg, ui.ButtonSet.OK_CANCEL);
       if (nextChoice.getSelectedButton() !== ui.Button.OK) return;
@@ -646,48 +657,54 @@ function addToStandbyFromSmartRemove_(ui, ss, name, trainingType) {
           generateRostersSilent();
           ui.alert("Added " + name + " to " + nextClass.tabName + "!\n\nTraining Rosters refreshed.");
         } else {
-          ui.alert("Could not add — adding to standby instead.");
-          writeStandbyEntry_(ss, name, trainingType, "next", "Smart Remove");
+          ui.alert("Could not add — adding to rescheduled instead.");
+          writeRescheduledEntry_(ss, name, trainingType, "next", "Smart Remove");
           generateRostersSilent();
         }
         return;
       } else if (nextPick !== "2") {
         return;
       }
-      // Fall through to write standby
+      // Fall through to write rescheduled
     }
   }
 
-  writeStandbyEntry_(ss, name, trainingType, targetDate, "Smart Remove");
+  writeRescheduledEntry_(ss, name, trainingType, targetDate, "Smart Remove");
   generateRostersSilent();
 
-  ui.alert("Added to standby!\n\n" + name + " → " + trainingType + " (" + targetDate + ")");
+  ui.alert("Added to rescheduled!\n\n" + name + " → " + trainingType + " (" + targetDate + ")");
 }
+
+// Backward-compatible alias
+var addToStandbyFromSmartRemove_ = addToRescheduledFromSmartRemove_;
 
 
 // ************************************************************
 //
-//   5. STANDBY DISPLAY — for Training Rosters
+//   5. RESCHEDULED DISPLAY — for Training Rosters
 //
 //   Returns a map: { "training_name": { "person_name": "date" } }
-//   Used by writeRosterSheet to show standby info in the
+//   Used by writeRosterSheet to show rescheduled info in the
 //   Scheduled column alongside class roster tab data.
 //
 // ************************************************************
 
 /**
- * buildStandbyMap_ — reads standby list and returns a lookup map.
+ * buildRescheduledMap_ — reads rescheduled list and returns a lookup map.
  * Keys are lowercased training name → lowercased person name → display string.
  */
-function buildStandbyMap_() {
-  var standbyMap = {};
-  var list = readStandbyList_();
+function buildRescheduledMap_() {
+  var reschedMap = {};
+  var list = readRescheduledList_();
 
   for (var i = 0; i < list.length; i++) {
     var trainKey = list[i].training.toLowerCase().trim();
-    if (!standbyMap[trainKey]) standbyMap[trainKey] = {};
-    standbyMap[trainKey][list[i].name.toLowerCase().trim()] = list[i].targetDate;
+    if (!reschedMap[trainKey]) reschedMap[trainKey] = {};
+    reschedMap[trainKey][list[i].name.toLowerCase().trim()] = list[i].targetDate;
   }
 
-  return standbyMap;
+  return reschedMap;
 }
+
+// Backward-compatible alias
+var buildStandbyMap_ = buildRescheduledMap_;

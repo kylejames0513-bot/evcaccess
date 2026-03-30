@@ -24,6 +24,9 @@ var SCHEDULED_SHEET_NAME       = "Scheduled";
 var OVERVIEW_SHEET_NAME        = "Scheduled Overview";
 var REMOVAL_LOG_SHEET          = "Removal Log";
 
+// Standard open seat marker — used when creating class tabs
+var OPEN_SEAT_MARKER = "\u2014 open \u2014";
+
 
 // ************************************************************
 //
@@ -60,72 +63,154 @@ var SESSION_TO_COLUMN = {
 
 // ************************************************************
 //
-//   TRAINING CONFIG — Roster Generator
+//   TRAINING CONFIG — Single source of truth
 //
-//   name:         Display name on the roster output
-//   column:       Exact header text on the Training sheet
-//   renewalYears: Years before expiration (0 = one and done)
-//   required:     If true, EVERYONE must have this training
-//   prerequisite: Column header that must be completed first
-//   onlyExpired:  Only show expired/expiring (not "needed")
-//   onlyNeeded:   Only show "needed" (not expired/expiring)
+//   TO ADD A NEW TRAINING: just add an entry here.
+//   The system auto-generates CLASS_ROSTER_CONFIG and
+//   SCHEDULED_TYPE_MAP from this array.
+//
+//   name:          Display name on the roster output
+//   column:        Exact header text on the Training sheet
+//   renewalYears:  Years before expiration (0 = one and done)
+//   required:      If true, EVERYONE must have this training
+//   prerequisite:  Column header that must be completed first
+//   onlyExpired:   Only show expired/expiring (not "needed")
+//   onlyNeeded:    Only show "needed" (not expired/expiring)
+//   classCapacity: Max seats per class (default 15)
+//   schedule:      Recurring schedule for date suggestions
+//   weeksOut:      How many weeks ahead to suggest dates (default 4)
+//   aliases:       Alternate names used on the Scheduled sheet
+//                  (auto-added to SCHEDULED_TYPE_MAP)
 //
 // ************************************************************
 
 var TRAINING_CONFIG = [
-  { name: "CPR/FA",                column: "CPR",            renewalYears: 2, required: true },
-  { name: "Ukeru",                 column: "Ukeru",          renewalYears: 0, required: false },
-  { name: "Mealtime",             column: "Mealtime",       renewalYears: 0, required: false },
-  { name: "Med Recert",           column: "MED_TRAIN",      renewalYears: 3, required: false, onlyExpired: true },
-  { name: "Initial Med Training", column: "MED_TRAIN",      renewalYears: 0, required: false, onlyNeeded: true },
-  { name: "Post Med",             column: "POST MED",       renewalYears: 0, required: false, prerequisite: "MED_TRAIN" },
-  { name: "POMs",                 column: "POM",            renewalYears: 0, required: false },
-  { name: "Person Centered",      column: "Pers Cent Thnk", renewalYears: 0, required: false },
-  { name: "Van/Lift Training",    column: "VR",             renewalYears: 0, required: false }
-];
-
-// Days before expiration to flag as "Expiring Soon"
-var EXPIRING_SOON_DAYS = 60;
-
-
-// ************************************************************
-//
-//   CLASS ROSTER CONFIG — Class scheduling & capacity
-//
-// ************************************************************
-
-var CLASS_ROSTER_CONFIG = [
   {
     name: "CPR/FA",
+    column: "CPR",
+    renewalYears: 2,
+    required: true,
     classCapacity: 10,
     schedule: { recurring: [{ weekday: "Thursday" }] },
-    weeksOut: 4
+    weeksOut: 4,
+    aliases: ["cpr"]
   },
   {
     name: "Ukeru",
+    column: "Ukeru",
+    renewalYears: 0,
+    required: false,
     classCapacity: 12,
     schedule: {
       recurring: [
         { weekday: "Monday", nthWeek: [2] },
         { weekday: "Friday", nthWeek: [4] }
-      ],
-      dates: []
+      ]
     },
     weeksOut: 6
   },
   {
     name: "Mealtime",
+    column: "Mealtime",
+    renewalYears: 0,
+    required: false,
     classCapacity: 15,
     schedule: { recurring: [{ weekday: "Wednesday", nthWeek: [3] }] },
     weeksOut: 8
   },
-  { name: "Med Recert",           classCapacity: 4,  schedule: { dates: [] }, weeksOut: 4 },
-  { name: "Initial Med Training", classCapacity: 4,  schedule: { dates: [] }, weeksOut: 4 },
-  { name: "Post Med",             classCapacity: 8,  schedule: { dates: [] }, weeksOut: 4 },
-  { name: "POMs",                 classCapacity: 15, schedule: { dates: [] }, weeksOut: 4 },
-  { name: "Person Centered",      classCapacity: 15, schedule: { dates: [] }, weeksOut: 4 },
-  { name: "Van/Lift Training",    classCapacity: 10, schedule: { dates: [] }, weeksOut: 4 }
+  {
+    name: "Med Recert",
+    column: "MED_TRAIN",
+    renewalYears: 3,
+    required: false,
+    onlyExpired: true,
+    classCapacity: 4,
+    aliases: ["med cert", "med test out"]
+  },
+  {
+    name: "Initial Med Training",
+    column: "MED_TRAIN",
+    renewalYears: 0,
+    required: false,
+    onlyNeeded: true,
+    classCapacity: 4
+  },
+  {
+    name: "Post Med",
+    column: "POST MED",
+    renewalYears: 0,
+    required: false,
+    prerequisite: "MED_TRAIN",
+    classCapacity: 8
+  },
+  {
+    name: "POMs",
+    column: "POM",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15,
+    aliases: ["poms training", "personal outcome measures"]
+  },
+  {
+    name: "Person Centered",
+    column: "Pers Cent Thnk",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15,
+    aliases: ["pct training", "person centered thinking"]
+  },
+  {
+    name: "Van/Lift Training",
+    column: "VR",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 10,
+    aliases: ["van lyft"]
+  }
 ];
+
+// Days before expiration to flag as "Expiring Soon"
+var EXPIRING_SOON_DAYS = 60;
+
+// Days in the past to use as sync cutoff (sessions before this are left alone)
+// Default: 30 days ago. Adjust if you want to sync further back.
+var SYNC_CUTOFF_DAYS_AGO = 30;
+
+/**
+ * getSyncCutoffDate_ — returns a dynamic cutoff date for sync operations.
+ * Sessions before this date are left alone during sync.
+ */
+function getSyncCutoffDate_() {
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - SYNC_CUTOFF_DAYS_AGO);
+  cutoff.setHours(0, 0, 0, 0);
+  return cutoff;
+}
+
+
+// ************************************************************
+//
+//   AUTO-GENERATED: CLASS_ROSTER_CONFIG
+//
+//   Built from TRAINING_CONFIG — do NOT edit manually.
+//   Add classCapacity, schedule, and weeksOut to your
+//   TRAINING_CONFIG entry instead.
+//
+// ************************************************************
+
+var CLASS_ROSTER_CONFIG = (function() {
+  var result = [];
+  for (var i = 0; i < TRAINING_CONFIG.length; i++) {
+    var tc = TRAINING_CONFIG[i];
+    result.push({
+      name: tc.name,
+      classCapacity: tc.classCapacity || 15,
+      schedule: tc.schedule || { dates: [] },
+      weeksOut: tc.weeksOut || 4
+    });
+  }
+  return result;
+})();
 
 var SEAT_PRIORITY = [
   { bucket: "expired",      priority: 1 },
@@ -137,33 +222,36 @@ SEAT_PRIORITY.sort(function(a, b) { return a.priority - b.priority; });
 
 // ************************************************************
 //
-//   SCHEDULED TYPE MAP
+//   AUTO-GENERATED: SCHEDULED TYPE MAP
 //
-//   Maps the "Type" column on the Scheduled sheet to
-//   TRAINING_CONFIG names. null = not roster-managed.
+//   Built from TRAINING_CONFIG names + aliases.
+//   Also includes manual overrides for non-roster-managed types.
+//   Add aliases to your TRAINING_CONFIG entry to extend this.
 //
 // ************************************************************
 
-var SCHEDULED_TYPE_MAP = {
-  "cpr":                  "CPR/FA",
-  "cpr/fa":               "CPR/FA",
-  "ukeru":                "Ukeru",
-  "mealtime":             "Mealtime",
-  "med training":         null,
-  "med recert":           "Med Recert",
-  "med cert":             null,
-  "initial med training": null,
-  "med test out":         "Med Recert",
-  "post med":             null,
-  "poms":                 "POMs",
-  "poms training":        "POMs",
-  "person centered":      "Person Centered",
-  "pct training":         "Person Centered",
-  "van/lift training":    "Van/Lift Training",
-  "van lyft":             "Van/Lift Training",
-  "rising leaders":       null,
-  "safety care":          null
-};
+var SCHEDULED_TYPE_MAP = (function() {
+  var map = {};
+  // Auto-generate from TRAINING_CONFIG
+  for (var i = 0; i < TRAINING_CONFIG.length; i++) {
+    var tc = TRAINING_CONFIG[i];
+    map[tc.name.toLowerCase()] = tc.name;
+    // Add aliases
+    if (tc.aliases) {
+      for (var a = 0; a < tc.aliases.length; a++) {
+        map[tc.aliases[a].toLowerCase()] = tc.name;
+      }
+    }
+  }
+  // Manual overrides for non-roster-managed types (null = ignored by sync)
+  map["med training"] = null;
+  map["initial med training"] = null;
+  map["post med"] = null;
+  map["med cert"] = null;
+  map["rising leaders"] = null;
+  map["safety care"] = null;
+  return map;
+})();
 
 
 // ************************************************************

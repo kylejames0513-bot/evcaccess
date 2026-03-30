@@ -316,7 +316,7 @@ function writeRosterSheet(ss, allRosters, today) {
     var pct = total > 0 ? Math.round((coveredCt / total) * 100) : 100;
     var pctColor = pct >= 80 ? GREEN : (pct >= 40 ? ORANGE : RED);
     var pctLabel = pct + "% scheduled";
-    if (sbCt > 0) pctLabel = schedCt + " sched + " + sbCt + " standby";
+    if (sbCt > 0) pctLabel = schedCt + " sched + " + sbCt + " rescheduled";
     var rowBg = (t % 2 === 0) ? WHITE : ALT_BLUE;
 
     w.addRow([r.name, expCt || "", esCt || "", ndCt || "", exCt || "", total, pctLabel], {
@@ -407,7 +407,7 @@ function writeRosterSheet(ss, allRosters, today) {
         sl = "Scheduled (" + sd + ")";
         slBg = BLUE; slColor = WHITE; slBold = "bold";
       } else if (sbVal) {
-        sl = "Standby (" + sbVal + ")";
+        sl = "Rescheduled (" + sbVal + ")";
         slBg = "#E65100"; slColor = WHITE; slBold = "bold";
       }
 
@@ -416,7 +416,7 @@ function writeRosterSheet(ss, allRosters, today) {
       }
       if (scheduledCount > 0 && !sd && sbVal && !wroteStandbyHeader) {
         wroteStandbyHeader = true;
-        sw.addRow(["\u25b8 STANDBY (" + standbyCount + ")"], { bg: "#FFF3CD", fontColor: "#E65100", fontWeight: "bold", fontSize: 9, merge: true });
+        sw.addRow(["\u25b8 RESCHEDULED (" + standbyCount + ")"], { bg: "#FFF3CD", fontColor: "#E65100", fontWeight: "bold", fontSize: 9, merge: true });
       }
       if (!sd && !sbVal && !wroteUnschedHeader) {
         wroteUnschedHeader = true;
@@ -441,7 +441,7 @@ function writeRosterSheet(ss, allRosters, today) {
 
     var unschedCount = all.length - scheduledCount - standbyCount;
     var subtotal = tf + " staff flagged \u2014 " + scheduledCount + " scheduled";
-    if (standbyCount > 0) subtotal += ", " + standbyCount + " standby";
+    if (standbyCount > 0) subtotal += ", " + standbyCount + " rescheduled";
     subtotal += ", " + unschedCount + " unscheduled";
     sw.addRow([subtotal], { fontColor: "#666666", fontSize: 9, merge: true });
 
@@ -612,8 +612,7 @@ function syncScheduledSilent_() {
     var sessions = parseScheduledSheet_(ss);
     if (!sessions || sessions.length === 0) return;
 
-    var SYNC_CUTOFF = new Date(2026, 3, 1);
-    SYNC_CUTOFF.setHours(0, 0, 0, 0);
+    var SYNC_CUTOFF = getSyncCutoffDate_();
 
     var globalAssigned = {};
 
@@ -890,18 +889,18 @@ function writeScheduledOverviewSheet_(result, ss, today) {
 
   var gw = new SheetWriter(sheet).setColCount(COLS).setStartRow(row);
 
-  // ── STANDBY SECTION ──
-  var standbyList = readStandbyList_();
-  if (standbyList.length > 0) {
+  // ── RESCHEDULED SECTION ──
+  var rescheduledList = readRescheduledList_();
+  if (rescheduledList.length > 0) {
     gw.addRow([]);
-    gw.addRow(["STANDBY LIST \u2014 WAITING FOR CLASS CREATION"], { fontColor: "#E65100", fontWeight: "bold", fontSize: 13, merge: true });
+    gw.addRow(["RESCHEDULED \u2014 WAITING FOR CLASS CREATION"], { fontColor: "#E65100", fontWeight: "bold", fontSize: 13, merge: true });
     gw.addRow([]);
     gw.addRow(["#", "Name", "Training", "Target Date", "Added", ""], {
       bg: "#E65100", fontColor: WHITE, fontWeight: "bold"
     });
 
-    for (var sb = 0; sb < standbyList.length; sb++) {
-      var sbEntry = standbyList[sb];
+    for (var sb = 0; sb < rescheduledList.length; sb++) {
+      var sbEntry = rescheduledList[sb];
       var sbBg = (sb % 2 === 0) ? WHITE : ALT_BLUE;
       gw.addRow([sb + 1, sbEntry.name, sbEntry.training, sbEntry.targetDate, sbEntry.dateAdded, ""], {
         bg: sbBg
@@ -1535,7 +1534,7 @@ function writeClassRosterTab(sheet, trainingName, classInfo, capacity, today) {
   for (var s = 0; s < openSeats; s++) {
     var seatIdx = classInfo.people.length + s;
     var seatBg = (seatIdx % 2 === 0) ? WHITE : ALT_BLUE;
-    w.addRow([seatIdx + 1, "\u2014 open \u2014", "", "", "", false, ""], { fontColor: "#AAAAAA", bg: seatBg });
+    w.addRow([seatIdx + 1, OPEN_SEAT_MARKER, "", "", "", false, ""], { fontColor: "#AAAAAA", bg: seatBg });
   }
 
   var endRow = w.flush();
@@ -1599,9 +1598,7 @@ function scanClassRosterTabs(ss) {
     for (var r = 7; r < data.length; r++) {
       var nameVal = data[r][1] ? data[r][1].toString().trim() : "";
       if (!nameVal) continue;
-      if (nameVal.toLowerCase().indexOf("open seat") > -1) continue;
-      if (nameVal.indexOf("\u2014 open \u2014") > -1) continue;
-      if (nameVal.indexOf("- open -") > -1) continue;
+      if (isOpenSeatMarker(nameVal)) continue;
       if (nameVal.toLowerCase() === "tbd") continue;
       if (!scheduled[trainKey][nameVal.toLowerCase()]) {
         scheduled[trainKey][nameVal.toLowerCase()] = classDateStr;
@@ -2175,8 +2172,7 @@ function removeFromClassRoster() {
     sourceTab = sheetName;
   }
 
-  if (!name || name.toLowerCase().indexOf("open seat") > -1 ||
-      name === "\u2014 open \u2014" || name.indexOf("- open -") > -1) {
+  if (isOpenSeatMarker(name)) {
     ui.alert("That row doesn't have a person on it. Select a row with a name.");
     return;
   }
@@ -2243,7 +2239,7 @@ function removeFromClassRoster() {
     var rowData = sheet.getRange(row, 1, 1, 7).getValues()[0];
     var idx = rowData[0];
     var rowBg = ((idx - 1) % 2 === 0) ? WHITE : ALT_BLUE;
-    sheet.getRange(row, 1, 1, 7).setValues([[idx, "\u2014 open \u2014", "", "", "", false, ""]]);
+    sheet.getRange(row, 1, 1, 7).setValues([[idx, OPEN_SEAT_MARKER, "", "", "", false, ""]]);
     sheet.getRange(row, 1, 1, 7).setFontColor("#AAAAAA").setBackground(rowBg);
     sheet.getRange(row, 6).insertCheckboxes();
 
@@ -2330,8 +2326,7 @@ function moveToClass() {
     sourceTab = sheetName;
   }
 
-  if (!name || name.toLowerCase().indexOf("open seat") > -1 ||
-      name === "\u2014 open \u2014" || name.indexOf("- open -") > -1) {
+  if (isOpenSeatMarker(name)) {
     ui.alert("That row doesn't have a person on it. Select a row with a name.");
     return;
   }
@@ -2381,7 +2376,7 @@ function moveToClass() {
     var rowData = sheet.getRange(row, 1, 1, 7).getValues()[0];
     var rowIdx = rowData[0];
     var rowBg = ((rowIdx - 1) % 2 === 0) ? WHITE : ALT_BLUE;
-    sheet.getRange(row, 1, 1, 7).setValues([[rowIdx, "\u2014 open \u2014", "", "", "", false, ""]]);
+    sheet.getRange(row, 1, 1, 7).setValues([[rowIdx, OPEN_SEAT_MARKER, "", "", "", false, ""]]);
     sheet.getRange(row, 1, 1, 7).setFontColor("#AAAAAA").setBackground(rowBg);
     sheet.getRange(row, 6).insertCheckboxes();
 
@@ -2420,7 +2415,7 @@ function removePersonFromClassTab_(classTab, name) {
       var sheetRow = r + 1;
       var idx = data[r][0];
       var rowBg = ((idx - 1) % 2 === 0) ? WHITE : ALT_BLUE;
-      classTab.getRange(sheetRow, 1, 1, 7).setValues([[idx, "\u2014 open \u2014", "", "", "", false, ""]]);
+      classTab.getRange(sheetRow, 1, 1, 7).setValues([[idx, OPEN_SEAT_MARKER, "", "", "", false, ""]]);
       classTab.getRange(sheetRow, 1, 1, 7).setFontColor("#AAAAAA").setBackground(rowBg);
       classTab.getRange(sheetRow, 6).insertCheckboxes();
 
@@ -2494,7 +2489,7 @@ function addPersonToClassTab_(ss, tabName, personName) {
 
   for (var r = 7; r < data.length; r++) {
     var cellName = data[r][1] ? data[r][1].toString().trim() : "";
-    if (cellName === "\u2014 open \u2014" || cellName.indexOf("open seat") > -1 || cellName === "- open -") {
+    if (isOpenSeatMarker(cellName)) {
       var sheetRow = r + 1;
       var idx = data[r][0];
       var rowBg = ((idx - 1) % 2 === 0) ? WHITE : ALT_BLUE;
@@ -2745,10 +2740,7 @@ function generateTrainingMemo() {
       var attendees = [];
       for (var r = 7; r < data.length; r++) {
         var nameVal = data[r][1] ? data[r][1].toString().trim() : "";
-        if (!nameVal ||
-            nameVal.toLowerCase().indexOf("open seat") > -1 ||
-            nameVal === "\u2014 open \u2014" ||
-            nameVal.indexOf("- open -") > -1) continue;
+        if (isOpenSeatMarker(nameVal)) continue;
         attendees.push(nameVal);
       }
 

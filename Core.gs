@@ -1,6 +1,5 @@
 // ============================================================
 // EVC Training System — Core
-// Test line: system verified 2026-03-30
 // ============================================================
 // HR Program Coordinator: Kyle Mahoney
 // Emory Valley Center
@@ -51,8 +50,8 @@ function createMenu() {
     .addItem("View Roster Config", "showConfig")
     .addSeparator()
     .addItem("Smart Remove / Move", "smartRemove")
-    .addItem("Add to Standby", "addToStandby")
-    .addItem("View Standby List", "viewStandbyList")
+    .addItem("Add to Rescheduled", "addToRescheduled")
+    .addItem("View Rescheduled List", "viewRescheduledList")
     .addItem("Upload Roster Results", "uploadRosterResults")
     .addItem("View Removal Log", "viewRemovalLog")
     .addItem("Clear Exemption", "clearExemption")
@@ -125,6 +124,8 @@ function doPost(e) {
         generateRostersSilent();
       } catch (taErr) {
         Logger.log("Training Access update error: " + taErr.toString());
+        // Still return success — the sign-in was recorded, just the
+        // Training sheet sync failed. It will be caught on next refresh.
       }
     }
 
@@ -134,6 +135,17 @@ function doPost(e) {
 
   } catch (error) {
     Logger.log("doPost error: " + error.toString());
+    // Log to a cell so the error is visible to the admin
+    try {
+      var errorSheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+      errorSheet.appendRow([
+        new Date().toLocaleTimeString(), "SYSTEM ERROR", "",
+        new Date().toLocaleDateString(), "", "", "doPost failed: " + error.toString(),
+        "", "", "Error", ""
+      ]);
+    } catch (logErr) {
+      Logger.log("Could not log doPost error to sheet: " + logErr.toString());
+    }
     return HtmlService.createHtmlOutput(
       "<html><body><script>window.parent.postMessage('submission_error','*');</script></body></html>"
     );

@@ -381,9 +381,7 @@ function identifyPersonForRemoval_(ss, sheet, sheetName, row, ui) {
     sourceTab = sheetName;
   }
 
-  if (!name || name.toLowerCase().indexOf("open seat") > -1 ||
-      name === "\u2014 open \u2014" || name.indexOf("- open -") > -1 ||
-      name.toLowerCase() === "tbd") {
+  if (isOpenSeatMarker(name) || name.toLowerCase() === "tbd") {
     ui.alert("That row doesn't have a person on it. Select a row with a name.");
     return null;
   }
@@ -1137,7 +1135,7 @@ function appendToExistingTab_(ss, tabName, personInfo, trainingName) {
   var lastDataRow = headerRow;
   for (var r = headerRow; r < data.length; r++) {
     var val = data[r][1] ? data[r][1].toString().trim() : "";
-    if (val && val.toLowerCase().indexOf("open seat") === -1 && val !== "— open —") {
+    if (val && !isOpenSeatMarker(val)) {
       lastDataRow = r + 1; // 1-indexed
     }
   }
@@ -1155,7 +1153,7 @@ function appendToExistingTab_(ss, tabName, personInfo, trainingName) {
   var insertRow = lastDataRow + 1;
   if (insertRow <= data.length) {
     var belowVal = data[insertRow - 1] ? (data[insertRow - 1][0] || "").toString() : "";
-    if (belowVal.toLowerCase().indexOf("open seat") > -1) {
+    if (isOpenSeatMarker(belowVal)) {
       sheet.getRange(insertRow, 1, 1, 5).clearContent().clearFormat();
     }
   }
@@ -1223,7 +1221,7 @@ function countPeopleOnTab_(sheet) {
   }
   for (var r = startRow; r < data.length; r++) {
     var val = data[r][1] ? data[r][1].toString().trim() : "";
-    if (val && val.toLowerCase().indexOf("open seat") === -1 && val !== "— open —") {
+    if (val && !isOpenSeatMarker(val)) {
       count++;
     }
   }

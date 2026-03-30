@@ -338,6 +338,28 @@ function parseTimeToMinutes(str) {
 
 // ************************************************************
 //
+//   OPEN SEAT DETECTION
+//
+// ************************************************************
+
+/**
+ * isOpenSeatMarker — returns true if the name is any variant
+ * of an open seat placeholder.
+ */
+function isOpenSeatMarker(name) {
+  if (!name) return true;
+  var lower = name.toString().trim().toLowerCase();
+  if (!lower) return true;
+  if (lower === OPEN_SEAT_MARKER) return true;
+  if (lower.indexOf("open seat") > -1) return true;
+  if (lower === "— open —" || lower === "- open -") return true;
+  if (lower === "\u2014 open \u2014") return true;
+  return false;
+}
+
+
+// ************************************************************
+//
 //   LIST / ENROLLEE PARSING
 //
 // ************************************************************
