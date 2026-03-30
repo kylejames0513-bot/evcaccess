@@ -247,6 +247,16 @@ function generateRostersSilent() {
     // Ensure all pending writes are committed before reading data
     SpreadsheetApp.flush();
 
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // If user is viewing the Training Rosters tab, switch away first
+    // so the sheet can be safely deleted and recreated
+    var activeSheet = ss.getActiveSheet();
+    if (activeSheet && activeSheet.getName() === ROSTER_SHEET_NAME) {
+      var trainingSheet = ss.getSheetByName(TRAINING_ACCESS_SHEET_NAME);
+      if (trainingSheet) ss.setActiveSheet(trainingSheet);
+    }
+
     // Clean garbled dates before building rosters
     cleanGarbledDates();
 
@@ -255,7 +265,7 @@ function generateRostersSilent() {
     writeRosterSheet(result.ss, result.allRosters, result.today);
     Logger.log("Training Rosters refreshed at " + new Date().toString());
   } catch (err) {
-    Logger.log("Roster auto-refresh error: " + err.toString());
+    Logger.log("Roster refresh error: " + err.toString());
   }
 }
 
@@ -2046,6 +2056,15 @@ function installOverviewSyncTrigger() {
 function rebuildScheduledOverview_(ss) {
   try {
     SpreadsheetApp.flush();
+
+    // If user is viewing the Overview tab, switch away first
+    // so the sheet can be safely deleted and recreated
+    var activeSheet = ss.getActiveSheet();
+    if (activeSheet && activeSheet.getName() === OVERVIEW_SHEET_NAME) {
+      var trainingSheet = ss.getSheetByName(TRAINING_ACCESS_SHEET_NAME);
+      if (trainingSheet) ss.setActiveSheet(trainingSheet);
+    }
+
     var rosterResult = buildRosterData(true);
     if (!rosterResult) return;
     var allRosters = rosterResult.allRosters;
@@ -3655,17 +3674,17 @@ function addToClassFromRoster_(ui, ss, name, trainingType) {
   if (target.type === "tab") {
     // Existing class tab — add directly
     var added = addPersonToClassTab_(ss, target.tabName, name);
-    if (added) {
-      addToScheduledSheet_(ss, trainingType, target.tabName, name);
-      SpreadsheetApp.flush();
-      rebuildScheduledOverview_(ss);
-      generateRostersSilent();
-      ui.alert("Added " + name + " to " + target.tabName +
-               (target.isFull ? " (over capacity)" : "") +
-               "!\n\nScheduled Overview & Training Rosters updated.");
-    } else {
-      ui.alert("Could not find an open seat on " + target.tabName + ".\n\nTry creating a new class instead.");
+    if (!added) {
+      ui.alert("Error: Could not write to " + target.tabName + ".\n\nThe tab may not exist or couldn't be modified.");
+      return;
     }
+    addToScheduledSheet_(ss, trainingType, target.tabName, name);
+    SpreadsheetApp.flush();
+    rebuildScheduledOverview_(ss);
+    generateRostersSilent();
+    ui.alert("Added " + name + " to " + target.tabName +
+             (target.isFull ? " (over capacity)" : "") +
+             "!\n\nScheduled Overview & Training Rosters updated.");
   } else {
     // Scheduled-only session (no tab yet) — add to Scheduled sheet enrollment
     // and create the class tab
