@@ -524,33 +524,28 @@ function syncScheduledTrainings() {
 
   var needsLookup = buildNeedsLookup_(allRosters);
 
-  var sessions = parseScheduledSheet_(ss);
-  if (!sessions || sessions.length === 0) { ui.alert("No sessions found on the Scheduled sheet."); return; }
+  var allSessions = parseScheduledSheet_(ss);
+  if (!allSessions || allSessions.length === 0) { ui.alert("No sessions found on the Scheduled sheet."); return; }
 
-  var SYNC_CUTOFF = new Date(2026, 3, 1);
-  SYNC_CUTOFF.setHours(0, 0, 0, 0);
+  // Archive past sessions — remove from list
+  var sessions = [];
+  var archived = 0;
+  for (var s = 0; s < allSessions.length; s++) {
+    if (allSessions[s].sortDate && allSessions[s].sortDate < today) {
+      archived++;
+    } else {
+      sessions.push(allSessions[s]);
+    }
+  }
 
   var globalAssigned = {};
   var summaryLines = [];
   var totalRemoved = 0, totalBackfilled = 0, totalKept = 0;
-  var totalSkipped = 0;
 
   for (var s = 0; s < sessions.length; s++) {
     var session = sessions[s];
     var configName = resolveTrainingName_(session.type);
     session.configName = configName;
-
-    if (session.sortDate && session.sortDate < SYNC_CUTOFF) {
-      session.finalEnrollees = session.enrollees.slice();
-      session.keptEnrollees = session.enrollees.slice();
-      session.removedEnrollees = [];
-      session.backfilledEnrollees = [];
-      session.placeholders = [];
-      session.skippedCutoff = true;
-      totalSkipped++;
-      summaryLines.push(session.type + " (" + session.dateDisplay + "): Skipped (before " + formatClassDate(SYNC_CUTOFF) + ")");
-      continue;
-    }
 
     if (configName === null) {
       session.finalEnrollees = session.enrollees.slice();
@@ -618,8 +613,7 @@ function syncScheduledTrainings() {
   writeScheduledOverviewSheet_(overviewResult, ss, today);
 
   var summary = "Sync Complete!\n\n";
-  summary += "Cutoff date: " + formatClassDate(SYNC_CUTOFF) + " (sessions before this left alone)\n";
-  summary += "Sessions skipped (before cutoff): " + totalSkipped + "\n\n";
+  if (archived > 0) summary += "Archived: " + archived + " past session(s) removed\n";
   summary += "Kept (still need training): " + totalKept + "\n";
   summary += "Removed (already current): " + totalRemoved;
   if (tabsCleaned > 0) summary += " (" + tabsCleaned + " also removed from class tabs)";
@@ -2275,17 +2269,19 @@ function refreshAll() {
     "This will:\n\n" +
     "  1. Clean garbled dates on the Training sheet\n" +
     "  2. Rebuild Training Rosters tab\n" +
-    "  3. Sync Scheduled sheet enrollments\n" +
-    "  4. Rebuild Scheduled Overview\n" +
-    "  5. Reorder class roster tabs\n\n" +
+    "  3. Archive past sessions from Scheduled sheet\n" +
+    "  4. Sync Scheduled sheet enrollments\n" +
+    "  5. Rebuild Scheduled Overview\n" +
+    "  6. Reorder class roster tabs\n\n" +
     "Nothing else will change until you run this again."
   );
 
   // Step 1+2: Clean and rebuild rosters
   generateRostersSilent();
 
-  // Step 3+4: Sync scheduled if the sheet exists
+  // Step 3+4+5: Sync scheduled if the sheet exists
   var schedSheet = ss.getSheetByName(SCHEDULED_SHEET_NAME);
+  var archived = 0;
   if (schedSheet) {
     try {
       var rosterResult = buildRosterData(true);
@@ -2296,16 +2292,26 @@ function refreshAll() {
         var sessions = parseScheduledSheet_(ss);
 
         if (sessions && sessions.length > 0) {
-          var SYNC_CUTOFF = new Date(2026, 3, 1);
-          SYNC_CUTOFF.setHours(0, 0, 0, 0);
           var globalAssigned = {};
+
+          // Filter out past sessions (archive them)
+          var futureSessions = [];
+          for (var s = 0; s < sessions.length; s++) {
+            var session = sessions[s];
+            if (session.sortDate && session.sortDate < today) {
+              archived++;
+              continue; // Skip past sessions — they're archived
+            }
+            futureSessions.push(session);
+          }
+          sessions = futureSessions;
 
           for (var s = 0; s < sessions.length; s++) {
             var session = sessions[s];
             var configName = resolveTrainingName_(session.type);
             session.configName = configName;
 
-            if ((session.sortDate && session.sortDate < SYNC_CUTOFF) || configName === null) {
+            if (configName === null) {
               session.finalEnrollees = session.enrollees.slice();
               session.keptEnrollees = session.enrollees.slice();
               session.removedEnrollees = [];
@@ -2349,13 +2355,16 @@ function refreshAll() {
     }
   }
 
-  // Step 5: Reorder tabs
+  // Step 6: Reorder tabs
   orderClassRosterTabs(ss);
 
   // Final roster rebuild after sync
   generateRostersSilent();
 
-  ui.alert("Refresh complete!\n\nTraining Rosters, Scheduled sheet, Overview, and class tabs are all up to date.");
+  var doneMsg = "Refresh complete!\n\n";
+  if (archived > 0) doneMsg += "Archived: " + archived + " past session(s) removed\n";
+  doneMsg += "Training Rosters, Scheduled sheet, Overview, and class tabs are all up to date.";
+  ui.alert(doneMsg);
 }
 
 
