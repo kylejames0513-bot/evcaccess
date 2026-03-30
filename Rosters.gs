@@ -3582,12 +3582,28 @@ function addToClassFromRoster_(ui, ss, name, trainingType) {
   // Always use the resolved config name (e.g. "CPR" → "CPR/FA")
   var configName = resolveTrainingName_(trainingType) || trainingType;
 
+  // Debug: list all sheet names to find class tabs
+  var allSheets = ss.getSheets();
+  var tabList = [];
+  for (var i = 0; i < allSheets.length; i++) {
+    tabList.push(allSheets[i].getName());
+  }
+
   var msg = name + "\n";
   msg += "Training: " + configName + "\n";
   msg += "───────────────────────\n\n";
 
   // Find all future class tabs for this training
   var classTabs = findAllFutureClasses_(ss, configName, "");
+
+  // DEBUG: show if no tabs found
+  if (classTabs.length === 0) {
+    msg += "DEBUG — All tabs in spreadsheet:\n";
+    for (var i = 0; i < tabList.length; i++) {
+      msg += "  " + tabList[i] + "\n";
+    }
+    msg += "\nLooking for prefix: \"" + configName + "\" or \"" + configName.replace(/[:\\\/?*\[\]]/g, "") + "\"\n\n";
+  }
 
   if (classTabs.length > 0) {
     msg += "Add to a class:\n";
