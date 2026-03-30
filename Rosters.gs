@@ -2839,10 +2839,13 @@ function findAllFutureClasses_(ss, trainingName, skipTabName) {
   today.setHours(0, 0, 0, 0);
   var candidates = [];
 
+  // Resolve training name to config name (e.g. "CPR" → "CPR/FA")
+  var resolved = resolveTrainingName_(trainingName) || trainingName;
+
   for (var s = 0; s < sheets.length; s++) {
     var tabName = sheets[s].getName();
     if (tabName === skipTabName) continue;
-    if (tabName.indexOf(trainingName + " ") !== 0) continue;
+    if (tabName.indexOf(resolved + " ") !== 0) continue;
 
     var datePart = tabName.substring(trainingName.length + 1).trim();
     var classDate = parseClassDate(datePart);
@@ -3320,7 +3323,7 @@ function smartRemove() {
   if (!info) return;
 
   var name = info.name;
-  var matchedTraining = info.trainingType;
+  var matchedTraining = resolveTrainingName_(info.trainingType) || info.trainingType;
   var sourceTab = info.sourceTab;
 
   // ── FROM TRAINING ROSTERS: Add to class flow ──
@@ -3506,12 +3509,14 @@ function addToClassFromRoster_(ui, ss, name, trainingType) {
   // Get capacity for this training
   var capacity = getCapacityForTraining_(trainingType);
 
+  // Resolve training name (e.g. "CPR" → "CPR/FA")
+  var configName = resolveTrainingName_(trainingType) || trainingType;
+
   // Find all future class tabs for this training
-  var allClasses = findAllFutureClasses_(ss, trainingType, "");
+  var allClasses = findAllFutureClasses_(ss, configName, "");
 
   // Also scan the Scheduled sheet for sessions that may not have tabs yet
   var sessions = parseScheduledSheet_(ss);
-  var configName = resolveTrainingName_(trainingType) || trainingType;
   var classTabNames = {};
   for (var i = 0; i < allClasses.length; i++) {
     classTabNames[allClasses[i].tabName.toLowerCase()] = true;
