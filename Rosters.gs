@@ -3432,9 +3432,6 @@ function addToClassFromRoster_(ui, ss, name, trainingType) {
   msg += "───────────────────────\n\n";
   msg += "This person needs " + trainingType + ".\n\n";
 
-  // Find all future classes for this training
-  var allClasses = findAllFutureClasses_(ss, trainingType, "");
-
   // Check if already scheduled
   var alreadyScheduled = buildFullScheduledMap_(ss);
   var tk = trainingType.toLowerCase();
@@ -3444,14 +3441,98 @@ function addToClassFromRoster_(ui, ss, name, trainingType) {
     msg += "NOTE: Already scheduled for " + sm[nameLower] + "\n\n";
   }
 
-  if (allClasses.length > 0) {
-    msg += "Add to an existing class:\n";
-    for (var i = 0; i < allClasses.length; i++) {
-      var c = allClasses[i];
-      if (c.isFull) {
-        msg += "  " + (i + 1) + ".  " + c.tabName + " (FULL — " + c.filled + "/" + c.capacity + ", override)\n";
+  // Get capacity for this training
+  var capacity = getCapacityForTraining_(trainingType);
+
+  // Find all future class tabs for this training
+  var allClasses = findAllFutureClasses_(ss, trainingType, "");
+
+  // Also scan the Scheduled sheet for sessions that may not have tabs yet
+  var sessions = parseScheduledSheet_(ss);
+  var configName = resolveTrainingName_(trainingType) || trainingType;
+  var classTabNames = {};
+  for (var i = 0; i < allClasses.length; i++) {
+    classTabNames[allClasses[i].tabName.toLowerCase()] = true;
+  }
+
+  // Build a unified list: class tabs + scheduled-only sessions
+  var options = [];
+
+  // Add class tabs first (they have the most accurate fill data)
+  for (var i = 0; i < allClasses.length; i++) {
+    var c = allClasses[i];
+    options.push({
+      type: "tab",
+      tabName: c.tabName,
+      filled: c.filled,
+      capacity: c.capacity,
+      openSeats: c.openSeats,
+      isFull: c.isFull,
+      classDate: c.classDate
+    });
+  }
+
+  // Add scheduled sessions that don't have a class tab yet
+  if (sessions) {
+    for (var s = 0; s < sessions.length; s++) {
+      var sess = sessions[s];
+      var sessConfig = resolveTrainingName_(sess.type);
+      if (!sessConfig) continue;
+      if (sessConfig.toLowerCase() !== configName.toLowerCase()) continue;
+
+      // Build what the tab name would be
+      var possibleTabName = "";
+      if (sess.sortDate) {
+        possibleTabName = buildTabName(configName, sess.sortDate);
+      }
+
+      // Skip if we already have this as a class tab
+      if (possibleTabName && classTabNames[possibleTabName.toLowerCase()]) continue;
+
+      // Count enrollees
+      var enrolleeCount = sess.enrollees ? sess.enrollees.length : 0;
+      // Don't count TBD/placeholders
+      var realCount = 0;
+      for (var e = 0; e < sess.enrollees.length; e++) {
+        var eLower = sess.enrollees[e].toLowerCase().trim();
+        if (eLower !== "tbd" && eLower !== "new hires") realCount++;
+      }
+
+      var dateLabel = sess.dateDisplay || "TBD";
+      var label = configName + " " + dateLabel + " (Scheduled only — no class tab)";
+      var open = capacity - realCount;
+
+      options.push({
+        type: "scheduled",
+        tabName: label,
+        sessionType: sess.type,
+        dateDisplay: sess.dateDisplay,
+        sortDate: sess.sortDate,
+        filled: realCount,
+        capacity: capacity,
+        openSeats: open > 0 ? open : 0,
+        isFull: open <= 0,
+        classDate: sess.sortDate
+      });
+    }
+  }
+
+  // Sort by date
+  options.sort(function(a, b) {
+    if (a.classDate && b.classDate) return a.classDate - b.classDate;
+    if (a.classDate) return -1;
+    if (b.classDate) return 1;
+    return 0;
+  });
+
+  if (options.length > 0) {
+    msg += "Available classes for " + trainingType + ":\n";
+    for (var i = 0; i < options.length; i++) {
+      var o = options[i];
+      if (o.isFull) {
+        msg += "  " + (i + 1) + ".  " + o.tabName + " (FULL — " + o.filled + "/" + o.capacity + ", override)\n";
       } else {
-        msg += "  " + (i + 1) + ".  " + c.tabName + " (" + c.openSeats + " open)\n";
+        msg += "  " + (i + 1) + ".  " + o.tabName + " (" + o.filled + "/" + o.capacity + " filled, " + o.openSeats + " open)\n";
       }
     }
     msg += "\nOr:\n";
@@ -3510,11 +3591,11 @@ function addToClassFromRoster_(ui, ss, name, trainingType) {
     return;
   }
 
-  // Numeric selection — add to existing class
+  // Numeric selection — add to existing class or scheduled session
   var idx = parseInt(input) - 1;
-  if (isNaN(idx) || idx < 0 || idx >= allClasses.length) { ui.alert("Invalid selection."); return; }
+  if (isNaN(idx) || idx < 0 || idx >= options.length) { ui.alert("Invalid selection."); return; }
 
-  var target = allClasses[idx];
+  var target = options[idx];
 
   // If full, confirm override
   if (target.isFull) {
@@ -3527,16 +3608,45 @@ function addToClassFromRoster_(ui, ss, name, trainingType) {
     if (override !== ui.Button.YES) return;
   }
 
-  var added = addPersonToClassTab_(ss, target.tabName, name);
-  if (added) {
-    addToScheduledSheet_(ss, trainingType, target.tabName, name);
+  if (target.type === "tab") {
+    // Existing class tab — add directly
+    var added = addPersonToClassTab_(ss, target.tabName, name);
+    if (added) {
+      addToScheduledSheet_(ss, trainingType, target.tabName, name);
+      rebuildScheduledOverview_(ss);
+      generateRostersSilent();
+      ui.alert("Added " + name + " to " + target.tabName +
+               (target.isFull ? " (over capacity)" : "") +
+               "!\n\nScheduled Overview & Training Rosters updated.");
+    } else {
+      ui.alert("Could not find an open seat on " + target.tabName + ".\n\nTry creating a new class instead.");
+    }
+  } else {
+    // Scheduled-only session (no tab yet) — add to Scheduled sheet enrollment
+    // and create the class tab
+    var config = null;
+    for (var i = 0; i < CLASS_ROSTER_CONFIG.length; i++) {
+      if (CLASS_ROSTER_CONFIG[i].name.toLowerCase() === configName.toLowerCase()) { config = CLASS_ROSTER_CONFIG[i]; break; }
+    }
+
+    if (target.sortDate && config) {
+      var tabName = buildTabName(configName, target.sortDate);
+      var existingTab = ss.getSheetByName(tabName);
+      if (existingTab) {
+        var personInfo = { name: name, status: "Needs training", bucket: "needed", lastDate: "", expDate: "" };
+        appendToExistingTab_(ss, tabName, personInfo, trainingType);
+      }
+      addToScheduledSheet_(ss, trainingType, tabName, name);
+    } else {
+      // Fallback: just add to Scheduled sheet
+      if (target.sortDate) {
+        addSessionToScheduledSheet_(ss, trainingType, target.sortDate, "", "", [name]);
+      }
+    }
     rebuildScheduledOverview_(ss);
     generateRostersSilent();
     ui.alert("Added " + name + " to " + target.tabName +
-             (target.isFull ? " (over capacity)" : "") +
              "!\n\nScheduled Overview & Training Rosters updated.");
-  } else {
-    ui.alert("Could not find an open seat on " + target.tabName + ".\n\nTry creating a new class instead.");
   }
 }
 
