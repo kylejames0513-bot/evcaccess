@@ -3595,6 +3595,7 @@ function addToClassFromRoster_(ui, ss, name, trainingType) {
       addSessionToScheduledSheet_(ss, trainingType, classDate, "", "", [name]);
     }
 
+    SpreadsheetApp.flush();
     rebuildScheduledOverview_(ss);
     generateRostersSilent();
     orderClassRosterTabs(ss);
@@ -3624,6 +3625,7 @@ function addToClassFromRoster_(ui, ss, name, trainingType) {
     var added = addPersonToClassTab_(ss, target.tabName, name);
     if (added) {
       addToScheduledSheet_(ss, trainingType, target.tabName, name);
+      SpreadsheetApp.flush();
       rebuildScheduledOverview_(ss);
       generateRostersSilent();
       ui.alert("Added " + name + " to " + target.tabName +
@@ -3654,6 +3656,7 @@ function addToClassFromRoster_(ui, ss, name, trainingType) {
         addSessionToScheduledSheet_(ss, trainingType, target.sortDate, "", "", [name]);
       }
     }
+    SpreadsheetApp.flush();
     rebuildScheduledOverview_(ss);
     generateRostersSilent();
     ui.alert("Added " + name + " to " + target.tabName +
@@ -4245,7 +4248,8 @@ function executeRemoval_(ss, sheet, sheetName, row, name, trainingType, sourceTa
     removeFromScheduledSheet_(ss, trainingType, sheetName, name);
   }
 
-  // Rebuild the Overview so removed person disappears cleanly
+  // Flush writes, then rebuild Overview so removed person disappears cleanly
+  SpreadsheetApp.flush();
   rebuildScheduledOverview_(ss);
 }
 
@@ -4286,7 +4290,8 @@ function executeMove_(ss, sheet, sheetName, row, name, trainingType, sourceTab, 
     addToScheduledSheet_(ss, trainingType, targetClass.tabName, name);
   }
 
-  // Rebuild the Overview so the move is reflected
+  // Flush writes, then rebuild Overview so the move is reflected
+  SpreadsheetApp.flush();
   rebuildScheduledOverview_(ss);
 }
 
@@ -5108,6 +5113,7 @@ function createClass() {
     enrolleeNames.push(selectedPeople[i].name);
   }
   addSessionToScheduledSheet_(ss, config.name, classDate, classTime, classLocation, enrolleeNames);
+  SpreadsheetApp.flush();
   rebuildScheduledOverview_(ss);
 
   // Refresh rosters and reorder tabs
