@@ -3722,15 +3722,19 @@ function identifyPersonForRemoval_(ss, sheet, sheetName, row, ui) {
       return null;
     }
 
-    // Scan upward to find the training section header (navy merged row with training name)
+    // Scan upward to find the training section header
+    // Headers look like "CPR/FA  (2 Year Renewal | REQUIRED FOR ALL)"
+    // Match against known training names to avoid hitting sub-headers like "▸ NOT YET SCHEDULED (5)"
     for (var r = row - 2; r >= 0; r--) {
       var cellA = allData[r][0] ? allData[r][0].toString().trim() : "";
-      // Training headers look like "CPR/FA  (2 Year Renewal | REQUIRED FOR ALL)"
-      var headerMatch = cellA.match(/^(.+?)\s+\(/);
-      if (headerMatch) {
-        trainingType = headerMatch[1].trim();
-        break;
+      if (!cellA) continue;
+      for (var tc = 0; tc < TRAINING_CONFIG.length; tc++) {
+        if (cellA.indexOf(TRAINING_CONFIG[tc].name) === 0) {
+          trainingType = TRAINING_CONFIG[tc].name;
+          break;
+        }
       }
+      if (trainingType) break;
     }
 
     if (!trainingType) { ui.alert("Could not determine the training type. Select a row within a training section."); return null; }
