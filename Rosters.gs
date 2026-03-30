@@ -2018,12 +2018,131 @@ function installOverviewSyncTrigger() {
 
 
 // ************************************************************
-//   12. AUTO-CLEAN CLASS TABS — remove already-current people
+//   12. SCHEDULED SHEET & OVERVIEW HELPERS
 //
-//   Called by syncScheduledTrainings and refreshAll.
-//   For each session with removed enrollees, finds the matching
-//   class roster tab and removes them (same as Smart Remove).
+//   rebuildScheduledOverview_  — rebuilds Overview from current
+//       Scheduled sheet data (call after any class change).
+//   addSessionToScheduledSheet_ — adds a new session row to the
+//       Scheduled sheet (used by createClass).
+//   cleanClassTabsForRemovedEnrollees_ — removes already-current
+//       people from class tabs during sync.
 // ************************************************************
+
+/**
+ * rebuildScheduledOverview_ — reads the current Scheduled sheet,
+ * builds the overview, and writes it. Call after any change to
+ * class tabs, Scheduled sheet, or enrollment.
+ */
+function rebuildScheduledOverview_(ss) {
+  try {
+    var rosterResult = buildRosterData(true);
+    if (!rosterResult) return;
+    var allRosters = rosterResult.allRosters;
+    var today = rosterResult.today;
+    var needsLookup = buildNeedsLookup_(allRosters);
+    var sessions = parseScheduledSheet_(ss);
+    if (!sessions || sessions.length === 0) return;
+
+    var globalAssigned = {};
+
+    for (var s = 0; s < sessions.length; s++) {
+      var session = sessions[s];
+      var configName = resolveTrainingName_(session.type);
+      session.configName = configName;
+
+      if (configName === null) {
+        session.finalEnrollees = session.enrollees.slice();
+        session.keptEnrollees = session.enrollees.slice();
+        session.removedEnrollees = [];
+        session.backfilledEnrollees = [];
+        session.placeholders = [];
+        continue;
+      }
+
+      var needsMap = needsLookup[configName.toLowerCase()] || {};
+      if (!globalAssigned[configName.toLowerCase()]) globalAssigned[configName.toLowerCase()] = {};
+      var assignedMap = globalAssigned[configName.toLowerCase()];
+
+      var kept = [], removed = [], placeholders = [];
+
+      for (var e = 0; e < session.enrollees.length; e++) {
+        var name = session.enrollees[e];
+        var nameLower = name.toLowerCase().trim();
+        if (nameLower === "tbd" || nameLower === "new hires") { placeholders.push(name); continue; }
+        var info = needsMap[nameLower];
+        if (!info) info = fuzzyMatchNeeds_(nameLower, needsMap);
+        if (info) { kept.push(name); assignedMap[nameLower] = true; }
+        else { kept.push(name); } // Keep everyone — sync handles removal
+      }
+
+      session.finalEnrollees = kept.slice();
+      session.keptEnrollees = kept.slice();
+      session.removedEnrollees = [];
+      session.backfilledEnrollees = [];
+      session.placeholders = placeholders;
+    }
+
+    var overviewResult = buildOverviewFromSyncedSessions_(sessions, allRosters, ss);
+    writeScheduledOverviewSheet_(overviewResult, ss, today);
+  } catch (err) {
+    Logger.log("rebuildScheduledOverview_ error: " + err.toString());
+  }
+}
+
+/**
+ * addSessionToScheduledSheet_ — adds a brand new session row
+ * to the Scheduled sheet. Used by createClass when creating
+ * a class that doesn't yet exist on the Scheduled sheet.
+ */
+function addSessionToScheduledSheet_(ss, trainingType, classDate, classTime, classLocation, enrolleeNames) {
+  var sheet = ss.getSheetByName(SCHEDULED_SHEET_NAME);
+
+  // If no Scheduled sheet exists, create one
+  if (!sheet) {
+    sheet = ss.insertSheet(SCHEDULED_SHEET_NAME);
+    sheet.getRange(1, 1, 1, 5).setValues([["a. Upcoming Training", "", "", "", ""]]);
+    sheet.getRange(2, 1, 1, 5).setValues([["Type", "Dates", "Time", "Location", "Enrollment"]]);
+    sheet.getRange(1, 1, 1, 5).merge();
+    sheet.getRange(1, 1).setFontSize(13).setFontWeight("bold").setFontColor("#FFFFFF").setBackground("#1F3864");
+    sheet.getRange(2, 1, 1, 5).setFontWeight("bold").setBackground("#F2F2F2");
+  }
+
+  // Check if this session already exists
+  var dateDisplay = formatClassDate(classDate);
+  var data = sheet.getDataRange().getValues();
+  var lastType = "";
+
+  for (var r = 0; r < data.length; r++) {
+    var colA = data[r][0] ? data[r][0].toString().trim() : "";
+    var colB_raw = data[r][1];
+    var colB = colB_raw ? colB_raw.toString().trim() : "";
+    if (colA === "Type" || colA === "a. Upcoming Training") continue;
+    var sessionType = colA || lastType;
+    if (colA) lastType = colA;
+    if (sessionType.toLowerCase().trim() !== trainingType.toLowerCase().trim()) continue;
+
+    var rowDate = "";
+    if (colB_raw instanceof Date && !isNaN(colB_raw.getTime())) rowDate = formatClassDate(colB_raw);
+    else if (colB) rowDate = colB;
+
+    if (rowDate === dateDisplay) {
+      // Session already exists — update enrollment
+      var enrollStr = enrolleeNames.join(", ");
+      if (!enrollStr) enrollStr = "TBD";
+      sheet.getRange(r + 1, 5).setValue(enrollStr);
+      if (classTime) sheet.getRange(r + 1, 3).setValue(classTime);
+      if (classLocation) sheet.getRange(r + 1, 4).setValue(classLocation);
+      return;
+    }
+  }
+
+  // Add new row at the end (before any footer rows)
+  var insertRow = sheet.getLastRow() + 1;
+  var enrollStr = enrolleeNames.length > 0 ? enrolleeNames.join(", ") : "TBD";
+  sheet.getRange(insertRow, 1, 1, 5).setValues([
+    [trainingType, classDate, classTime || "", classLocation || "", enrollStr]
+  ]);
+}
 
 function cleanClassTabsForRemovedEnrollees_(ss, sessions) {
   var cleaned = 0;
@@ -3845,6 +3964,8 @@ function executeRemoval_(ss, sheet, sheetName, row, name, trainingType, sourceTa
     removeFromScheduledSheet_(ss, trainingType, sheetName, name);
   }
 
+  // Rebuild the Overview so removed person disappears cleanly
+  rebuildScheduledOverview_(ss);
 }
 
 function executeMove_(ss, sheet, sheetName, row, name, trainingType, sourceTab, targetClass) {
@@ -3884,6 +4005,8 @@ function executeMove_(ss, sheet, sheetName, row, name, trainingType, sourceTab, 
     addToScheduledSheet_(ss, trainingType, targetClass.tabName, name);
   }
 
+  // Rebuild the Overview so the move is reflected
+  rebuildScheduledOverview_(ss);
 }
 
 
@@ -4068,6 +4191,8 @@ function runManualAssignmentLoop_(ui, trainingConfig) {
     // ---- WRITE THE ASSIGNMENT ----
     if (destination.type === "existing") {
       appendToExistingTab_(ss, destination.tabName, needsInfo, trainingConfig.name);
+      // Update Scheduled sheet with the new person
+      addToScheduledSheet_(ss, trainingConfig.name, destination.tabName, enteredName);
       ui.alert(
         "Assignment Complete",
         enteredName + " has been added to:\n" + destination.tabName
@@ -4075,17 +4200,21 @@ function runManualAssignmentLoop_(ui, trainingConfig) {
     } else if (destination.type === "new") {
       createNewTabWithPerson_(ss, trainingConfig, destination.date, needsInfo, today);
       var newTabName = buildTabName(trainingConfig.name, destination.date);
+      // Add new session to Scheduled sheet
+      addSessionToScheduledSheet_(ss, trainingConfig.name, destination.date, "", "", [enteredName]);
       ui.alert(
         "Assignment Complete",
         enteredName + " has been added to new tab:\n" + newTabName
       );
     }
 
-    // Reorder tabs after assignment
+    // Rebuild Overview and reorder tabs after assignment
     try {
+      rebuildScheduledOverview_(ss);
+      generateRostersSilent();
       orderClassRosterTabs(ss);
     } catch (e) {
-      Logger.log("Post-assignment tab reorder error: " + e.toString());
+      Logger.log("Post-assignment refresh error: " + e.toString());
     }
   }
 }
@@ -4691,7 +4820,17 @@ function createClass() {
     }
   }
 
-  // Refresh rosters
+  // ── Step 9: Add to Scheduled sheet & rebuild Overview ──
+
+  var enrolleeNames = [];
+  for (var i = 0; i < selectedPeople.length; i++) {
+    enrolleeNames.push(selectedPeople[i].name);
+  }
+  addSessionToScheduledSheet_(ss, config.name, classDate, classTime, classLocation, enrolleeNames);
+  rebuildScheduledOverview_(ss);
+
+  // Refresh rosters and reorder tabs
+  generateRostersSilent();
   orderClassRosterTabs(ss);
 
   // ── Summary ──
@@ -4703,7 +4842,7 @@ function createClass() {
   summary += "Enrolled: " + selectedPeople.length + " / " + capacity + "\n";
   if (clearedResched > 0) summary += "Cleared from rescheduled: " + clearedResched + "\n";
   summary += "\nTab: " + tabName;
-  summary += "\nUse EVC Tools > 5a. Refresh All to update rosters.";
+  summary += "\nScheduled Overview & Training Rosters updated.";
 
   ui.alert(summary);
 }
