@@ -97,12 +97,20 @@ function createMenu() {
 
     .addSeparator()
 
-    // ── 6. SETUP & HELP ──
-    .addSubMenu(ui.createMenu("6. Setup & Help")
-      .addItem("6a. Install Edit Trigger (run once)", "installEditTrigger")
-      .addItem("6b. Test Training Access connection", "testTrainingAccessConnection")
-      .addItem("6c. Test Name Check", "testCheckName")
-      .addItem("6d. How to export to Excel", "exportReminder"))
+    // ── 6. EMAIL REPORTS ──
+    .addSubMenu(ui.createMenu("6. Email Reports")
+      .addItem("6a. Email Scheduled Overview (PDF)", "emailScheduledOverview")
+      .addItem("6b. Email Training Rosters (PDF)", "emailTrainingRosters")
+      .addItem("6c. Email Both Reports (PDF)", "emailBothReports"))
+
+    .addSeparator()
+
+    // ── 7. SETUP & HELP ──
+    .addSubMenu(ui.createMenu("7. Setup & Help")
+      .addItem("7a. Install Edit Trigger (run once)", "installEditTrigger")
+      .addItem("7b. Test Training Access connection", "testTrainingAccessConnection")
+      .addItem("7c. Test Name Check", "testCheckName")
+      .addItem("7d. How to export to Excel", "exportReminder"))
 
     .addToUi();
 }
@@ -2177,4 +2185,186 @@ function parseCellDate(val) {
 function formatAuditDate(d) {
   if (!d) return "";
   return (d.getMonth() + 1) + "/" + d.getDate() + "/" + d.getFullYear();
+}
+
+
+// ************************************************************
+//
+//   19. EMAIL REPORTS
+//
+// ************************************************************
+
+/**
+ * Exports a single sheet as a PDF blob.
+ */
+function exportSheetAsPdf_(ss, sheetName) {
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return null;
+
+  var ssId = ss.getId();
+  var sheetId = sheet.getSheetId();
+
+  var url = "https://docs.google.com/spreadsheets/d/" + ssId + "/export?" +
+    "format=pdf" +
+    "&gid=" + sheetId +
+    "&size=letter" +
+    "&portrait=true" +
+    "&fitw=true" +
+    "&gridlines=false" +
+    "&printtitle=false" +
+    "&sheetnames=false" +
+    "&fzr=true" +
+    "&top_margin=0.25" +
+    "&bottom_margin=0.25" +
+    "&left_margin=0.25" +
+    "&right_margin=0.25";
+
+  var token = ScriptApp.getOAuthToken();
+  var response = UrlFetchApp.fetch(url, {
+    headers: { Authorization: "Bearer " + token },
+    muteHttpExceptions: true
+  });
+
+  if (response.getResponseCode() !== 200) {
+    Logger.log("PDF export failed for " + sheetName + ": " + response.getContentText());
+    return null;
+  }
+
+  var fileName = sheetName + " — " +
+    Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "M-d-yyyy") + ".pdf";
+  return response.getBlob().setName(fileName);
+}
+
+/**
+ * Prompts for email addresses (comma-separated).
+ * Returns array of trimmed addresses, or null if cancelled.
+ */
+function promptEmailAddresses_(ui, reportName) {
+  var response = ui.prompt(
+    "Email " + reportName,
+    "Enter email address(es), separated by commas:",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (response.getSelectedButton() !== ui.Button.OK) return null;
+
+  var input = response.getResponseText().trim();
+  if (!input) { ui.alert("No email addresses entered."); return null; }
+
+  var addresses = input.split(",");
+  var cleaned = [];
+  for (var i = 0; i < addresses.length; i++) {
+    var addr = addresses[i].trim();
+    if (addr && addr.indexOf("@") > -1) cleaned.push(addr);
+  }
+  if (cleaned.length === 0) { ui.alert("No valid email addresses found."); return null; }
+  return cleaned;
+}
+
+/**
+ * 6a. Email Scheduled Overview as PDF
+ */
+function emailScheduledOverview() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var addresses = promptEmailAddresses_(ui, "Scheduled Overview");
+  if (!addresses) return;
+
+  var pdf = exportSheetAsPdf_(ss, OVERVIEW_SHEET_NAME);
+  if (!pdf) {
+    ui.alert("Could not generate PDF.\n\nMake sure the \"" + OVERVIEW_SHEET_NAME + "\" tab exists.\nRun 5a. Refresh All first if needed.");
+    return;
+  }
+
+  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "MMMM d, yyyy");
+  var subject = "EVC Scheduled Training Overview — " + today;
+  var body = "Attached is the current Scheduled Training Overview as of " + today + ".\n\n" +
+    "This report shows all upcoming training sessions and who is enrolled.\n\n" +
+    "— EVC Training System";
+
+  for (var i = 0; i < addresses.length; i++) {
+    MailApp.sendEmail({
+      to: addresses[i],
+      subject: subject,
+      body: body,
+      attachments: [pdf]
+    });
+  }
+
+  ui.alert("Sent!\n\nScheduled Overview emailed to:\n" + addresses.join("\n"));
+}
+
+/**
+ * 6b. Email Training Rosters as PDF
+ */
+function emailTrainingRosters() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var addresses = promptEmailAddresses_(ui, "Training Rosters");
+  if (!addresses) return;
+
+  var pdf = exportSheetAsPdf_(ss, ROSTER_SHEET_NAME);
+  if (!pdf) {
+    ui.alert("Could not generate PDF.\n\nMake sure the \"" + ROSTER_SHEET_NAME + "\" tab exists.\nRun 2a. Generate Training Rosters first if needed.");
+    return;
+  }
+
+  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "MMMM d, yyyy");
+  var subject = "EVC Training Rosters — " + today;
+  var body = "Attached is the current Training Rosters report as of " + today + ".\n\n" +
+    "This report shows who needs training, who is expiring soon, and who is scheduled.\n\n" +
+    "— EVC Training System";
+
+  for (var i = 0; i < addresses.length; i++) {
+    MailApp.sendEmail({
+      to: addresses[i],
+      subject: subject,
+      body: body,
+      attachments: [pdf]
+    });
+  }
+
+  ui.alert("Sent!\n\nTraining Rosters emailed to:\n" + addresses.join("\n"));
+}
+
+/**
+ * 6c. Email Both Reports as PDF
+ */
+function emailBothReports() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var addresses = promptEmailAddresses_(ui, "Scheduled Overview + Training Rosters");
+  if (!addresses) return;
+
+  var overviewPdf = exportSheetAsPdf_(ss, OVERVIEW_SHEET_NAME);
+  var rosterPdf = exportSheetAsPdf_(ss, ROSTER_SHEET_NAME);
+
+  var attachments = [];
+  var sent = [];
+  if (overviewPdf) { attachments.push(overviewPdf); sent.push("Scheduled Overview"); }
+  if (rosterPdf) { attachments.push(rosterPdf); sent.push("Training Rosters"); }
+
+  if (attachments.length === 0) {
+    ui.alert("Could not generate either PDF.\n\nMake sure the tabs exist.\nRun 5a. Refresh All first.");
+    return;
+  }
+
+  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "MMMM d, yyyy");
+  var subject = "EVC Training Reports — " + today;
+  var body = "Attached are the current EVC training reports as of " + today + ":\n\n";
+  for (var i = 0; i < sent.length; i++) body += "  • " + sent[i] + "\n";
+  body += "\n— EVC Training System";
+
+  for (var i = 0; i < addresses.length; i++) {
+    MailApp.sendEmail({
+      to: addresses[i],
+      subject: subject,
+      body: body,
+      attachments: attachments
+    });
+  }
+
+  ui.alert("Sent!\n\n" + sent.join(" + ") + " emailed to:\n" + addresses.join("\n"));
 }
