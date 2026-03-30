@@ -3521,121 +3521,30 @@ function smartRemove() {
  * to an existing class or create a new one.
  */
 function addToClassFromRoster_(ui, ss, name, trainingType) {
-  var msg = name + "\n";
-  msg += "Training: " + trainingType + "\n";
-  msg += "───────────────────────\n\n";
-  msg += "This person needs " + trainingType + ".\n\n";
-
-  // Check if already scheduled
-  var alreadyScheduled = buildFullScheduledMap_(ss);
-  var tk = trainingType.toLowerCase();
-  var sm = alreadyScheduled[tk] || {};
-  var nameLower = name.toLowerCase().trim();
-  if (sm[nameLower]) {
-    msg += "NOTE: Already scheduled for " + sm[nameLower] + "\n\n";
-  }
-
-  // Get capacity for this training
-  var capacity = getCapacityForTraining_(trainingType);
-
-  // Resolve training name (e.g. "CPR" → "CPR/FA")
+  // Always use the resolved config name (e.g. "CPR" → "CPR/FA")
   var configName = resolveTrainingName_(trainingType) || trainingType;
 
+  var msg = name + "\n";
+  msg += "Training: " + configName + "\n";
+  msg += "───────────────────────\n\n";
+
   // Find all future class tabs for this training
-  var allClasses = findAllFutureClasses_(ss, configName, "");
+  var classTabs = findAllFutureClasses_(ss, configName, "");
 
-  // Also scan the Scheduled sheet for sessions that may not have tabs yet
-  var sessions = parseScheduledSheet_(ss);
-  var classTabNames = {};
-  for (var i = 0; i < allClasses.length; i++) {
-    classTabNames[allClasses[i].tabName.toLowerCase()] = true;
-  }
-
-  // Build a unified list: class tabs + scheduled-only sessions
-  var options = [];
-
-  // Add class tabs first (they have the most accurate fill data)
-  for (var i = 0; i < allClasses.length; i++) {
-    var c = allClasses[i];
-    options.push({
-      type: "tab",
-      tabName: c.tabName,
-      filled: c.filled,
-      capacity: c.capacity,
-      openSeats: c.openSeats,
-      isFull: c.isFull,
-      classDate: c.classDate
-    });
-  }
-
-  // Add scheduled sessions that don't have a class tab yet
-  if (sessions) {
-    for (var s = 0; s < sessions.length; s++) {
-      var sess = sessions[s];
-      var sessConfig = resolveTrainingName_(sess.type);
-      if (!sessConfig) continue;
-      if (sessConfig.toLowerCase() !== configName.toLowerCase()) continue;
-
-      // Build what the tab name would be
-      var possibleTabName = "";
-      if (sess.sortDate) {
-        possibleTabName = buildTabName(configName, sess.sortDate);
-      }
-
-      // Skip if we already have this as a class tab
-      if (possibleTabName && classTabNames[possibleTabName.toLowerCase()]) continue;
-
-      // Count enrollees
-      var enrolleeCount = sess.enrollees ? sess.enrollees.length : 0;
-      // Don't count TBD/placeholders
-      var realCount = 0;
-      for (var e = 0; e < sess.enrollees.length; e++) {
-        var eLower = sess.enrollees[e].toLowerCase().trim();
-        if (eLower !== "tbd" && eLower !== "new hires") realCount++;
-      }
-
-      var dateLabel = sess.dateDisplay || "TBD";
-      var label = configName + " " + dateLabel + " (Scheduled only — no class tab)";
-      var open = capacity - realCount;
-
-      options.push({
-        type: "scheduled",
-        tabName: label,
-        sessionType: sess.type,
-        dateDisplay: sess.dateDisplay,
-        sortDate: sess.sortDate,
-        filled: realCount,
-        capacity: capacity,
-        openSeats: open > 0 ? open : 0,
-        isFull: open <= 0,
-        classDate: sess.sortDate
-      });
-    }
-  }
-
-  // Sort by date
-  options.sort(function(a, b) {
-    if (a.classDate && b.classDate) return a.classDate - b.classDate;
-    if (a.classDate) return -1;
-    if (b.classDate) return 1;
-    return 0;
-  });
-
-  if (options.length > 0) {
-    msg += "Available classes for " + trainingType + ":\n";
-    for (var i = 0; i < options.length; i++) {
-      var o = options[i];
-      if (o.isFull) {
-        msg += "  " + (i + 1) + ".  " + o.tabName + " (FULL — " + o.filled + "/" + o.capacity + ", override)\n";
+  if (classTabs.length > 0) {
+    msg += "Add to a class:\n";
+    for (var i = 0; i < classTabs.length; i++) {
+      var c = classTabs[i];
+      if (c.isFull) {
+        msg += "  " + (i + 1) + ".  " + c.tabName + " (FULL — " + c.filled + "/" + c.capacity + ")\n";
       } else {
-        msg += "  " + (i + 1) + ".  " + o.tabName + " (" + o.filled + "/" + o.capacity + " filled, " + o.openSeats + " open)\n";
+        msg += "  " + (i + 1) + ".  " + c.tabName + " (" + c.filled + "/" + c.capacity + " filled, " + c.openSeats + " open)\n";
       }
     }
-    msg += "\nOr:\n";
-    msg += "  N.  Create a NEW class\n";
+    msg += "\n  N.  Create a NEW class\n";
     msg += "  C.  Cancel\n";
   } else {
-    msg += "No " + trainingType + " classes found.\n\n";
+    msg += "No upcoming " + configName + " classes found.\n\n";
     msg += "  N.  Create a NEW class\n";
     msg += "  C.  Cancel\n";
   }
@@ -3646,107 +3555,66 @@ function addToClassFromRoster_(ui, ss, name, trainingType) {
 
   if (input === "C") return;
 
+  // ── CREATE NEW CLASS ──
   if (input === "N") {
-    // Create a new class with this person
-    var dateResp = ui.prompt(
-      "New Class — " + trainingType,
-      "Enter the class date (M/D/YYYY):",
-      ui.ButtonSet.OK_CANCEL
-    );
+    var dateResp = ui.prompt("New Class — " + configName, "Enter the class date (M/D/YYYY):", ui.ButtonSet.OK_CANCEL);
     if (dateResp.getSelectedButton() !== ui.Button.OK) return;
     var classDate = parseClassDate(dateResp.getResponseText().trim());
     if (!classDate) { ui.alert("Invalid date."); return; }
 
-    // Find the training config
     var config = null;
     for (var i = 0; i < CLASS_ROSTER_CONFIG.length; i++) {
-      if (CLASS_ROSTER_CONFIG[i].name === trainingType) { config = CLASS_ROSTER_CONFIG[i]; break; }
+      if (CLASS_ROSTER_CONFIG[i].name === configName) { config = CLASS_ROSTER_CONFIG[i]; break; }
     }
-    if (!config) { ui.alert("Could not find config for " + trainingType); return; }
+    if (!config) { ui.alert("Could not find config for " + configName); return; }
 
-    var tabName = buildTabName(trainingType, classDate);
+    var tabName = buildTabName(configName, classDate);
     var existingTab = ss.getSheetByName(tabName);
 
     if (existingTab) {
-      // Tab already exists — add to it instead
       var personInfo = { name: name, status: "Needs training", bucket: "needed", lastDate: "", expDate: "" };
-      appendToExistingTab_(ss, tabName, personInfo, trainingType);
-      addToScheduledSheet_(ss, trainingType, tabName, name);
+      appendToExistingTab_(ss, tabName, personInfo, configName);
     } else {
-      // Create new tab
       var today = new Date(); today.setHours(0, 0, 0, 0);
       var personInfo = { name: name, status: "Needs training", bucket: "needed", lastDate: "", expDate: "" };
       createNewTabWithPerson_(ss, config, classDate, personInfo, today);
-      addSessionToScheduledSheet_(ss, trainingType, classDate, "", "", [name]);
     }
-
+    addSessionToScheduledSheet_(ss, configName, classDate, "", "", [name]);
     SpreadsheetApp.flush();
     rebuildScheduledOverview_(ss);
     generateRostersSilent();
     orderClassRosterTabs(ss);
-    ui.alert("Added " + name + " to " + tabName + "!\n\nScheduled Overview & Training Rosters updated.");
+    ui.alert("Done!\n\n" + name + " added to " + tabName + "\nScheduled Overview & Training Rosters updated.");
     return;
   }
 
-  // Numeric selection — add to existing class or scheduled session
+  // ── ADD TO EXISTING CLASS ──
   var idx = parseInt(input) - 1;
-  if (isNaN(idx) || idx < 0 || idx >= options.length) { ui.alert("Invalid selection."); return; }
+  if (isNaN(idx) || idx < 0 || idx >= classTabs.length) { ui.alert("Invalid selection."); return; }
 
-  var target = options[idx];
+  var target = classTabs[idx];
 
-  // If full, confirm override
   if (target.isFull) {
-    var override = ui.alert(
-      "Class is Full",
-      target.tabName + " is at " + target.filled + "/" + target.capacity + ".\n\n" +
-      "Add " + name + " anyway (over capacity)?",
-      ui.ButtonSet.YES_NO
-    );
+    var override = ui.alert("Class is Full",
+      target.tabName + " is at " + target.filled + "/" + target.capacity + ".\n\nAdd " + name + " anyway?",
+      ui.ButtonSet.YES_NO);
     if (override !== ui.Button.YES) return;
   }
 
-  if (target.type === "tab") {
-    // Existing class tab — add directly
-    var added = addPersonToClassTab_(ss, target.tabName, name);
-    if (!added) {
-      ui.alert("Error: Could not write to " + target.tabName + ".\n\nThe tab may not exist or couldn't be modified.");
-      return;
-    }
-    addToScheduledSheet_(ss, trainingType, target.tabName, name);
-    SpreadsheetApp.flush();
-    rebuildScheduledOverview_(ss);
-    generateRostersSilent();
-    ui.alert("Added " + name + " to " + target.tabName +
-             (target.isFull ? " (over capacity)" : "") +
-             "!\n\nScheduled Overview & Training Rosters updated.");
-  } else {
-    // Scheduled-only session (no tab yet) — add to Scheduled sheet enrollment
-    // and create the class tab
-    var config = null;
-    for (var i = 0; i < CLASS_ROSTER_CONFIG.length; i++) {
-      if (CLASS_ROSTER_CONFIG[i].name.toLowerCase() === configName.toLowerCase()) { config = CLASS_ROSTER_CONFIG[i]; break; }
-    }
+  // Write the person to the class tab using appendToExistingTab_ (reliable)
+  var personInfo = { name: name, status: "Needs training", bucket: "needed", lastDate: "", expDate: "" };
+  appendToExistingTab_(ss, target.tabName, personInfo, configName);
 
-    if (target.sortDate && config) {
-      var tabName = buildTabName(configName, target.sortDate);
-      var existingTab = ss.getSheetByName(tabName);
-      if (existingTab) {
-        var personInfo = { name: name, status: "Needs training", bucket: "needed", lastDate: "", expDate: "" };
-        appendToExistingTab_(ss, tabName, personInfo, trainingType);
-      }
-      addToScheduledSheet_(ss, trainingType, tabName, name);
-    } else {
-      // Fallback: just add to Scheduled sheet
-      if (target.sortDate) {
-        addSessionToScheduledSheet_(ss, trainingType, target.sortDate, "", "", [name]);
-      }
-    }
-    SpreadsheetApp.flush();
-    rebuildScheduledOverview_(ss);
-    generateRostersSilent();
-    ui.alert("Added " + name + " to " + target.tabName +
-             "!\n\nScheduled Overview & Training Rosters updated.");
-  }
+  // Update the Scheduled sheet
+  addToScheduledSheet_(ss, configName, target.tabName, name);
+
+  // Flush all writes, then rebuild everything
+  SpreadsheetApp.flush();
+  rebuildScheduledOverview_(ss);
+  generateRostersSilent();
+
+  ui.alert("Done!\n\n" + name + " added to " + target.tabName +
+           "\n\nScheduled Overview & Training Rosters updated.");
 }
 
 
