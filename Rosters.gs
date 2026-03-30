@@ -1619,15 +1619,32 @@ function getClassRosterPrefixes() {
 
 function scanClassRosterTabs(ss) {
   var scheduled = {}, prefixes = getClassRosterPrefixes(), sheets = ss.getSheets();
+
+  // Build sanitized prefixes too (buildTabName strips special chars)
+  var sanitizedPrefixes = [];
+  for (var p = 0; p < prefixes.length; p++) {
+    sanitizedPrefixes.push(prefixes[p].replace(/[:\\\/?*\[\]]/g, ""));
+  }
+
   for (var s = 0; s < sheets.length; s++) {
     var sheetName = sheets[s].getName(), matchedTraining = null;
     for (var p = 0; p < prefixes.length; p++) {
+      // Match either the original prefix or the sanitized one
       if (sheetName.indexOf(prefixes[p] + " ") === 0) {
+        if (!matchedTraining || prefixes[p].length > matchedTraining.length) matchedTraining = prefixes[p];
+      } else if (sanitizedPrefixes[p] !== prefixes[p] && sheetName.indexOf(sanitizedPrefixes[p] + " ") === 0) {
         if (!matchedTraining || prefixes[p].length > matchedTraining.length) matchedTraining = prefixes[p];
       }
     }
     if (!matchedTraining) continue;
-    var datePart = sheetName.substring(matchedTraining.length + 1).trim();
+    // Use whichever prefix actually matched for date extraction
+    var sanitized = matchedTraining.replace(/[:\\\/?*\[\]]/g, "");
+    var datePart = "";
+    if (sheetName.indexOf(matchedTraining + " ") === 0) {
+      datePart = sheetName.substring(matchedTraining.length + 1).trim();
+    } else {
+      datePart = sheetName.substring(sanitized.length + 1).trim();
+    }
     var classDate = parseClassDate(datePart);
     var classDateStr = classDate ? formatClassDate(classDate) : datePart;
     var trainKey = matchedTraining.toLowerCase();
@@ -2686,10 +2703,13 @@ function removeFromScheduledSheet_(ss, trainingType, classTabName, personName) {
   // Resolve training type
   var resolvedType = resolveTrainingName_(trainingType) || trainingType;
 
-  // Extract date from tab name — try both resolved and original prefix
+  // Extract date from tab name — try resolved, sanitized, and original prefix
+  var sanitizedType = resolvedType.replace(/[:\\\/?*\[\]]/g, "");
   var datePart = "";
   if (classTabName.indexOf(resolvedType + " ") === 0) {
     datePart = classTabName.substring(resolvedType.length).trim();
+  } else if (classTabName.indexOf(sanitizedType + " ") === 0) {
+    datePart = classTabName.substring(sanitizedType.length).trim();
   } else if (classTabName.indexOf(trainingType + " ") === 0) {
     datePart = classTabName.substring(trainingType.length).trim();
   } else {
@@ -2810,16 +2830,25 @@ function addToScheduledSheet_(ss, trainingType, classTabName, personName) {
   // Resolve the passed training type to its config name
   var resolvedType = resolveTrainingName_(trainingType) || trainingType;
 
-  // Extract date from the tab name — try both resolved and original prefix
+  // Extract date from the tab name — try resolved, sanitized, and original prefix
+  var sanitizedType = resolvedType.replace(/[:\\\/?*\[\]]/g, "");
   var datePart = "";
   if (classTabName.indexOf(resolvedType + " ") === 0) {
     datePart = classTabName.substring(resolvedType.length).trim();
+  } else if (classTabName.indexOf(sanitizedType + " ") === 0) {
+    datePart = classTabName.substring(sanitizedType.length).trim();
   } else if (classTabName.indexOf(trainingType + " ") === 0) {
     datePart = classTabName.substring(trainingType.length).trim();
   } else {
-    // Fallback: take everything after the first space
     var spIdx = classTabName.indexOf(" ");
     if (spIdx > -1) datePart = classTabName.substring(spIdx + 1).trim();
+  }
+  // datePart might also have slashes stripped — restore for comparison
+  // e.g. "492026" needs to become "4/9/2026"
+  if (datePart && !datePart.match(/\//)) {
+    // Try to parse it as a date directly
+    var tryDate = parseClassDate(datePart);
+    if (tryDate) datePart = formatClassDate(tryDate);
   }
 
   var data = sheet.getDataRange().getValues();
@@ -2870,14 +2899,26 @@ function findAllFutureClasses_(ss, trainingName, skipTabName) {
 
   // Resolve training name to config name (e.g. "CPR" → "CPR/FA")
   var resolved = resolveTrainingName_(trainingName) || trainingName;
+
+  // Build the tab prefix the same way buildTabName does (strips special chars)
+  var tabPrefix = resolved.replace(/[:\\\/?*\[\]]/g, "");
   var defaultCap = getCapacityForTraining_(resolved);
 
   for (var s = 0; s < sheets.length; s++) {
     var tabName = sheets[s].getName();
     if (tabName === skipTabName) continue;
-    if (tabName.indexOf(resolved + " ") !== 0) continue;
 
-    var datePart = tabName.substring(resolved.length + 1).trim();
+    // Match using the sanitized prefix (same as buildTabName produces)
+    if (tabName.indexOf(tabPrefix + " ") !== 0 && tabName.indexOf(resolved + " ") !== 0) continue;
+
+    // Extract date part after the prefix
+    var datePart = "";
+    if (tabName.indexOf(resolved + " ") === 0) {
+      datePart = tabName.substring(resolved.length + 1).trim();
+    } else {
+      datePart = tabName.substring(tabPrefix.length + 1).trim();
+    }
+
     var classDate = parseClassDate(datePart);
     if (!classDate || classDate < today) continue;
 
@@ -3838,7 +3879,8 @@ function identifyPersonForRemoval_(ss, sheet, sheetName, row, ui) {
   } else {
     var prefixes = getClassRosterPrefixes();
     for (var p = 0; p < prefixes.length; p++) {
-      if (sheetName.indexOf(prefixes[p] + " ") === 0) {
+      var sanitizedPrefix = prefixes[p].replace(/[:\\\/?*\[\]]/g, "");
+      if (sheetName.indexOf(prefixes[p] + " ") === 0 || sheetName.indexOf(sanitizedPrefix + " ") === 0) {
         if (!trainingType || prefixes[p].length > trainingType.length) trainingType = prefixes[p];
       }
     }
