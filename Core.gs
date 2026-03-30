@@ -1245,6 +1245,8 @@ function backfillTrainingAccess() {
     }
   }
 
+  generateRostersSilent();
+  summary += "\nTraining Rosters refreshed.";
   ui.alert(summary);
   Logger.log(summary);
 }
@@ -1336,11 +1338,12 @@ function batchPassFail() {
 
 
 
+  generateRostersSilent();
+
   var doneMsg = "Done! Marked " + selected.rows.length + " attendees as " + pf + ".";
 
   if (pf === "Pass" && trainingUpdated > 0) {
     doneMsg += "\n\nTraining sheet updated for " + trainingUpdated + " staff.";
-    doneMsg += "\nUse EVC Tools > 5a. Refresh All to update rosters.";
   }
 
   if (trainingErrors.length > 0) {
@@ -1350,6 +1353,7 @@ function batchPassFail() {
     }
   }
 
+  doneMsg += "\n\nTraining Rosters refreshed.";
   ui.alert(doneMsg);
 }
 
@@ -2115,7 +2119,9 @@ function fixTrainingSheetIssues() {
   summary += "CPR ↔ FirstAid synced: " + fixedCprFa + "\n";
   summary += "MedCert → PostMed filled: " + fixedMedPm + "\n";
   summary += "Blank rows deleted: " + deletedRows + "\n";
-  summary += "\nUse EVC Tools > 5a. Refresh All to update rosters.";
+
+  generateRostersSilent();
+  summary += "\nTraining Rosters refreshed.";
 
   ui.alert(summary);
 }

@@ -1130,7 +1130,9 @@ function quickBuildRosters() {
     summary += "  " + buildTabName(config.name, ci.date) + " (" + ci.people.length + "/" + capacity + ")\n";
   }
 
-  summary += "\nUse EVC Tools > 5a. Refresh All to update rosters.";
+  generateRostersSilent();
+  rebuildScheduledOverview_(ss);
+  summary += "\nTraining Rosters & Scheduled Overview updated.";
   ui.alert(summary);
 }
 
@@ -1200,8 +1202,11 @@ function generateClassRosters() {
   }
 
   orderClassRosterTabs(ss);
+  generateRostersSilent();
+  rebuildScheduledOverview_(ss);
   var summary = "Complete! Tabs: " + tabsCreated + "\n\n";
   for (var sl = 0; sl < summaryLines.length; sl++) summary += summaryLines[sl] + "\n";
+  summary += "\nTraining Rosters & Scheduled Overview updated.";
   ui.alert(summary);
 }
 
@@ -1337,6 +1342,8 @@ function buildRostersFromOverview() {
   }
 
   orderClassRosterTabs(ss);
+  generateRostersSilent();
+  rebuildScheduledOverview_(ss);
 
   if (tabsCreated === 0) {
     ui.alert("No class roster tabs created \u2014 no attendees found.");
@@ -1345,7 +1352,7 @@ function buildRostersFromOverview() {
     for (var sl = 0; sl < summaryLines.length; sl++) {
       summary += "  " + summaryLines[sl] + "\n";
     }
-    summary += "\nUse EVC Tools > 5a. Refresh All to update rosters.";
+    summary += "\nTraining Rosters & Scheduled Overview updated.";
     ui.alert(summary);
   }
 }
@@ -2474,7 +2481,9 @@ function removeFromClassRoster() {
 
   var scopeMsg = (scope === matchedTraining) ? "All future " + matchedTraining + " classes" : "This class only";
 
-  ui.alert("Removed " + name + "\n\nTraining: " + matchedTraining + "\nReason: " + reason + "\nScope: " + scopeMsg + "\n\nLogged to Removal Log.\nUse EVC Tools > 5a. Refresh All to update rosters.");
+  generateRostersSilent();
+  rebuildScheduledOverview_(ss);
+  ui.alert("Removed " + name + "\n\nTraining: " + matchedTraining + "\nReason: " + reason + "\nScope: " + scopeMsg + "\n\nLogged to Removal Log.\nTraining Rosters & Scheduled Overview updated.");
 }
 
 function moveToClass() {
@@ -2611,11 +2620,13 @@ function moveToClass() {
     addToScheduledSheet_(ss, matchedTraining, targetClass.tabName, name);
   }
 
+  generateRostersSilent();
+  rebuildScheduledOverview_(ss);
   ui.alert(
     "Moved " + name + "!\n\n" +
     "From: " + sourceTab + "\n" +
     "To: " + targetClass.tabName + "\n\n" +
-    "Use EVC Tools > 5a. Refresh All to update rosters."
+    "Training Rosters & Scheduled Overview updated."
   );
 }
 
@@ -3778,7 +3789,8 @@ function uploadRosterResults() {
   }
 
 
-  ui.alert("Upload Complete!\n\n" + uploaded + " date(s) uploaded to the Training sheet.\n\nAuto-fill rules applied (CPR/FA sync, MedCert/PostMed sync).\nUse EVC Tools > 5a. Refresh All to update rosters.");
+  generateRostersSilent();
+  ui.alert("Upload Complete!\n\n" + uploaded + " date(s) uploaded to the Training sheet.\n\nAuto-fill rules applied (CPR/FA sync, MedCert/PostMed sync).\nTraining Rosters updated.");
 }
 
 
@@ -5221,12 +5233,12 @@ function addToRescheduled() {
 
   writeRescheduledEntry_(ss, name, training, targetDate, "Manual");
 
-  // Refresh rosters so the Scheduled column updates immediately
-
+  generateRostersSilent();
   ui.alert("Added to rescheduled!\n\n" +
            "Name: " + name + "\n" +
            "Training: " + training + "\n" +
-           "Target: " + targetDate);
+           "Target: " + targetDate +
+           "\n\nTraining Rosters updated.");
 }
 
 // Keep old name as alias for backward compatibility with existing triggers
