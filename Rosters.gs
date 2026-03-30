@@ -598,6 +598,9 @@ function syncScheduledTrainings() {
 
   rewriteScheduledSheet_(ss, sessions);
 
+  // Clean class roster tabs for removed people (already current)
+  var tabsCleaned = cleanClassTabsForRemovedEnrollees_(ss, sessions);
+
   var overviewResult = buildOverviewFromSyncedSessions_(sessions, allRosters, ss);
   writeScheduledOverviewSheet_(overviewResult, ss, today);
 
@@ -605,7 +608,9 @@ function syncScheduledTrainings() {
   summary += "Cutoff date: " + formatClassDate(SYNC_CUTOFF) + " (sessions before this left alone)\n";
   summary += "Sessions skipped (before cutoff): " + totalSkipped + "\n\n";
   summary += "Kept (still need training): " + totalKept + "\n";
-  summary += "Removed/Archived (passed or already current): " + totalRemoved + "\n";
+  summary += "Removed (already current): " + totalRemoved;
+  if (tabsCleaned > 0) summary += " (" + tabsCleaned + " also removed from class tabs)";
+  summary += "\n";
   summary += "Backfilled (from needs list): " + totalBackfilled + "\n\n";
   for (var sl = 0; sl < summaryLines.length; sl++) summary += summaryLines[sl] + "\n";
   summary += "\nScheduled sheet updated.\nOverview tab rebuilt.\nUse EVC Tools > 5a. Refresh All to update rosters.";
@@ -667,6 +672,7 @@ function syncScheduledSilent_() {
     }
 
     rewriteScheduledSheet_(ss, sessions);
+    cleanClassTabsForRemovedEnrollees_(ss, sessions);
     var overviewResult = buildOverviewFromSyncedSessions_(sessions, allRosters, ss);
     writeScheduledOverviewSheet_(overviewResult, ss, today);
     Logger.log("Silent sync complete");
@@ -2008,7 +2014,87 @@ function installOverviewSyncTrigger() {
 
 
 // ************************************************************
-//   12. REFRESH ALL (from V42)
+//   12. AUTO-CLEAN CLASS TABS — remove already-current people
+//
+//   Called by syncScheduledTrainings and refreshAll.
+//   For each session with removed enrollees, finds the matching
+//   class roster tab and removes them (same as Smart Remove).
+// ************************************************************
+
+function cleanClassTabsForRemovedEnrollees_(ss, sessions) {
+  var cleaned = 0;
+  var prefixes = getClassRosterPrefixes();
+
+  for (var s = 0; s < sessions.length; s++) {
+    var session = sessions[s];
+    var removed = session.removedEnrollees || [];
+    if (removed.length === 0) continue;
+
+    var configName = session.configName;
+    if (!configName) continue;
+
+    // Find the class roster tab for this session
+    var tabName = "";
+
+    // Try building from configName + dateDisplay
+    if (session.dateDisplay) {
+      var tryDate = parseClassDate(session.dateDisplay);
+      if (tryDate) {
+        tabName = buildTabName(configName, tryDate);
+      } else {
+        // Fallback: try configName + " " + dateDisplay directly
+        tabName = configName + " " + session.dateDisplay;
+      }
+    }
+
+    // Also try session.type + dateDisplay (some tabs use the scheduled name)
+    var altTabName = "";
+    if (session.type && session.dateDisplay) {
+      var tryDate2 = parseClassDate(session.dateDisplay);
+      if (tryDate2) {
+        altTabName = buildTabName(session.type, tryDate2);
+      }
+    }
+
+    var classTab = ss.getSheetByName(tabName);
+    if (!classTab && altTabName) classTab = ss.getSheetByName(altTabName);
+
+    // Broader search: scan all sheets for a matching prefix + date
+    if (!classTab) {
+      var sheets = ss.getSheets();
+      for (var sh = 0; sh < sheets.length; sh++) {
+        var shName = sheets[sh].getName();
+        // Check if tab name starts with any matching prefix and contains the date
+        if (session.dateDisplay && shName.indexOf(session.dateDisplay) > -1) {
+          for (var p = 0; p < prefixes.length; p++) {
+            if (shName.indexOf(prefixes[p] + " ") === 0 &&
+                prefixes[p].toLowerCase() === configName.toLowerCase()) {
+              classTab = sheets[sh];
+              break;
+            }
+          }
+        }
+        if (classTab) break;
+      }
+    }
+
+    if (!classTab) continue;
+
+    // Remove each person from the class tab
+    for (var r = 0; r < removed.length; r++) {
+      removePersonFromClassTab_(classTab, removed[r]);
+      logRemoval_(ss, removed[r], configName, classTab.getName(),
+                  "Auto-removed: already current (via sync)", classTab.getName());
+      cleaned++;
+    }
+  }
+
+  return cleaned;
+}
+
+
+// ************************************************************
+//   13. REFRESH ALL (from V42)
 // ************************************************************
 
 function refreshAll() {
@@ -2083,6 +2169,7 @@ function refreshAll() {
           }
 
           rewriteScheduledSheet_(ss, sessions);
+          cleanClassTabsForRemovedEnrollees_(ss, sessions);
           var overviewResult = buildOverviewFromSyncedSessions_(sessions, allRosters, ss);
           writeScheduledOverviewSheet_(overviewResult, ss, today);
         }
@@ -2098,7 +2185,7 @@ function refreshAll() {
   // Final roster rebuild after sync
   generateRostersSilent();
 
-  ui.alert("Refresh complete!\n\nTraining Rosters, Scheduled sheet, and Overview are all up to date.");
+  ui.alert("Refresh complete!\n\nTraining Rosters, Scheduled sheet, Overview, and class tabs are all up to date.");
 }
 
 
