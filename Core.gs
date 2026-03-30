@@ -55,7 +55,8 @@ function createMenu() {
       .addItem("1c. Flag late arrivals", "flagLateArrivals")
       .addItem("1d. Flag early departures", "flagEarlyDepartures")
       .addItem("1e. Backfill Training Access from Records", "backfillTrainingAccess")
-      .addItem("1f. Upload Roster Results", "uploadRosterResults"))
+      .addItem("1f. Upload Roster Results", "uploadRosterResults")
+      .addItem("1g. Import from Paylocity", "importFromPaylocity"))
 
     .addSeparator()
 
@@ -2367,4 +2368,237 @@ function emailBothReports() {
   }
 
   ui.alert("Sent!\n\n" + sent.join(" + ") + " emailed to:\n" + addresses.join("\n"));
+}
+
+
+// ************************************************************
+//
+//   20. IMPORT FROM PAYLOCITY
+//
+// ************************************************************
+
+/**
+ * Maps Paylocity Skill values to Training sheet column headers.
+ * Skills not in this map are skipped during import.
+ */
+var PAYLOCITY_SKILL_MAP = {
+  "cpr.fa":                      "CPR",
+  "cpr/fa":                      "CPR",
+  "ukeru":                       "Ukeru",
+  "mealtime instructions":       "Mealtime",
+  "med training":                "MED_TRAIN",
+  "post med":                    "POST MED",
+  "pom":                         "POM",
+  "pers cent thnk":              "Pers Cent Thnk",
+  "person centered thinking":    "Pers Cent Thnk"
+};
+
+/**
+ * 1g. Import from Paylocity
+ *
+ * Reads a tab named "Paylocity Import" with columns:
+ *   A: Company Code, B: Employee Id, C: Last Name, D: First Name,
+ *   E: Middle Name, F: Preferred/First Name, G: Division Description,
+ *   H: Department Description, I: Position Title, J: Skill, K: Code,
+ *   L: Effective/Issue Date, M: Expiration Date, N: Record Type,
+ *   O: Skill Status
+ *
+ * Matches employees by name to the Training sheet and writes
+ * the Effective/Issue Date to the appropriate training column.
+ * Only writes if the imported date is newer than what's already there.
+ */
+function importFromPaylocity() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // Find the Paylocity Import tab
+  var importSheet = ss.getSheetByName("Paylocity Import");
+  if (!importSheet) {
+    ui.alert("No tab named \"Paylocity Import\" found.\n\n" +
+      "To use this:\n" +
+      "  1. Open your Paylocity .xlsx file in Google Sheets\n" +
+      "  2. Copy all the data\n" +
+      "  3. Create a tab called \"Paylocity Import\" in this spreadsheet\n" +
+      "  4. Paste the data there\n" +
+      "  5. Run this again");
+    return;
+  }
+
+  var trainingSheet = ss.getSheetByName(TRAINING_ACCESS_SHEET_NAME);
+  if (!trainingSheet) {
+    ui.alert("Error: Training sheet \"" + TRAINING_ACCESS_SHEET_NAME + "\" not found.");
+    return;
+  }
+
+  var importData = importSheet.getDataRange().getValues();
+  var trainingData = trainingSheet.getDataRange().getValues();
+  var trainingHeaders = trainingData[0];
+
+  if (importData.length < 2) {
+    ui.alert("The Paylocity Import tab appears to be empty.");
+    return;
+  }
+
+  // Find column indices in the import sheet
+  var importHeaders = importData[0];
+  var colLast = -1, colFirst = -1, colPreferred = -1, colSkill = -1, colDate = -1, colStatus = -1;
+  for (var c = 0; c < importHeaders.length; c++) {
+    var h = importHeaders[c].toString().trim().toLowerCase();
+    if (h === "last name") colLast = c;
+    if (h === "first name") colFirst = c;
+    if (h === "preferred/first name" || h === "preferred name") colPreferred = c;
+    if (h === "skill") colSkill = c;
+    if (h === "effective/issue date" || h === "effective date" || h === "issue date") colDate = c;
+    if (h === "skill status") colStatus = c;
+  }
+
+  if (colLast < 0 || colFirst < 0 || colSkill < 0 || colDate < 0) {
+    ui.alert("Could not find required columns.\n\n" +
+      "Expected: Last Name, First Name, Skill, Effective/Issue Date\n\n" +
+      "Found: " + importHeaders.join(", "));
+    return;
+  }
+
+  // Confirm before importing
+  var confirm = ui.alert("Import from Paylocity",
+    "Found " + (importData.length - 1) + " rows on the Paylocity Import tab.\n\n" +
+    "This will:\n" +
+    "  • Match employees by name to the Training sheet\n" +
+    "  • Write training dates (only if newer than existing)\n" +
+    "  • Skip non-training skills (Driver's License, Insurance, etc.)\n" +
+    "  • Respect NA/excusal codes and failure codes\n\n" +
+    "Continue?",
+    ui.ButtonSet.YES_NO);
+  if (confirm !== ui.Button.YES) return;
+
+  var stats = {
+    processed: 0,
+    skippedSkill: 0,
+    skippedNoMatch: 0,
+    skippedNoDate: 0,
+    skippedNewer: 0,
+    skippedNA: 0,
+    skippedFailed: 0,
+    written: 0,
+    errors: []
+  };
+
+  var noMatchNames = {};
+
+  for (var i = 1; i < importData.length; i++) {
+    stats.processed++;
+
+    var lastName = importData[i][colLast] ? importData[i][colLast].toString().trim() : "";
+    var firstName = importData[i][colFirst] ? importData[i][colFirst].toString().trim() : "";
+    var preferred = colPreferred >= 0 && importData[i][colPreferred] ? importData[i][colPreferred].toString().trim() : "";
+    var skill = importData[i][colSkill] ? importData[i][colSkill].toString().trim() : "";
+    var dateVal = importData[i][colDate];
+    var status = colStatus >= 0 && importData[i][colStatus] ? importData[i][colStatus].toString().trim() : "";
+
+    if (!lastName || !firstName) continue;
+    if (!skill) continue;
+
+    // Map skill to training column
+    var skillLower = skill.toLowerCase();
+    var targetColumn = PAYLOCITY_SKILL_MAP[skillLower];
+    if (!targetColumn) {
+      stats.skippedSkill++;
+      continue;
+    }
+
+    // Parse the date
+    var importDate = parseToDate(dateVal);
+    if (!importDate) {
+      stats.skippedNoDate++;
+      continue;
+    }
+
+    // Find the target column index on the Training sheet
+    var targetColIdx = -1;
+    for (var c = 0; c < trainingHeaders.length; c++) {
+      if (trainingHeaders[c].toString().trim() === targetColumn) {
+        targetColIdx = c;
+        break;
+      }
+    }
+    if (targetColIdx < 0) {
+      stats.errors.push("Column \"" + targetColumn + "\" not found on Training sheet");
+      continue;
+    }
+
+    // Match employee — try preferred name first, then first name
+    var nameToTry = preferred || firstName;
+    var matchRow = findTrainingRow(trainingData, nameToTry, lastName);
+    if (matchRow < 0 && preferred && preferred !== firstName) {
+      matchRow = findTrainingRow(trainingData, firstName, lastName);
+    }
+
+    if (matchRow < 0) {
+      var nameKey = lastName.toLowerCase() + "|" + firstName.toLowerCase();
+      if (!noMatchNames[nameKey]) {
+        noMatchNames[nameKey] = true;
+        stats.skippedNoMatch++;
+      }
+      continue;
+    }
+
+    // Check current value
+    var currentVal = trainingData[matchRow][targetColIdx];
+    var currentStr = currentVal ? currentVal.toString().trim() : "";
+    var currentUpper = currentStr.toUpperCase();
+
+    // Skip NA/excusal codes
+    if (currentUpper === "NA" || currentUpper === "N/A" || getExcusalCode(currentStr)) {
+      stats.skippedNA++;
+      continue;
+    }
+
+    // Skip failure codes
+    if (isFailureCode(currentStr)) {
+      stats.skippedFailed++;
+      continue;
+    }
+
+    // Only write if newer than existing date
+    var existingDate = parseToDate(currentVal);
+    if (existingDate && importDate.getTime() <= existingDate.getTime()) {
+      stats.skippedNewer++;
+      continue;
+    }
+
+    // Write the date
+    var formattedDate = formatBackfillDate(importDate);
+    trainingSheet.getRange(matchRow + 1, targetColIdx + 1).setValue(formattedDate);
+    trainingData[matchRow][targetColIdx] = formattedDate;
+    stats.written++;
+
+    // Apply auto-fill rules (CPR → FIRSTAID, MED_TRAIN → POST MED)
+    applyAutoFillRules(trainingSheet, matchRow + 1, trainingHeaders, targetColumn, formattedDate);
+  }
+
+  // Refresh rosters
+  generateRostersSilent();
+
+  // Build summary
+  var summary = "Paylocity Import Complete!\n\n";
+  summary += "Rows processed: " + stats.processed + "\n";
+  summary += "Dates written: " + stats.written + "\n\n";
+  summary += "Skipped (not a tracked training): " + stats.skippedSkill + "\n";
+  summary += "Skipped (no name match): " + stats.skippedNoMatch + "\n";
+  summary += "Skipped (no valid date): " + stats.skippedNoDate + "\n";
+  summary += "Skipped (already had same/newer date): " + stats.skippedNewer + "\n";
+  summary += "Skipped (NA/excused): " + stats.skippedNA + "\n";
+  summary += "Skipped (failure code): " + stats.skippedFailed + "\n";
+
+  if (stats.errors.length > 0) {
+    summary += "\nErrors:\n";
+    for (var e = 0; e < Math.min(stats.errors.length, 10); e++) {
+      summary += "  " + stats.errors[e] + "\n";
+    }
+  }
+
+  summary += "\nTraining Rosters refreshed.";
+  summary += "\n\nYou can delete the \"Paylocity Import\" tab when done.";
+
+  ui.alert(summary);
 }
