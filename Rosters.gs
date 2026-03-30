@@ -2870,28 +2870,45 @@ function findAllFutureClasses_(ss, trainingName, skipTabName) {
 
   // Resolve training name to config name (e.g. "CPR" → "CPR/FA")
   var resolved = resolveTrainingName_(trainingName) || trainingName;
+  var defaultCap = getCapacityForTraining_(resolved);
 
   for (var s = 0; s < sheets.length; s++) {
     var tabName = sheets[s].getName();
     if (tabName === skipTabName) continue;
     if (tabName.indexOf(resolved + " ") !== 0) continue;
 
-    var datePart = tabName.substring(trainingName.length + 1).trim();
+    var datePart = tabName.substring(resolved.length + 1).trim();
     var classDate = parseClassDate(datePart);
     if (!classDate || classDate < today) continue;
 
-    var capData = sheets[s].getRange(5, 1, 1, 2).getValues()[0];
-    var capStr = capData[1] ? capData[1].toString() : "";
-    var capMatch = capStr.match(/(\d+)\s*\/\s*(\d+)/);
-    if (!capMatch) continue;
+    // Try to read capacity from row 5 (format: "X / Y")
+    var filled = 0, total = defaultCap;
+    try {
+      var capData = sheets[s].getRange(5, 1, 1, 2).getValues()[0];
+      var capStr = capData[1] ? capData[1].toString() : "";
+      var capMatch = capStr.match(/(\d+)\s*\/\s*(\d+)/);
+      if (capMatch) {
+        filled = parseInt(capMatch[1]);
+        total = parseInt(capMatch[2]);
+      } else {
+        // Count people on the tab instead (rows 8+ with names in col B)
+        var data = sheets[s].getDataRange().getValues();
+        for (var r = 7; r < data.length; r++) {
+          var cellName = data[r][1] ? data[r][1].toString().trim() : "";
+          if (cellName && !isOpenSeatMarker(cellName) && cellName.toLowerCase() !== "tbd") {
+            filled++;
+          }
+        }
+      }
+    } catch (e) {
+      // If we can't read capacity, still include the tab
+    }
 
-    var filled = parseInt(capMatch[1]);
-    var total = parseInt(capMatch[2]);
     var openSeats = total - filled;
 
     candidates.push({
       tabName: tabName,
-      openSeats: openSeats,
+      openSeats: openSeats > 0 ? openSeats : 0,
       filled: filled,
       capacity: total,
       classDate: classDate,
