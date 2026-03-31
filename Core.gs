@@ -94,7 +94,9 @@ function createMenu() {
     .addSubMenu(ui.createMenu("5. Refresh & Maintenance")
       .addItem("5a. Refresh All (manual)", "refreshAll")
       .addItem("5b. Audit Training Sheet", "auditTrainingSheet")
-      .addItem("5c. Fix Training Sheet Issues", "fixTrainingSheetIssues"))
+      .addItem("5c. Fix Training Sheet Issues", "fixTrainingSheetIssues")
+      .addItem("5d. Setup Training Rules Sheet", "setupTrainingRulesSheet")
+      .addItem("5e. Apply Training Rules (set NA)", "applyTrainingRules"))
 
     .addSeparator()
 
@@ -2599,6 +2601,274 @@ function importFromPaylocity() {
 
   summary += "\nTraining Rosters refreshed.";
   summary += "\n\nYou can delete the \"Paylocity Import\" tab when done.";
+
+  ui.alert(summary);
+}
+
+
+// ************************************************************
+//
+//   21. TRAINING RULES (role-based NA assignment)
+//
+// ************************************************************
+
+var TRAINING_RULES_SHEET = "Training Rules";
+var STAFF_SHEET = "Staff";
+
+/**
+ * 5d. Setup Training Rules Sheet
+ *
+ * Creates the Training Rules sheet with headers matching the
+ * Training sheet columns. You fill in Y/N for each role.
+ */
+function setupTrainingRulesSheet() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var existing = ss.getSheetByName(TRAINING_RULES_SHEET);
+  if (existing) {
+    var overwrite = ui.alert("Training Rules sheet already exists.\n\nOverwrite it?", ui.ButtonSet.YES_NO);
+    if (overwrite !== ui.Button.YES) return;
+    ss.deleteSheet(existing);
+  }
+
+  var sheet = ss.insertSheet(TRAINING_RULES_SHEET);
+
+  // Build headers: SUPPORT + each training column from TRAINING_CONFIG
+  var headers = ["SUPPORT"];
+  for (var i = 0; i < TRAINING_CONFIG.length; i++) {
+    headers.push(TRAINING_CONFIG[i].name);
+  }
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  sheet.getRange(1, 1, 1, headers.length)
+    .setFontWeight("bold")
+    .setBackground("#1F3864")
+    .setFontColor("#FFFFFF")
+    .setFontFamily("Arial");
+
+  // Get unique SUPPORT values from the Staff sheet
+  var staffSheet = ss.getSheetByName(STAFF_SHEET);
+  var roles = [];
+  if (staffSheet) {
+    var staffData = staffSheet.getDataRange().getValues();
+    var staffHeaders = staffData[0];
+    var supportCol = -1;
+    for (var c = 0; c < staffHeaders.length; c++) {
+      if (staffHeaders[c].toString().trim().toUpperCase() === "SUPPORT") { supportCol = c; break; }
+    }
+    if (supportCol >= 0) {
+      var seen = {};
+      for (var r = 1; r < staffData.length; r++) {
+        var role = staffData[r][supportCol] ? staffData[r][supportCol].toString().trim() : "";
+        if (role && !seen[role.toLowerCase()]) {
+          seen[role.toLowerCase()] = true;
+          roles.push(role);
+        }
+      }
+      roles.sort();
+    }
+  }
+
+  // Pre-fill with roles and Y defaults
+  if (roles.length > 0) {
+    for (var r = 0; r < roles.length; r++) {
+      var row = [roles[r]];
+      for (var i = 0; i < TRAINING_CONFIG.length; i++) {
+        row.push("Y");
+      }
+      sheet.getRange(r + 2, 1, 1, row.length).setValues([row]);
+    }
+  } else {
+    var examples = ["DSP", "Home Manager", "Admin Asst", "Teacher", "LPN", "Case Manager"];
+    for (var r = 0; r < examples.length; r++) {
+      var row = [examples[r]];
+      for (var i = 0; i < TRAINING_CONFIG.length; i++) {
+        row.push("Y");
+      }
+      sheet.getRange(r + 2, 1, 1, row.length).setValues([row]);
+    }
+  }
+
+  // Format
+  sheet.setColumnWidth(1, 250);
+  for (var i = 0; i < TRAINING_CONFIG.length; i++) {
+    sheet.setColumnWidth(i + 2, 120);
+  }
+  sheet.setFrozenRows(1);
+  sheet.setFrozenColumns(1);
+
+  // Add data validation (Y/N)
+  var lastRow = Math.max(roles.length, 6) + 1;
+  var ynRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["Y", "N"])
+    .setAllowInvalid(false)
+    .build();
+  sheet.getRange(2, 2, lastRow, TRAINING_CONFIG.length).setDataValidation(ynRule);
+
+  ui.alert("Training Rules sheet created!\n\n" +
+    (roles.length > 0 ? roles.length + " roles pulled from Staff sheet.\n" : "") +
+    "All trainings default to Y (required).\n" +
+    "Change to N for trainings that role doesn't need.\n\n" +
+    "When done, run 5e. Apply Training Rules to set NA on the Training sheet.");
+}
+
+/**
+ * 5e. Apply Training Rules
+ *
+ * Reads the Staff sheet (LNAME, FNAME, SUPPORT) and the
+ * Training Rules sheet. For each person on the Training sheet,
+ * looks up their SUPPORT role and sets NA for any training
+ * marked N in the rules.
+ */
+function applyTrainingRules() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var rulesSheet = ss.getSheetByName(TRAINING_RULES_SHEET);
+  if (!rulesSheet) {
+    ui.alert("No \"" + TRAINING_RULES_SHEET + "\" sheet found.\n\nRun 5d. Setup Training Rules Sheet first.");
+    return;
+  }
+
+  var rulesData = rulesSheet.getDataRange().getValues();
+  var rulesHeaders = rulesData[0];
+
+  // Build rules map: { "dsp": { "CPR/FA": "Y", "Ukeru": "N", ... } }
+  var rulesMap = {};
+  for (var r = 1; r < rulesData.length; r++) {
+    var role = rulesData[r][0] ? rulesData[r][0].toString().trim() : "";
+    if (!role) continue;
+    rulesMap[role.toLowerCase()] = {};
+    for (var c = 1; c < rulesHeaders.length; c++) {
+      var training = rulesHeaders[c] ? rulesHeaders[c].toString().trim() : "";
+      var val = rulesData[r][c] ? rulesData[r][c].toString().trim().toUpperCase() : "Y";
+      rulesMap[role.toLowerCase()][training] = val;
+    }
+  }
+
+  // Read Staff sheet
+  var staffSheet = ss.getSheetByName(STAFF_SHEET);
+  if (!staffSheet) {
+    ui.alert("No \"" + STAFF_SHEET + "\" sheet found.\n\nCreate a tab called \"Staff\" with columns: LNAME, FNAME, ACTIVE, LOCATION, SUPPORT");
+    return;
+  }
+
+  var staffData = staffSheet.getDataRange().getValues();
+  var staffH = staffData[0];
+  var sLnameCol = -1, sFnameCol = -1, sSupportCol = -1;
+  for (var c = 0; c < staffH.length; c++) {
+    var h = staffH[c].toString().trim().toUpperCase();
+    if (h === "LNAME" || h === "L NAME" || h === "LAST NAME") sLnameCol = c;
+    if (h === "FNAME" || h === "F NAME" || h === "FIRST NAME") sFnameCol = c;
+    if (h === "SUPPORT") sSupportCol = c;
+  }
+
+  if (sLnameCol < 0 || sFnameCol < 0 || sSupportCol < 0) {
+    ui.alert("Staff sheet needs columns: LNAME, FNAME, SUPPORT\n\nFound: " + staffH.join(", "));
+    return;
+  }
+
+  // Build staff lookup: { "lastname|firstname": "DSP" }
+  var staffLookup = {};
+  for (var r = 1; r < staffData.length; r++) {
+    var ln = staffData[r][sLnameCol] ? staffData[r][sLnameCol].toString().trim().toLowerCase() : "";
+    var fn = staffData[r][sFnameCol] ? staffData[r][sFnameCol].toString().trim().toLowerCase() : "";
+    var support = staffData[r][sSupportCol] ? staffData[r][sSupportCol].toString().trim() : "";
+    if (ln && fn && support) {
+      staffLookup[ln + "|" + fn] = support;
+    }
+  }
+
+  // Read Training sheet
+  var trainingSheet = ss.getSheetByName(TRAINING_ACCESS_SHEET_NAME);
+  if (!trainingSheet) { ui.alert("Training sheet not found."); return; }
+
+  var trainingData = trainingSheet.getDataRange().getValues();
+  var trainingHeaders = trainingData[0];
+
+  var lNameCol = findColumnIndex(trainingHeaders, ["L NAME", "LNAME", "LAST NAME"]);
+  var fNameCol = findColumnIndex(trainingHeaders, ["F NAME", "FNAME", "FIRST NAME"]);
+  var activeCol = findColumnIndex(trainingHeaders, ["ACTIVE", "STATUS"]);
+
+  if (lNameCol < 0 || fNameCol < 0) { ui.alert("Training sheet needs L NAME and F NAME columns."); return; }
+
+  // Map training config names to column indices
+  var trainingColMap = {};
+  for (var i = 0; i < TRAINING_CONFIG.length; i++) {
+    var colIdx = findColumnIndex(trainingHeaders, [TRAINING_CONFIG[i].column]);
+    if (colIdx >= 0) trainingColMap[TRAINING_CONFIG[i].name] = colIdx;
+  }
+
+  var confirm = ui.alert("Apply Training Rules",
+    "This will set N/A for trainings marked N in the rules.\n" +
+    "Only changes EMPTY cells or cells with NEEDS/NEEDDS.\n" +
+    "Won't overwrite dates, excusal codes, or failure codes.\n\n" +
+    "Staff lookup: " + Object.keys(staffLookup).length + " employees\n" +
+    "Rules: " + Object.keys(rulesMap).length + " roles\n\n" +
+    "Continue?", ui.ButtonSet.YES_NO);
+  if (confirm !== ui.Button.YES) return;
+
+  var stats = { matched: 0, naSet: 0, skippedNoRole: 0, skippedNoRule: 0, skippedHasValue: 0 };
+
+  for (var r = 1; r < trainingData.length; r++) {
+    var lastName = trainingData[r][lNameCol] ? trainingData[r][lNameCol].toString().trim() : "";
+    var firstName = trainingData[r][fNameCol] ? trainingData[r][fNameCol].toString().trim() : "";
+    if (!lastName || !firstName) continue;
+
+    if (activeCol >= 0) {
+      var active = trainingData[r][activeCol] ? trainingData[r][activeCol].toString().trim().toUpperCase() : "";
+      if (active === "NO" || active === "N" || active === "INACTIVE" || active === "TERMINATED") continue;
+    }
+
+    // Look up role from Staff sheet
+    var key = lastName.toLowerCase() + "|" + firstName.toLowerCase();
+    var role = staffLookup[key];
+
+    // Try nickname matching
+    if (!role) {
+      var fnLower = firstName.toLowerCase();
+      var nicks = NICKNAMES[fnLower] || [];
+      for (var n = 0; n < nicks.length; n++) {
+        var tryKey = lastName.toLowerCase() + "|" + nicks[n];
+        if (staffLookup[tryKey]) { role = staffLookup[tryKey]; break; }
+      }
+    }
+
+    if (!role) { stats.skippedNoRole++; continue; }
+
+    var rules = rulesMap[role.toLowerCase()];
+    if (!rules) { stats.skippedNoRule++; continue; }
+
+    stats.matched++;
+
+    for (var training in trainingColMap) {
+      if (rules[training] !== "N") continue;
+
+      var colIdx = trainingColMap[training];
+      var currentVal = trainingData[r][colIdx] ? trainingData[r][colIdx].toString().trim() : "";
+      var currentUpper = currentVal.toUpperCase();
+
+      // Only set N/A if empty or NEEDS
+      if (!currentVal || currentUpper === "NEEDS" || currentUpper === "NEEDDS" ||
+          currentUpper === "SCHED" || currentUpper === "SCHEDULE") {
+        trainingSheet.getRange(r + 1, colIdx + 1).setValue("N/A");
+        trainingData[r][colIdx] = "N/A";
+        stats.naSet++;
+      } else {
+        stats.skippedHasValue++;
+      }
+    }
+  }
+
+  generateRostersSilent();
+
+  var summary = "Training Rules Applied!\n\n";
+  summary += "Employees matched: " + stats.matched + "\n";
+  summary += "Cells set to N/A: " + stats.naSet + "\n\n";
+  summary += "Skipped (no role on Staff sheet): " + stats.skippedNoRole + "\n";
+  summary += "Skipped (role not in rules): " + stats.skippedNoRule + "\n";
+  summary += "Skipped (already had date/code): " + stats.skippedHasValue + "\n";
+  summary += "\nTraining Rosters refreshed.";
 
   ui.alert(summary);
 }
