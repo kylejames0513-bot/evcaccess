@@ -564,6 +564,7 @@ function syncScheduledTrainings() {
     var kept = [];
     var removed = [];
     var placeholders = [];
+    var seenInSession = {}; // deduplicate within a session
 
     for (var e = 0; e < session.enrollees.length; e++) {
       var name = session.enrollees[e];
@@ -573,6 +574,10 @@ function syncScheduledTrainings() {
         placeholders.push(name);
         continue;
       }
+
+      // Skip duplicates within the same session
+      if (seenInSession[nameLower]) continue;
+      seenInSession[nameLower] = true;
 
       var info = needsMap[nameLower];
       if (!info) info = fuzzyMatchNeeds_(nameLower, needsMap);
@@ -2105,11 +2110,14 @@ function rebuildScheduledOverview_(ss) {
       var assignedMap = globalAssigned[configName.toLowerCase()];
 
       var kept = [], removed = [], placeholders = [];
+      var seenInSession = {};
 
       for (var e = 0; e < session.enrollees.length; e++) {
         var name = session.enrollees[e];
         var nameLower = name.toLowerCase().trim();
         if (nameLower === "tbd" || nameLower === "new hires") { placeholders.push(name); continue; }
+        if (seenInSession[nameLower]) continue;
+        seenInSession[nameLower] = true;
         var info = needsMap[nameLower];
         if (!info) info = fuzzyMatchNeeds_(nameLower, needsMap);
         if (info) { kept.push(name); assignedMap[nameLower] = true; }
@@ -2326,11 +2334,14 @@ function refreshAll() {
             var capacity = getCapacityForTraining_(configName);
 
             var kept = [], removed = [], placeholders = [];
+            var seenInSession = {};
 
             for (var e = 0; e < session.enrollees.length; e++) {
               var name = session.enrollees[e];
               var nameLower = name.toLowerCase().trim();
               if (nameLower === "tbd" || nameLower === "new hires") { placeholders.push(name); continue; }
+              if (seenInSession[nameLower]) continue;
+              seenInSession[nameLower] = true;
               var info = needsMap[nameLower];
               if (!info) info = fuzzyMatchNeeds_(nameLower, needsMap);
               if (info) { kept.push(name); assignedMap[nameLower] = true; }
