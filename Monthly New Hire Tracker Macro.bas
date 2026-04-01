@@ -49,7 +49,7 @@ Option Explicit
 ' CONFIGURATION
 ' ============================================================
 Private Const GOOGLE_CSV_URL As String = _
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vSrqHNYlebocrv8AARfLon065YuST3Yo_PSwH5WGoBK6B4bjlBKGNGlX82ccLq5kZqkZ5Devknz2oho/pub?gid=313450341&single=true&output=csv"
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vT5agoZ2dk1qPo11He4LcKlPsLzHqoL-Q6oF6t8jfpe-ghIb4b6wmmRyDfnZ48U7jCzGYHqI_-JhMaw/pub?gid=524304422&single=true&output=csv"
 
 ' CSV column indices (0-based, from Training sheet headers)
 Private Const CSV_LNAME As Long = 0       ' L NAME

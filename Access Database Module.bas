@@ -25,7 +25,7 @@ Option Explicit
 ' ============================================================
 Private Const ADMIN_USERNAME As String = "kyle.mahoney"
 
-Private Const GOOGLE_CSV_URL As String = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSrqHNYlebocrv8AARfLon065YuST3Yo_PSwH5WGoBK6B4bjlBKGNGlX82ccLq5kZqkZ5Devknz2oho/pub?gid=313450341&single=true&output=csv"
+Private Const GOOGLE_CSV_URL As String = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT5agoZ2dk1qPo11He4LcKlPsLzHqoL-Q6oF6t8jfpe-ghIb4b6wmmRyDfnZ48U7jCzGYHqI_-JhMaw/pub?gid=524304422&single=true&output=csv"
 
 Private Const TABLE_NAME As String = "tblTrainingAccess"
 
