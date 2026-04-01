@@ -54,11 +54,11 @@ Private Const GOOGLE_CSV_URL As String = _
 ' CSV column indices (0-based, from Training sheet headers)
 Private Const CSV_LNAME As Long = 0       ' L NAME
 Private Const CSV_FNAME As Long = 1       ' F NAME
-Private Const CSV_CPR As Long = 3         ' CPR
-Private Const CSV_FIRSTAID As Long = 4    ' FIRSTAID
-Private Const CSV_MEDTRAIN As Long = 5    ' MED_TRAIN
-Private Const CSV_MEALTIME As Long = 7    ' Mealtime
-Private Const CSV_UKERU As Long = 9       ' Ukeru
+Private Const CSV_CPR As Long = 4         ' CPR
+Private Const CSV_FIRSTAID As Long = 5    ' FIRSTAID
+Private Const CSV_MEDTRAIN As Long = 6    ' MED_TRAIN
+Private Const CSV_MEALTIME As Long = 8    ' Mealtime
+Private Const CSV_UKERU As Long = 10      ' Ukeru
 
 ' New Hire column indices (1-based, rows 5-54)
 Private Const NH_LNAME As Long = 3
