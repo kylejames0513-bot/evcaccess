@@ -129,11 +129,17 @@ function buildRosterData(silent) {
       prereqColIdx = findColumnIndex(headers, [config.prerequisite]);
     }
 
+    var seenNames = {};
+
     for (var r = 1; r < data.length; r++) {
       var lastName = String(data[r][lNameCol] || "").trim();
       var firstName = String(data[r][fNameCol] || "").trim();
 
       if (!lastName && !firstName) continue;
+
+      var nameKey = (firstName + " " + lastName).toLowerCase();
+      if (seenNames[nameKey]) continue;
+      seenNames[nameKey] = true;
 
       if (activeCol !== -1) {
         var activeVal = String(data[r][activeCol] || "").trim().toUpperCase();
