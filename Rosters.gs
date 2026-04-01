@@ -101,6 +101,8 @@ function buildRosterData(silent) {
     var expiringSoon = [];
     var expired = [];
     var excused = [];
+    var totalActive = 0;
+    var completedCount = 0;
 
     var prereqColIdx = -1;
     if (config.prerequisite) {
@@ -124,6 +126,7 @@ function buildRosterData(silent) {
         if (!prereqDate) continue;
       }
 
+      totalActive++;
       var fullName = firstName + " " + lastName;
       var dateVal = data[r][colIdx];
       var cellStr = String(dateVal || "").trim();
@@ -173,7 +176,7 @@ function buildRosterData(silent) {
         continue;
       }
 
-      if (config.renewalYears === 0) continue;
+      if (config.renewalYears === 0) { completedCount++; continue; }
 
       var expDate = new Date(trainDate);
       expDate.setFullYear(expDate.getFullYear() + config.renewalYears);
@@ -196,6 +199,8 @@ function buildRosterData(silent) {
           expDate: formatDate(expDate),
           sortKey: daysUntilExp
         });
+      } else {
+        completedCount++;
       }
     }
 
@@ -211,10 +216,13 @@ function buildRosterData(silent) {
       name: config.name,
       renewalYears: config.renewalYears,
       required: config.required,
+      showOnRoster: config.showOnRoster || false,
       needed: needed,
       expiringSoon: expiringSoon,
       expired: expired,
-      excused: excused
+      excused: excused,
+      totalActive: totalActive,
+      completedCount: completedCount
     });
   }
   return { ss: ss, allRosters: allRosters, today: today };
@@ -226,30 +234,34 @@ function generateRosters() {
 
   writeRosterSheet(result.ss, result.allRosters, result.today);
 
-  // Summary alert
+  // Summary alert (roster trainings only)
+  var rosterItems = result.allRosters.filter(function(r) { return r.showOnRoster; });
   var summary = "Rosters generated!\n\n";
-  for (var i = 0; i < result.allRosters.length; i++) {
-    var r = result.allRosters[i];
+  for (var i = 0; i < rosterItems.length; i++) {
+    var r = rosterItems[i];
     if (r.error) {
       summary += r.name + ": " + r.error + "\n";
     } else {
-      var total = r.needed.length + r.expiringSoon.length + r.expired.length;
-      summary += r.name + ": " + total + " staff flagged";
-      if (r.expired.length > 0) summary += " (" + r.expired.length + " expired)";
-      if (r.expiringSoon.length > 0) summary += " (" + r.expiringSoon.length + " expiring soon)";
-      if (r.needed.length > 0) summary += " (" + r.needed.length + " never completed)";
+      var compPct = r.totalActive > 0 ? Math.round((r.completedCount / r.totalActive) * 100) : 100;
+      summary += r.name + ": " + r.completedCount + "/" + r.totalActive + " completed (" + compPct + "%)";
+      if (r.expired.length > 0) summary += " | " + r.expired.length + " expired";
+      if (r.expiringSoon.length > 0) summary += " | " + r.expiringSoon.length + " expiring";
+      if (r.needed.length > 0) summary += " | " + r.needed.length + " needed";
       summary += "\n";
     }
   }
   // Grand totals
-  var gExp = 0, gNeed = 0, gExpiring = 0;
-  for (var g = 0; g < result.allRosters.length; g++) {
-    var gr = result.allRosters[g];
-    if (!gr.error) { gExp += gr.expired.length; gNeed += gr.needed.length; gExpiring += gr.expiringSoon.length; }
+  var gComp = 0, gTotal = 0, gExp = 0, gNeed = 0, gExpiring = 0;
+  for (var g = 0; g < rosterItems.length; g++) {
+    var gr = rosterItems[g];
+    if (!gr.error) {
+      gComp += gr.completedCount || 0; gTotal += gr.totalActive || 0;
+      gExp += gr.expired.length; gNeed += gr.needed.length; gExpiring += gr.expiringSoon.length;
+    }
   }
-  var gTotal = gExp + gNeed + gExpiring;
+  var gPct = gTotal > 0 ? Math.round((gComp / gTotal) * 100) : 100;
   summary += "\n── TOTALS ──\n";
-  summary += gTotal + " total action items";
+  summary += gComp + "/" + gTotal + " completed (" + gPct + "%)";
   if (gExp > 0) summary += " | " + gExp + " expired";
   if (gExpiring > 0) summary += " | " + gExpiring + " expiring";
   if (gNeed > 0) summary += " | " + gNeed + " needed";
@@ -315,6 +327,9 @@ function generateSingleRoster() {
 // ************************************************************
 
 function writeRosterSheet(ss, allRosters, today) {
+  // Filter to only show trainings flagged for roster display
+  allRosters = allRosters.filter(function(r) { return r.showOnRoster; });
+
   var existing = ss.getSheetByName(ROSTER_SHEET_NAME);
   if (existing) ss.deleteSheet(existing);
   var sheet = ss.insertSheet(ROSTER_SHEET_NAME);
@@ -331,7 +346,7 @@ function writeRosterSheet(ss, allRosters, today) {
   w.addRow([]);
 
   w.addRow(["COMPLIANCE DASHBOARD"], { bg: "#2E75B6", fontColor: WHITE, fontWeight: "bold", fontSize: 12, merge: true });
-  w.addRow(["Training", "Expired", "Expiring", "Needs", "Excused", "Total Flagged", "Coverage %"], {
+  w.addRow(["Training", "Completed", "Expired", "Expiring", "Needs", "Total Staff", "Completion %"], {
     bg: NAVY, fontColor: WHITE, fontWeight: "bold", fontSize: 10
   });
 
@@ -342,53 +357,41 @@ function writeRosterSheet(ss, allRosters, today) {
       continue;
     }
     var expCt = r.expired.length, esCt = r.expiringSoon.length, ndCt = r.needed.length;
-    var exCt = r.excused ? r.excused.length : 0;
-    var total = expCt + esCt + ndCt;
-    var tk = r.name.toLowerCase(), sm = alreadyScheduled[tk] || {};
-    var sbmDash = standbyMap[tk] || {};
-    var schedCt = 0, sbCt = 0;
-    var allPeople = [].concat(r.expired, r.expiringSoon, r.needed);
-    for (var p = 0; p < allPeople.length; p++) {
-      var pLow = allPeople[p].name.toLowerCase().trim();
-      if (sm[pLow]) schedCt++;
-      else if (sbmDash[pLow]) sbCt++;
-    }
-    var coveredCt = schedCt + sbCt;
-    var pct = total > 0 ? Math.round((coveredCt / total) * 100) : 100;
-    var pctColor = pct >= 80 ? GREEN : (pct >= 40 ? ORANGE : RED);
-    var pctLabel = pct + "% scheduled";
-    if (sbCt > 0) pctLabel = schedCt + " sched + " + sbCt + " rescheduled";
+    var compCt = r.completedCount || 0;
+    var totStaff = r.totalActive || 0;
+    var compPct = totStaff > 0 ? Math.round((compCt / totStaff) * 100) : 100;
+    var pctColor = compPct >= 80 ? GREEN : (compPct >= 50 ? ORANGE : RED);
     var rowBg = (t % 2 === 0) ? WHITE : ALT_BLUE;
 
-    w.addRow([r.name, expCt || "", esCt || "", ndCt || "", exCt || "", total, pctLabel], {
+    w.addRow([r.name, compCt, expCt || "", esCt || "", ndCt || "", totStaff, compPct + "%"], {
       bg: rowBg,
       cellColors: [
         "#000000",
+        compCt > 0 ? GREEN : "#666666",
         expCt > 0 ? RED : "#666666",
         esCt > 0 ? ORANGE : "#666666",
         ndCt > 0 ? NAVY : "#666666",
-        exCt > 0 ? "#666666" : "#666666",
-        total > 0 ? "#000000" : GREEN,
+        "#000000",
         pctColor
       ],
-      cellWeights: ["bold", "normal", "normal", "normal", "normal", "bold", "bold"]
+      cellWeights: ["bold", "bold", "normal", "normal", "normal", "bold", "bold"]
     });
   }
 
   // Grand totals row
-  var grandExpired = 0, grandExpiring = 0, grandNeeded = 0, grandExcused = 0, grandTotal = 0, grandSched = 0;
+  var grandCompleted = 0, grandExpired = 0, grandExpiring = 0, grandNeeded = 0, grandTotal = 0;
   for (var gt = 0; gt < allRosters.length; gt++) {
     var gr = allRosters[gt];
     if (gr.error) continue;
+    grandCompleted += gr.completedCount || 0;
     grandExpired += gr.expired.length;
     grandExpiring += gr.expiringSoon.length;
     grandNeeded += gr.needed.length;
-    grandExcused += gr.excused ? gr.excused.length : 0;
-    grandTotal += gr.expired.length + gr.expiringSoon.length + gr.needed.length;
+    grandTotal += gr.totalActive || 0;
   }
-  var grandPct = grandTotal > 0 ? Math.round(((grandTotal - grandExpired) / grandTotal) * 100) : 100;
+  var grandPct = grandTotal > 0 ? Math.round((grandCompleted / grandTotal) * 100) : 100;
 
-  w.addRow(["TOTALS", grandExpired || "", grandExpiring || "", grandNeeded || "", grandExcused || "", grandTotal, grandTotal === 0 ? "100% compliant" : grandTotal + " action items"], {
+  w.addRow(["TOTALS", grandCompleted, grandExpired || "", grandExpiring || "", grandNeeded || "", grandTotal, grandPct + "%"], {
     bg: NAVY, fontColor: WHITE, fontWeight: "bold", fontSize: 10
   });
 

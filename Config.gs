@@ -120,6 +120,7 @@ var TRAINING_CONFIG = [
     column: "CPR",
     renewalYears: 2,
     required: true,
+    showOnRoster: true,
     classCapacity: 10,
     schedule: { recurring: [{ weekday: "Thursday" }] },
     weeksOut: 4,
@@ -130,6 +131,7 @@ var TRAINING_CONFIG = [
     column: "Ukeru",
     renewalYears: 0,
     required: false,
+    showOnRoster: true,
     classCapacity: 12,
     schedule: {
       recurring: [
@@ -144,6 +146,7 @@ var TRAINING_CONFIG = [
     column: "Mealtime",
     renewalYears: 0,
     required: false,
+    showOnRoster: true,
     classCapacity: 15,
     schedule: { recurring: [{ weekday: "Wednesday", nthWeek: [3] }] },
     weeksOut: 8
@@ -154,6 +157,7 @@ var TRAINING_CONFIG = [
     rulesName: "Med Training",
     renewalYears: 3,
     required: false,
+    showOnRoster: true,
     onlyExpired: true,
     classCapacity: 4,
     aliases: ["med cert", "med test out"]
@@ -164,6 +168,7 @@ var TRAINING_CONFIG = [
     rulesName: "Med Training",
     renewalYears: 0,
     required: false,
+    showOnRoster: true,
     onlyNeeded: true,
     classCapacity: 4
   },
@@ -172,6 +177,7 @@ var TRAINING_CONFIG = [
     column: "POST MED",
     renewalYears: 0,
     required: false,
+    showOnRoster: true,
     prerequisite: "MED_TRAIN",
     classCapacity: 8
   },
