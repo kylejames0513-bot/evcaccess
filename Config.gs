@@ -57,7 +57,37 @@ var SESSION_TO_COLUMN = {
   "Med Recert":                   ["MED_TRAIN"],
   "Med Cert":                     ["MED_TRAIN"],
   "Person Centered":              ["Pers Cent Thnk"],
-  "Personal Outcome Measures":    ["POM"]
+  "Personal Outcome Measures":    ["POM"],
+
+  // ── New training types ──
+  "Safety Care":                  ["Safety Care"],
+  "Meaningful Day":               ["Meaningful Day"],
+  "MD Refresh":                   ["MD refresh"],
+  "GERD":                         ["GERD"],
+  "HCO Training":                 ["HCO Training"],
+  "HCO":                          ["HCO Training"],
+  "Health Passport":              ["Health Passport"],
+  "Diabetes":                     ["Diabetes"],
+  "Falls":                        ["Falls"],
+  "Dysphagia":                    ["Dysphagia Oveview"],
+  "Dysphagia Overview":           ["Dysphagia Oveview"],
+  "Rights Training":              ["Rights Training"],
+  "Title VI":                     ["Title VI"],
+  "Active Shooter":               ["Active Shooter"],
+  "Skills System":                ["Skills System"],
+  "CPI":                          ["CPI"],
+  "CPM":                          ["CPM"],
+  "PFH/DIDD":                     ["PFH/DIDD"],
+  "Basic VCRM":                   ["Basic VCRM"],
+  "Advanced VCRM":                ["Advanced VCRM"],
+  "TRN":                          ["TRN"],
+  "ASL":                          ["ASL"],
+  "Skills Online":                ["Skills Online"],
+  "ETIS":                         ["ETIS"],
+  "Shift":                        ["SHIFT"],
+  "ADV SHIFT":                    ["ADV SHIFT"],
+  "Advanced Shift":               ["ADV SHIFT"],
+  "MC":                           ["MC"]
 };
 
 
@@ -121,6 +151,7 @@ var TRAINING_CONFIG = [
   {
     name: "Med Recert",
     column: "MED_TRAIN",
+    rulesName: "Med Training",
     renewalYears: 3,
     required: false,
     onlyExpired: true,
@@ -130,6 +161,7 @@ var TRAINING_CONFIG = [
   {
     name: "Initial Med Training",
     column: "MED_TRAIN",
+    rulesName: "Med Training",
     renewalYears: 0,
     required: false,
     onlyNeeded: true,
@@ -146,6 +178,7 @@ var TRAINING_CONFIG = [
   {
     name: "POMs",
     column: "POM",
+    rulesName: "POM",
     renewalYears: 0,
     required: false,
     classCapacity: 15,
@@ -166,6 +199,191 @@ var TRAINING_CONFIG = [
     required: false,
     classCapacity: 10,
     aliases: ["van lyft"]
+  },
+  {
+    name: "Safety Care",
+    column: "Safety Care",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "Meaningful Day",
+    column: "Meaningful Day",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15,
+    aliases: ["meaningful day training"]
+  },
+  {
+    name: "MD Refresh",
+    column: "MD refresh",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15,
+    aliases: ["md refresh training"]
+  },
+  {
+    name: "GERD",
+    column: "GERD",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "HCO Training",
+    column: "HCO Training",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15,
+    aliases: ["hco"]
+  },
+  {
+    name: "Health Passport",
+    column: "Health Passport",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "Diabetes",
+    column: "Diabetes",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "Falls",
+    column: "Falls",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "Dysphagia",
+    column: "Dysphagia Oveview",
+    columnAlt: ["Dysphagia Overview", "Dysphagia"],
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15,
+    aliases: ["dysphagia overview", "dysphagia training"]
+  },
+  {
+    name: "Rights Training",
+    column: "Rights Training",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "Title VI",
+    column: "Title VI",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "Active Shooter",
+    column: "Active Shooter",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "Skills System",
+    column: "Skills System",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15,
+    aliases: ["skills system training"]
+  },
+  {
+    name: "CPI",
+    column: "CPI",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "CPM",
+    column: "CPM",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "PFH/DIDD",
+    column: "PFH/DIDD",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "Basic VCRM",
+    column: "Basic VCRM",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15,
+    aliases: ["basic vcrm training"]
+  },
+  {
+    name: "Advanced VCRM",
+    column: "Advanced VCRM",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15,
+    aliases: ["advanced vcrm training"]
+  },
+  {
+    name: "TRN",
+    column: "TRN",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "ASL",
+    column: "ASL",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "Skills Online",
+    column: "Skills Online",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "ETIS",
+    column: "ETIS",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
+  },
+  {
+    name: "Shift",
+    column: "SHIFT",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15,
+    aliases: ["shift training"]
+  },
+  {
+    name: "Advanced Shift",
+    column: "ADV SHIFT",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15,
+    aliases: ["adv shift"]
+  },
+  {
+    name: "MC",
+    column: "MC",
+    renewalYears: 0,
+    required: false,
+    classCapacity: 15
   }
 ];
 
@@ -249,7 +467,6 @@ var SCHEDULED_TYPE_MAP = (function() {
   map["post med"] = null;
   map["med cert"] = null;
   map["rising leaders"] = null;
-  map["safety care"] = null;
   return map;
 })();
 

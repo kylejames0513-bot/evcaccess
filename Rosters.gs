@@ -26,7 +26,7 @@
 //  18. Smart Remove helpers
 //  19. Manual Class Assignment
 //  20. Manual Assignment helpers
-//  21. Create a Class (merged from Standby.gs)
+//  21. Create a Class
 //  22. Add to Rescheduled
 //  23. View Rescheduled List
 //  24. Rescheduled sheet management
@@ -82,6 +82,9 @@ function buildRosterData(silent) {
   for (var t = 0; t < TRAINING_CONFIG.length; t++) {
     var config = TRAINING_CONFIG[t];
     var colIdx = findColumnIndex(headers, [config.column]);
+    if (colIdx === -1 && config.columnAlt) {
+      colIdx = findColumnIndex(headers, config.columnAlt);
+    }
 
     if (colIdx === -1) {
       allRosters.push({
@@ -238,7 +241,19 @@ function generateRosters() {
       summary += "\n";
     }
   }
-  summary += "\nCheck the \"" + ROSTER_SHEET_NAME + "\" tab for details.";
+  // Grand totals
+  var gExp = 0, gNeed = 0, gExpiring = 0;
+  for (var g = 0; g < result.allRosters.length; g++) {
+    var gr = result.allRosters[g];
+    if (!gr.error) { gExp += gr.expired.length; gNeed += gr.needed.length; gExpiring += gr.expiringSoon.length; }
+  }
+  var gTotal = gExp + gNeed + gExpiring;
+  summary += "\n── TOTALS ──\n";
+  summary += gTotal + " total action items";
+  if (gExp > 0) summary += " | " + gExp + " expired";
+  if (gExpiring > 0) summary += " | " + gExpiring + " expiring";
+  if (gNeed > 0) summary += " | " + gNeed + " needed";
+  summary += "\n\nCheck the \"" + ROSTER_SHEET_NAME + "\" tab for details.";
   SpreadsheetApp.getUi().alert(summary);
 }
 
@@ -307,7 +322,7 @@ function writeRosterSheet(ss, allRosters, today) {
   var BLUE = "#1565C0", LGRAY = "#F2F2F2", WHITE = "#FFFFFF", ALT_BLUE = "#EBF0F7";
   var COLS = 7;
   var alreadyScheduled = buildFullScheduledMap_(ss);
-  var standbyMap = buildStandbyMap_();
+  var standbyMap = buildRescheduledMap_();
 
   var w = new SheetWriter(sheet).setColCount(COLS);
   w.addRow(["EVC Training Rosters"], { bg: NAVY, fontColor: WHITE, fontWeight: "bold", fontSize: 16, merge: true });
@@ -359,6 +374,23 @@ function writeRosterSheet(ss, allRosters, today) {
       cellWeights: ["bold", "normal", "normal", "normal", "normal", "bold", "bold"]
     });
   }
+
+  // Grand totals row
+  var grandExpired = 0, grandExpiring = 0, grandNeeded = 0, grandExcused = 0, grandTotal = 0, grandSched = 0;
+  for (var gt = 0; gt < allRosters.length; gt++) {
+    var gr = allRosters[gt];
+    if (gr.error) continue;
+    grandExpired += gr.expired.length;
+    grandExpiring += gr.expiringSoon.length;
+    grandNeeded += gr.needed.length;
+    grandExcused += gr.excused ? gr.excused.length : 0;
+    grandTotal += gr.expired.length + gr.expiringSoon.length + gr.needed.length;
+  }
+  var grandPct = grandTotal > 0 ? Math.round(((grandTotal - grandExpired) / grandTotal) * 100) : 100;
+
+  w.addRow(["TOTALS", grandExpired || "", grandExpiring || "", grandNeeded || "", grandExcused || "", grandTotal, grandTotal === 0 ? "100% compliant" : grandTotal + " action items"], {
+    bg: NAVY, fontColor: WHITE, fontWeight: "bold", fontSize: 10
+  });
 
   w.addRow([]);
   var dashEnd = w.flush();
@@ -1377,7 +1409,7 @@ function buildRostersFromOverview() {
 function buildPriorityPool(rosterData, alreadyScheduled, trainingName) {
   var pool = [], trainKey = trainingName.toLowerCase(), scheduledMap = alreadyScheduled[trainKey] || {};
   var exemptions = loadExemptions_();
-  var standbyMap = buildStandbyMap_();
+  var standbyMap = buildRescheduledMap_();
   var standbyForTraining = standbyMap[trainKey] || {};
   for (var p = 0; p < SEAT_PRIORITY.length; p++) {
     var bd = rosterData[SEAT_PRIORITY[p].bucket] || [];
@@ -4976,7 +5008,7 @@ function fuzzySearchNeedsList_(enteredLower, rosterData) {
 
 // ============================================================
 //
-//   RESCHEDULED & CLASS CREATION (merged from Standby.gs)
+//   RESCHEDULED & CLASS CREATION
 //
 // ============================================================
 
@@ -5376,8 +5408,6 @@ function addToRescheduled() {
            "\n\nTraining Rosters updated.");
 }
 
-// Keep old name as alias for backward compatibility with existing triggers
-var addToStandby = addToRescheduled;
 
 
 // ************************************************************
@@ -5505,8 +5535,6 @@ function readRescheduledList_() {
   return list;
 }
 
-// Backward-compatible aliases
-var readStandbyList_ = readRescheduledList_;
 
 /**
  * removeFromRescheduled_ — removes a specific person + training from rescheduled list.
@@ -5643,8 +5671,6 @@ function addToRescheduledFromSmartRemove_(ui, ss, name, trainingType) {
   ui.alert("Added to rescheduled!\n\n" + name + " → " + trainingType + " (" + targetDate + ")");
 }
 
-// Backward-compatible alias
-var addToStandbyFromSmartRemove_ = addToRescheduledFromSmartRemove_;
 
 
 // ************************************************************
@@ -5674,5 +5700,3 @@ function buildRescheduledMap_() {
   return reschedMap;
 }
 
-// Backward-compatible alias
-var buildStandbyMap_ = buildRescheduledMap_;

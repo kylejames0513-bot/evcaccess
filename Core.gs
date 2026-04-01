@@ -96,7 +96,8 @@ function createMenu() {
       .addItem("5b. Audit Training Sheet", "auditTrainingSheet")
       .addItem("5c. Fix Training Sheet Issues", "fixTrainingSheetIssues")
       .addItem("5d. Setup Training Rules Sheet", "setupTrainingRulesSheet")
-      .addItem("5e. Apply Training Rules (set NA)", "applyTrainingRules"))
+      .addItem("5e. Apply Training Rules (set NA)", "applyTrainingRules")
+      .addItem("5f. Sync Training Rules (add new titles)", "syncTrainingRules"))
 
     .addSeparator()
 
@@ -2392,7 +2393,19 @@ var PAYLOCITY_SKILL_MAP = {
   "post med":                    "POST MED",
   "pom":                         "POM",
   "pers cent thnk":              "Pers Cent Thnk",
-  "person centered thinking":    "Pers Cent Thnk"
+  "person centered thinking":    "Pers Cent Thnk",
+  "safety care":                 "Safety Care",
+  "meaningful day":              "Meaningful Day",
+  "rights training":             "Rights Training",
+  "title vi":                    "Title VI",
+  "active shooter":              "Active Shooter",
+  "skills system":               "Skills System",
+  "cpm":                         "CPM",
+  "pfh/didd":                    "PFH/DIDD",
+  "basic vcrm":                  "Basic VCRM",
+  "trn":                         "TRN",
+  "asl":                         "ASL",
+  "shift":                       "SHIFT"
 };
 
 /**
@@ -2613,13 +2626,13 @@ function importFromPaylocity() {
 // ************************************************************
 
 var TRAINING_RULES_SHEET = "Training Rules";
-var STAFF_SHEET = "Staff";
 
 /**
  * 5d. Setup Training Rules Sheet
  *
  * Creates the Training Rules sheet with headers matching the
  * Training sheet columns. You fill in Y/N for each role.
+ * Uses JOB TITLE from the Training sheet to populate roles.
  */
 function setupTrainingRulesSheet() {
   var ui = SpreadsheetApp.getUi();
@@ -2634,11 +2647,18 @@ function setupTrainingRulesSheet() {
 
   var sheet = ss.insertSheet(TRAINING_RULES_SHEET);
 
-  // Build headers: SUPPORT + each training column from TRAINING_CONFIG
-  var headers = ["SUPPORT"];
+  // Build headers: JOB TITLE + each training from TRAINING_CONFIG
+  // Use rulesName when set (deduplicates shared columns like Med Training)
+  var headers = ["JOB TITLE"];
+  var seenRulesName = {};
   for (var i = 0; i < TRAINING_CONFIG.length; i++) {
-    headers.push(TRAINING_CONFIG[i].name);
+    var rn = TRAINING_CONFIG[i].rulesName || TRAINING_CONFIG[i].name;
+    if (!seenRulesName[rn]) {
+      seenRulesName[rn] = true;
+      headers.push(rn);
+    }
   }
+  var numTrainingCols = headers.length - 1;
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   sheet.getRange(1, 1, 1, headers.length)
     .setFontWeight("bold")
@@ -2646,20 +2666,17 @@ function setupTrainingRulesSheet() {
     .setFontColor("#FFFFFF")
     .setFontFamily("Arial");
 
-  // Get unique SUPPORT values from the Staff sheet
-  var staffSheet = ss.getSheetByName(STAFF_SHEET);
+  // Get unique JOB TITLE values from the Training sheet
+  var trainingSheet = ss.getSheetByName(TRAINING_ACCESS_SHEET_NAME);
   var roles = [];
-  if (staffSheet) {
-    var staffData = staffSheet.getDataRange().getValues();
-    var staffHeaders = staffData[0];
-    var supportCol = -1;
-    for (var c = 0; c < staffHeaders.length; c++) {
-      if (staffHeaders[c].toString().trim().toUpperCase() === "SUPPORT") { supportCol = c; break; }
-    }
-    if (supportCol >= 0) {
+  if (trainingSheet) {
+    var trainingData = trainingSheet.getDataRange().getValues();
+    var trainingHeaders = trainingData[0];
+    var jobTitleCol = findColumnIndex(trainingHeaders, ["JOB TITLE", "JOB_TITLE", "POSITION", "TITLE"]);
+    if (jobTitleCol >= 0) {
       var seen = {};
-      for (var r = 1; r < staffData.length; r++) {
-        var role = staffData[r][supportCol] ? staffData[r][supportCol].toString().trim() : "";
+      for (var r = 1; r < trainingData.length; r++) {
+        var role = trainingData[r][jobTitleCol] ? trainingData[r][jobTitleCol].toString().trim() : "";
         if (role && !seen[role.toLowerCase()]) {
           seen[role.toLowerCase()] = true;
           roles.push(role);
@@ -2673,16 +2690,16 @@ function setupTrainingRulesSheet() {
   if (roles.length > 0) {
     for (var r = 0; r < roles.length; r++) {
       var row = [roles[r]];
-      for (var i = 0; i < TRAINING_CONFIG.length; i++) {
+      for (var i = 0; i < numTrainingCols; i++) {
         row.push("Y");
       }
       sheet.getRange(r + 2, 1, 1, row.length).setValues([row]);
     }
   } else {
-    var examples = ["DSP", "Home Manager", "Admin Asst", "Teacher", "LPN", "Case Manager"];
+    var examples = ["Direct Support Professional", "Home Manager", "Admin Asst", "Teacher", "LPN", "Case Manager"];
     for (var r = 0; r < examples.length; r++) {
       var row = [examples[r]];
-      for (var i = 0; i < TRAINING_CONFIG.length; i++) {
+      for (var i = 0; i < numTrainingCols; i++) {
         row.push("Y");
       }
       sheet.getRange(r + 2, 1, 1, row.length).setValues([row]);
@@ -2691,7 +2708,7 @@ function setupTrainingRulesSheet() {
 
   // Format
   sheet.setColumnWidth(1, 250);
-  for (var i = 0; i < TRAINING_CONFIG.length; i++) {
+  for (var i = 0; i < numTrainingCols; i++) {
     sheet.setColumnWidth(i + 2, 120);
   }
   sheet.setFrozenRows(1);
@@ -2703,22 +2720,115 @@ function setupTrainingRulesSheet() {
     .requireValueInList(["Y", "N"])
     .setAllowInvalid(false)
     .build();
-  sheet.getRange(2, 2, lastRow, TRAINING_CONFIG.length).setDataValidation(ynRule);
+  sheet.getRange(2, 2, lastRow, numTrainingCols).setDataValidation(ynRule);
 
   ui.alert("Training Rules sheet created!\n\n" +
-    (roles.length > 0 ? roles.length + " roles pulled from Staff sheet.\n" : "") +
+    (roles.length > 0 ? roles.length + " job titles pulled from Training sheet.\n" : "") +
     "All trainings default to Y (required).\n" +
     "Change to N for trainings that role doesn't need.\n\n" +
     "When done, run 5e. Apply Training Rules to set NA on the Training sheet.");
 }
 
 /**
+ * 5f. Sync Training Rules — detect new job titles on the Training
+ * sheet and append them to the Training Rules sheet with Y defaults.
+ * Runs automatically before Apply Training Rules.
+ */
+function syncTrainingRules() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var rulesSheet = ss.getSheetByName(TRAINING_RULES_SHEET);
+  if (!rulesSheet) {
+    ui.alert("No \"" + TRAINING_RULES_SHEET + "\" sheet found.\n\nRun 5d. Setup Training Rules Sheet first.");
+    return;
+  }
+
+  var trainingSheet = ss.getSheetByName(TRAINING_ACCESS_SHEET_NAME);
+  if (!trainingSheet) { ui.alert("Training sheet not found."); return; }
+
+  var trainingData = trainingSheet.getDataRange().getValues();
+  var trainingHeaders = trainingData[0];
+  var jobTitleCol = findColumnIndex(trainingHeaders, ["JOB TITLE", "JOB_TITLE", "POSITION", "TITLE"]);
+  var activeCol = findColumnIndex(trainingHeaders, ["ACTIVE", "STATUS"]);
+
+  if (jobTitleCol < 0) {
+    ui.alert("Training sheet needs a JOB TITLE column.");
+    return;
+  }
+
+  // Collect all active job titles from Training sheet
+  var allTitles = {};
+  for (var r = 1; r < trainingData.length; r++) {
+    if (activeCol >= 0) {
+      var active = trainingData[r][activeCol] ? trainingData[r][activeCol].toString().trim().toUpperCase() : "";
+      if (active === "NO" || active === "N" || active === "INACTIVE" || active === "TERMINATED") continue;
+    }
+    var title = trainingData[r][jobTitleCol] ? trainingData[r][jobTitleCol].toString().trim() : "";
+    if (title) allTitles[title.toLowerCase()] = title;
+  }
+
+  // Check which are already on the rules sheet
+  var rulesData = rulesSheet.getDataRange().getValues();
+  var existingTitles = {};
+  for (var r = 1; r < rulesData.length; r++) {
+    var t = rulesData[r][0] ? rulesData[r][0].toString().trim().toLowerCase() : "";
+    if (t) existingTitles[t] = true;
+  }
+
+  // Find new titles
+  var newTitles = [];
+  for (var key in allTitles) {
+    if (!existingTitles[key]) newTitles.push(allTitles[key]);
+  }
+  newTitles.sort();
+
+  if (newTitles.length === 0) {
+    ui.alert("Training Rules are up to date!\n\nNo new job titles found.");
+    return;
+  }
+
+  var confirm = ui.alert("Sync Training Rules",
+    "Found " + newTitles.length + " new job title(s):\n\n" +
+    newTitles.join("\n") +
+    "\n\nAdd them to the Training Rules sheet with Y defaults?",
+    ui.ButtonSet.YES_NO);
+  if (confirm !== ui.Button.YES) return;
+
+  // Build the rules headers for the correct number of training columns
+  var rulesHeaders = rulesData[0];
+  var numCols = rulesHeaders.length;
+
+  // Append new titles
+  var nextRow = rulesSheet.getLastRow() + 1;
+  for (var i = 0; i < newTitles.length; i++) {
+    var row = [newTitles[i]];
+    for (var c = 1; c < numCols; c++) {
+      row.push("Y");
+    }
+    rulesSheet.getRange(nextRow + i, 1, 1, row.length).setValues([row]);
+  }
+
+  // Extend Y/N validation to new rows
+  var ynRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["Y", "N"])
+    .setAllowInvalid(false)
+    .build();
+  rulesSheet.getRange(nextRow, 2, newTitles.length, numCols - 1).setDataValidation(ynRule);
+
+  ui.alert("Added " + newTitles.length + " new job title(s) to Training Rules!\n\n" +
+    newTitles.join("\n") +
+    "\n\nReview and set N for trainings they don't need,\n" +
+    "then run 5e. Apply Training Rules.");
+}
+
+
+/**
  * 5e. Apply Training Rules
  *
- * Reads the Staff sheet (LNAME, FNAME, SUPPORT) and the
- * Training Rules sheet. For each person on the Training sheet,
- * looks up their SUPPORT role and sets NA for any training
- * marked N in the rules.
+ * Reads the Training Rules sheet and the JOB TITLE column on
+ * the Training sheet. For each person, looks up their job title
+ * and sets NA for any training marked N in the rules.
  */
 function applyTrainingRules() {
   var ui = SpreadsheetApp.getUi();
@@ -2733,7 +2843,7 @@ function applyTrainingRules() {
   var rulesData = rulesSheet.getDataRange().getValues();
   var rulesHeaders = rulesData[0];
 
-  // Build rules map: { "dsp": { "CPR/FA": "Y", "Ukeru": "N", ... } }
+  // Build rules map: { "direct support professional": { "CPR/FA": "Y", "Ukeru": "N", ... } }
   var rulesMap = {};
   for (var r = 1; r < rulesData.length; r++) {
     var role = rulesData[r][0] ? rulesData[r][0].toString().trim() : "";
@@ -2743,39 +2853,6 @@ function applyTrainingRules() {
       var training = rulesHeaders[c] ? rulesHeaders[c].toString().trim() : "";
       var val = rulesData[r][c] ? rulesData[r][c].toString().trim().toUpperCase() : "Y";
       rulesMap[role.toLowerCase()][training] = val;
-    }
-  }
-
-  // Read Staff sheet
-  var staffSheet = ss.getSheetByName(STAFF_SHEET);
-  if (!staffSheet) {
-    ui.alert("No \"" + STAFF_SHEET + "\" sheet found.\n\nCreate a tab called \"Staff\" with columns: LNAME, FNAME, ACTIVE, LOCATION, SUPPORT");
-    return;
-  }
-
-  var staffData = staffSheet.getDataRange().getValues();
-  var staffH = staffData[0];
-  var sLnameCol = -1, sFnameCol = -1, sSupportCol = -1;
-  for (var c = 0; c < staffH.length; c++) {
-    var h = staffH[c].toString().trim().toUpperCase();
-    if (h === "LNAME" || h === "L NAME" || h === "LAST NAME") sLnameCol = c;
-    if (h === "FNAME" || h === "F NAME" || h === "FIRST NAME") sFnameCol = c;
-    if (h === "SUPPORT") sSupportCol = c;
-  }
-
-  if (sLnameCol < 0 || sFnameCol < 0 || sSupportCol < 0) {
-    ui.alert("Staff sheet needs columns: LNAME, FNAME, SUPPORT\n\nFound: " + staffH.join(", "));
-    return;
-  }
-
-  // Build staff lookup: { "lastname|firstname": "DSP" }
-  var staffLookup = {};
-  for (var r = 1; r < staffData.length; r++) {
-    var ln = staffData[r][sLnameCol] ? staffData[r][sLnameCol].toString().trim().toLowerCase() : "";
-    var fn = staffData[r][sFnameCol] ? staffData[r][sFnameCol].toString().trim().toLowerCase() : "";
-    var support = staffData[r][sSupportCol] ? staffData[r][sSupportCol].toString().trim() : "";
-    if (ln && fn && support) {
-      staffLookup[ln + "|" + fn] = support;
     }
   }
 
@@ -2789,22 +2866,32 @@ function applyTrainingRules() {
   var lNameCol = findColumnIndex(trainingHeaders, ["L NAME", "LNAME", "LAST NAME"]);
   var fNameCol = findColumnIndex(trainingHeaders, ["F NAME", "FNAME", "FIRST NAME"]);
   var activeCol = findColumnIndex(trainingHeaders, ["ACTIVE", "STATUS"]);
+  var jobTitleCol = findColumnIndex(trainingHeaders, ["JOB TITLE", "JOB_TITLE", "POSITION", "TITLE"]);
 
   if (lNameCol < 0 || fNameCol < 0) { ui.alert("Training sheet needs L NAME and F NAME columns."); return; }
+  if (jobTitleCol < 0) {
+    ui.alert("Training sheet needs a JOB TITLE column.\n\nFound headers: " + trainingHeaders.join(", "));
+    return;
+  }
 
-  // Map training config names to column indices
+  // Map rules names to column indices on the Training sheet
+  // Uses rulesName (if set) so rules headers match config entries
+  // e.g., "Med Training" in rules → MED_TRAIN column on Training sheet
   var trainingColMap = {};
   for (var i = 0; i < TRAINING_CONFIG.length; i++) {
     var colIdx = findColumnIndex(trainingHeaders, [TRAINING_CONFIG[i].column]);
-    if (colIdx >= 0) trainingColMap[TRAINING_CONFIG[i].name] = colIdx;
+    if (colIdx < 0 && TRAINING_CONFIG[i].columnAlt) {
+      colIdx = findColumnIndex(trainingHeaders, TRAINING_CONFIG[i].columnAlt);
+    }
+    var rn = TRAINING_CONFIG[i].rulesName || TRAINING_CONFIG[i].name;
+    if (colIdx >= 0 && !trainingColMap[rn]) trainingColMap[rn] = colIdx;
   }
 
   var confirm = ui.alert("Apply Training Rules",
     "This will set N/A for trainings marked N in the rules.\n" +
     "Only changes EMPTY cells or cells with NEEDS/NEEDDS.\n" +
     "Won't overwrite dates, excusal codes, or failure codes.\n\n" +
-    "Staff lookup: " + Object.keys(staffLookup).length + " employees\n" +
-    "Rules: " + Object.keys(rulesMap).length + " roles\n\n" +
+    "Rules: " + Object.keys(rulesMap).length + " job titles\n\n" +
     "Continue?", ui.ButtonSet.YES_NO);
   if (confirm !== ui.Button.YES) return;
 
@@ -2820,19 +2907,8 @@ function applyTrainingRules() {
       if (active === "NO" || active === "N" || active === "INACTIVE" || active === "TERMINATED") continue;
     }
 
-    // Look up role from Staff sheet
-    var key = lastName.toLowerCase() + "|" + firstName.toLowerCase();
-    var role = staffLookup[key];
-
-    // Try nickname matching
-    if (!role) {
-      var fnLower = firstName.toLowerCase();
-      var nicks = NICKNAMES[fnLower] || [];
-      for (var n = 0; n < nicks.length; n++) {
-        var tryKey = lastName.toLowerCase() + "|" + nicks[n];
-        if (staffLookup[tryKey]) { role = staffLookup[tryKey]; break; }
-      }
-    }
+    // Look up job title directly from the Training sheet
+    var role = trainingData[r][jobTitleCol] ? trainingData[r][jobTitleCol].toString().trim() : "";
 
     if (!role) { stats.skippedNoRole++; continue; }
 
@@ -2865,8 +2941,8 @@ function applyTrainingRules() {
   var summary = "Training Rules Applied!\n\n";
   summary += "Employees matched: " + stats.matched + "\n";
   summary += "Cells set to N/A: " + stats.naSet + "\n\n";
-  summary += "Skipped (no role on Staff sheet): " + stats.skippedNoRole + "\n";
-  summary += "Skipped (role not in rules): " + stats.skippedNoRule + "\n";
+  summary += "Skipped (no JOB TITLE): " + stats.skippedNoRole + "\n";
+  summary += "Skipped (job title not in rules): " + stats.skippedNoRule + "\n";
   summary += "Skipped (already had date/code): " + stats.skippedHasValue + "\n";
   summary += "\nTraining Rosters refreshed.";
 
