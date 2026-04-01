@@ -53,15 +53,56 @@ function buildRosterData(silent) {
     return null;
   }
 
-  var data = trainingSheet.getDataRange().getValues();
-  if (data.length < 2) {
+  var rawData = trainingSheet.getDataRange().getValues();
+  if (rawData.length < 2) {
     if (!silent) {
       SpreadsheetApp.getUi().alert("The Training sheet appears to be empty (no data rows found).");
     }
     return null;
   }
 
-  var headers = data[0];
+  var headers = rawData[0];
+
+  // Deduplicate rows: merge duplicate names, keeping best value per column
+  var tempLNameCol = findColumnIndex(headers, ["L NAME", "LNAME", "LAST NAME", "LAST"]);
+  var tempFNameCol = findColumnIndex(headers, ["F NAME", "FNAME", "FIRST NAME", "FIRST"]);
+  var mergedMap = {}, mergedOrder = [];
+  for (var dr = 1; dr < rawData.length; dr++) {
+    var dLast = String(rawData[dr][tempLNameCol] || "").trim();
+    var dFirst = String(rawData[dr][tempFNameCol] || "").trim();
+    if (!dLast && !dFirst) continue;
+    var dKey = (dFirst + " " + dLast).toLowerCase();
+    if (!mergedMap[dKey]) {
+      mergedMap[dKey] = rawData[dr].slice();
+      mergedOrder.push(dKey);
+    } else {
+      // Merge: for each column, keep the non-empty value; prefer dates over text
+      var existing = mergedMap[dKey];
+      for (var dc = 0; dc < rawData[dr].length; dc++) {
+        if (dc === tempLNameCol || dc === tempFNameCol) continue;
+        var newVal = rawData[dr][dc];
+        var existVal = existing[dc];
+        var newStr = String(newVal || "").trim();
+        var existStr = String(existVal || "").trim();
+        if (!existStr && newStr) {
+          existing[dc] = newVal;
+        } else if (existStr && newStr && existStr !== newStr) {
+          // Both have values — prefer the more recent date
+          var existDate = parseTrainingDate(existVal);
+          var newDate = parseTrainingDate(newVal);
+          if (newDate && existDate && newDate > existDate) {
+            existing[dc] = newVal;
+          } else if (newDate && !existDate) {
+            existing[dc] = newVal;
+          }
+        }
+      }
+    }
+  }
+  var data = [headers];
+  for (var mo = 0; mo < mergedOrder.length; mo++) {
+    data.push(mergedMap[mergedOrder[mo]]);
+  }
   var today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -129,17 +170,11 @@ function buildRosterData(silent) {
       prereqColIdx = findColumnIndex(headers, [config.prerequisite]);
     }
 
-    var seenNames = {};
-
     for (var r = 1; r < data.length; r++) {
       var lastName = String(data[r][lNameCol] || "").trim();
       var firstName = String(data[r][fNameCol] || "").trim();
 
       if (!lastName && !firstName) continue;
-
-      var nameKey = (firstName + " " + lastName).toLowerCase();
-      if (seenNames[nameKey]) continue;
-      seenNames[nameKey] = true;
 
       if (activeCol !== -1) {
         var activeVal = String(data[r][activeCol] || "").trim().toUpperCase();
