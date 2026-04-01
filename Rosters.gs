@@ -317,7 +317,20 @@ function buildRosterData(silent) {
       completedCount: completedCount
     });
   }
-  return { ss: ss, allRosters: allRosters, today: today };
+  // Build set of all active people on the Training sheet
+  var activeNames = {};
+  for (var an = 1; an < data.length; an++) {
+    var anLast = String(data[an][lNameCol] || "").trim();
+    var anFirst = String(data[an][fNameCol] || "").trim();
+    if (!anLast && !anFirst) continue;
+    if (activeCol !== -1) {
+      var anActive = String(data[an][activeCol] || "").trim().toUpperCase();
+      if (anActive === "NO" || anActive === "INACTIVE" || anActive === "TERMINATED" || anActive === "N") continue;
+    }
+    activeNames[(anFirst + " " + anLast).toLowerCase()] = true;
+  }
+
+  return { ss: ss, allRosters: allRosters, today: today, activeNames: activeNames };
 }
 
 function generateRosters() {
@@ -2220,6 +2233,7 @@ function rebuildScheduledOverview_(ss) {
     if (!rosterResult) return;
     var allRosters = rosterResult.allRosters;
     var today = rosterResult.today;
+    var activeNames = rosterResult.activeNames || {};
     var needsLookup = buildNeedsLookup_(allRosters);
     var sessions = parseScheduledSheet_(ss);
     if (!sessions || sessions.length === 0) return;
@@ -2253,15 +2267,35 @@ function rebuildScheduledOverview_(ss) {
         if (nameLower === "tbd" || nameLower === "new hires") { placeholders.push(name); continue; }
         if (seenInSession[nameLower]) continue;
         seenInSession[nameLower] = true;
+
+        // Remove people no longer on the Training sheet (deleted/inactive)
+        var isActive = activeNames[nameLower];
+        if (!isActive) {
+          // Fuzzy check: same last name + similar first name
+          var eParts = nameLower.split(/\s+/);
+          if (eParts.length >= 2) {
+            var eLast = eParts[eParts.length - 1];
+            var eFirst = eParts[0];
+            var aKeys = Object.keys(activeNames);
+            for (var ak = 0; ak < aKeys.length; ak++) {
+              var akParts = aKeys[ak].split(/\s+/);
+              if (akParts.length >= 2 && akParts[akParts.length - 1] === eLast && stringSimilarity(eFirst, akParts[0]) > 0.8) {
+                isActive = true; break;
+              }
+            }
+          }
+        }
+        if (!isActive) { removed.push(name); continue; }
+
         var info = needsMap[nameLower];
         if (!info) info = fuzzyMatchNeeds_(nameLower, needsMap);
         if (info) { kept.push(name); assignedMap[nameLower] = true; }
-        else { kept.push(name); } // Keep everyone — sync handles removal
+        else { kept.push(name); }
       }
 
       session.finalEnrollees = kept.slice();
       session.keptEnrollees = kept.slice();
-      session.removedEnrollees = [];
+      session.removedEnrollees = removed;
       session.backfilledEnrollees = [];
       session.placeholders = placeholders;
     }
