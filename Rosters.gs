@@ -64,20 +64,39 @@ function buildRosterData(silent) {
   var headers = rawData[0];
 
   // Deduplicate rows: merge duplicate names, keeping best value per column
+  // Also catches fuzzy first name matches (e.g., Brittany vs Brittney)
   var tempLNameCol = findColumnIndex(headers, ["L NAME", "LNAME", "LAST NAME", "LAST"]);
   var tempFNameCol = findColumnIndex(headers, ["F NAME", "FNAME", "FIRST NAME", "FIRST"]);
-  var mergedMap = {}, mergedOrder = [];
+  var mergedMap = {}, mergedOrder = [], lastNameIndex = {};
   for (var dr = 1; dr < rawData.length; dr++) {
     var dLast = String(rawData[dr][tempLNameCol] || "").trim();
     var dFirst = String(rawData[dr][tempFNameCol] || "").trim();
     if (!dLast && !dFirst) continue;
     var dKey = (dFirst + " " + dLast).toLowerCase();
+
+    // Check for fuzzy match: same last name + similar first name (Dice > 0.8)
+    var matchKey = dKey;
     if (!mergedMap[dKey]) {
-      mergedMap[dKey] = rawData[dr].slice();
-      mergedOrder.push(dKey);
+      var lastLower = dLast.toLowerCase();
+      var candidates = lastNameIndex[lastLower] || [];
+      for (var ci = 0; ci < candidates.length; ci++) {
+        var candFirst = candidates[ci].first;
+        if (stringSimilarity(dFirst.toLowerCase(), candFirst) > 0.8) {
+          matchKey = candidates[ci].key;
+          break;
+        }
+      }
+    }
+
+    if (!mergedMap[matchKey]) {
+      mergedMap[matchKey] = rawData[dr].slice();
+      mergedOrder.push(matchKey);
+      var lastLower2 = dLast.toLowerCase();
+      if (!lastNameIndex[lastLower2]) lastNameIndex[lastLower2] = [];
+      lastNameIndex[lastLower2].push({ key: matchKey, first: dFirst.toLowerCase() });
     } else {
       // Merge: for each column, keep the non-empty value; prefer dates over text
-      var existing = mergedMap[dKey];
+      var existing = mergedMap[matchKey];
       for (var dc = 0; dc < rawData[dr].length; dc++) {
         if (dc === tempLNameCol || dc === tempFNameCol) continue;
         var newVal = rawData[dr][dc];
