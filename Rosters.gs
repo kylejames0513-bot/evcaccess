@@ -1165,6 +1165,171 @@ function writeScheduledOverviewSheet_(result, ss, today) {
 //   5. CLASS ROSTER BUILDING
 // ************************************************************
 
+/**
+ * Auto-Fill Classes — One-click fill for upcoming scheduled sessions.
+ *
+ * Reads sessions from the Scheduled sheet, finds ones with open seats,
+ * and fills them from the priority pool (expired → needed → expiring).
+ * Updates the Scheduled sheet directly, then rebuilds the overview.
+ */
+function autoFillClasses() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var rosterResult = buildRosterData(true);
+  if (!rosterResult) { ui.alert("Could not read Training sheet."); return; }
+  var allRosters = rosterResult.allRosters;
+  var today = rosterResult.today;
+
+  var sessions = parseScheduledSheet_(ss);
+  if (!sessions || sessions.length === 0) {
+    ui.alert("No sessions found on the Scheduled sheet.");
+    return;
+  }
+
+  var alreadyScheduled = buildFullScheduledMap_(ss);
+
+  // Filter to future sessions only
+  var futureSessions = [];
+  for (var s = 0; s < sessions.length; s++) {
+    if (sessions[s].sortDate && sessions[s].sortDate >= today) {
+      futureSessions.push(sessions[s]);
+    }
+  }
+
+  if (futureSessions.length === 0) {
+    ui.alert("No upcoming sessions found on the Scheduled sheet.");
+    return;
+  }
+
+  // Show which sessions will be filled
+  var preview = "Auto-Fill will add people to these upcoming sessions:\n\n";
+  var anyOpenSeats = false;
+
+  for (var s = 0; s < futureSessions.length; s++) {
+    var session = futureSessions[s];
+    var configName = resolveTrainingName_(session.type);
+    if (!configName) { continue; }
+
+    var capacity = getCapacityForTraining_(configName);
+    var currentCount = 0;
+    for (var e = 0; e < session.enrollees.length; e++) {
+      var en = session.enrollees[e].toLowerCase().trim();
+      if (en !== "tbd" && en !== "new hires" && en !== "") currentCount++;
+    }
+    var openSeats = capacity - currentCount;
+    if (openSeats <= 0) {
+      preview += "  " + session.type + " (" + session.dateDisplay + ") — FULL\n";
+      continue;
+    }
+
+    anyOpenSeats = true;
+    preview += "  " + session.type + " (" + session.dateDisplay + ") — " + openSeats + " open seats\n";
+  }
+
+  if (!anyOpenSeats) {
+    ui.alert("All upcoming sessions are full!\n\nUse Quick Build to create new classes.");
+    return;
+  }
+
+  preview += "\nPeople will be assigned by priority:\n";
+  preview += "  1st: Expired  →  2nd: Never completed  →  3rd: Expiring soon\n\n";
+  preview += "Continue?";
+
+  var confirm = ui.alert("Auto-Fill Classes", preview, ui.ButtonSet.YES_NO);
+  if (confirm !== ui.Button.YES) return;
+
+  // Fill each session
+  var sheet = ss.getSheetByName(SCHEDULED_SHEET_NAME);
+  if (!sheet) { ui.alert("Scheduled sheet not found."); return; }
+
+  var totalAdded = 0;
+  var summaryLines = [];
+  var globalAssigned = {};
+
+  for (var s = 0; s < futureSessions.length; s++) {
+    var session = futureSessions[s];
+    var configName = resolveTrainingName_(session.type);
+    if (!configName) continue;
+
+    var capacity = getCapacityForTraining_(configName);
+    var trainKey = configName.toLowerCase();
+
+    // Get current real enrollees (not TBD/placeholders)
+    var currentEnrollees = [];
+    for (var e = 0; e < session.enrollees.length; e++) {
+      var en = session.enrollees[e].trim();
+      var enLower = en.toLowerCase();
+      if (enLower !== "tbd" && enLower !== "new hires" && enLower !== "") {
+        currentEnrollees.push(en);
+      }
+    }
+
+    var openSeats = capacity - currentEnrollees.length;
+    if (openSeats <= 0) continue;
+
+    // Find the roster for this training
+    var rosterData = null;
+    for (var r = 0; r < allRosters.length; r++) {
+      if (allRosters[r].name === configName && !allRosters[r].error) {
+        rosterData = allRosters[r]; break;
+      }
+    }
+    if (!rosterData) continue;
+
+    // Build pool, excluding already-scheduled and already-assigned-in-this-run
+    var pool = buildPriorityPool(rosterData, alreadyScheduled, configName);
+
+    // Also exclude people assigned to earlier sessions in this auto-fill run
+    var filtered = [];
+    if (!globalAssigned[trainKey]) globalAssigned[trainKey] = {};
+    for (var p = 0; p < pool.length; p++) {
+      var pLower = pool[p].name.toLowerCase().trim();
+      if (!globalAssigned[trainKey][pLower]) filtered.push(pool[p]);
+    }
+
+    // Take up to openSeats people
+    var toAdd = [];
+    for (var p = 0; p < filtered.length && toAdd.length < openSeats; p++) {
+      toAdd.push(filtered[p]);
+    }
+
+    if (toAdd.length === 0) {
+      summaryLines.push(session.type + " (" + session.dateDisplay + "): No one to add");
+      continue;
+    }
+
+    // Build new enrollee list
+    var newEnrollees = currentEnrollees.slice();
+    for (var a = 0; a < toAdd.length; a++) {
+      newEnrollees.push(toAdd[a].name);
+      var addLower = toAdd[a].name.toLowerCase().trim();
+      globalAssigned[trainKey][addLower] = true;
+      if (!alreadyScheduled[trainKey]) alreadyScheduled[trainKey] = {};
+      alreadyScheduled[trainKey][addLower] = session.dateDisplay;
+    }
+
+    // Update the Scheduled sheet row
+    var newEnrolleeStr = newEnrollees.join(", ");
+    sheet.getRange(session.sourceRow, 5).setValue(newEnrolleeStr);
+
+    totalAdded += toAdd.length;
+    summaryLines.push(session.type + " (" + session.dateDisplay + "): +" + toAdd.length + " added (" + newEnrollees.length + "/" + capacity + ")");
+  }
+
+  // Rebuild overview
+  rebuildScheduledOverview_(ss);
+  generateRostersSilent();
+
+  var summary = "Auto-Fill Complete!\n\n";
+  summary += "Total people added: " + totalAdded + "\n\n";
+  for (var sl = 0; sl < summaryLines.length; sl++) {
+    summary += "  " + summaryLines[sl] + "\n";
+  }
+  summary += "\nScheduled Overview & Rosters updated.";
+  ui.alert(summary);
+}
+
 function quickBuildRosters() {
   var ui = SpreadsheetApp.getUi();
 

@@ -76,7 +76,8 @@ function createMenu() {
       .addItem("3c. Build Class Rosters from Overview", "buildRostersFromOverview")
       .addItem("3d. Generate Class Rosters (advanced)", "generateClassRosters")
       .addItem("3e. Manual Class Assignment", "manualClassAssignment")
-      .addItem("3f. Generate Training Memo", "generateTrainingMemo"))
+      .addItem("3f. Generate Training Memo", "generateTrainingMemo")
+      .addItem("3g. Auto-Fill Upcoming Classes", "autoFillClasses"))
 
     .addSeparator()
 
