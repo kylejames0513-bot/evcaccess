@@ -178,6 +178,7 @@ var TRAINING_CONFIG = [
     rulesName: "Med Training",
     renewalYears: 0,
     required: false,
+    showOnRoster: true,
     prerequisite: "MED_TRAIN",
     classCapacity: 8
   },
