@@ -151,6 +151,7 @@ var TRAINING_CONFIG = [
   {
     name: "Med Recert",
     column: "MED_TRAIN",
+    rulesName: "Med Training",
     renewalYears: 3,
     required: false,
     onlyExpired: true,
@@ -160,6 +161,7 @@ var TRAINING_CONFIG = [
   {
     name: "Initial Med Training",
     column: "MED_TRAIN",
+    rulesName: "Med Training",
     renewalYears: 0,
     required: false,
     onlyNeeded: true,
@@ -176,6 +178,7 @@ var TRAINING_CONFIG = [
   {
     name: "POMs",
     column: "POM",
+    rulesName: "POM",
     renewalYears: 0,
     required: false,
     classCapacity: 15,
@@ -259,6 +262,7 @@ var TRAINING_CONFIG = [
   {
     name: "Dysphagia",
     column: "Dysphagia Oveview",
+    columnAlt: ["Dysphagia Overview", "Dysphagia"],
     renewalYears: 0,
     required: false,
     classCapacity: 15,

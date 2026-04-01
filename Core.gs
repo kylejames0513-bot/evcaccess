@@ -96,7 +96,8 @@ function createMenu() {
       .addItem("5b. Audit Training Sheet", "auditTrainingSheet")
       .addItem("5c. Fix Training Sheet Issues", "fixTrainingSheetIssues")
       .addItem("5d. Setup Training Rules Sheet", "setupTrainingRulesSheet")
-      .addItem("5e. Apply Training Rules (set NA)", "applyTrainingRules"))
+      .addItem("5e. Apply Training Rules (set NA)", "applyTrainingRules")
+      .addItem("5f. Sync Training Rules (add new titles)", "syncTrainingRules"))
 
     .addSeparator()
 
@@ -2646,11 +2647,18 @@ function setupTrainingRulesSheet() {
 
   var sheet = ss.insertSheet(TRAINING_RULES_SHEET);
 
-  // Build headers: JOB TITLE + each training column from TRAINING_CONFIG
+  // Build headers: JOB TITLE + each training from TRAINING_CONFIG
+  // Use rulesName when set (deduplicates shared columns like Med Training)
   var headers = ["JOB TITLE"];
+  var seenRulesName = {};
   for (var i = 0; i < TRAINING_CONFIG.length; i++) {
-    headers.push(TRAINING_CONFIG[i].name);
+    var rn = TRAINING_CONFIG[i].rulesName || TRAINING_CONFIG[i].name;
+    if (!seenRulesName[rn]) {
+      seenRulesName[rn] = true;
+      headers.push(rn);
+    }
   }
+  var numTrainingCols = headers.length - 1;
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   sheet.getRange(1, 1, 1, headers.length)
     .setFontWeight("bold")
@@ -2682,7 +2690,7 @@ function setupTrainingRulesSheet() {
   if (roles.length > 0) {
     for (var r = 0; r < roles.length; r++) {
       var row = [roles[r]];
-      for (var i = 0; i < TRAINING_CONFIG.length; i++) {
+      for (var i = 0; i < numTrainingCols; i++) {
         row.push("Y");
       }
       sheet.getRange(r + 2, 1, 1, row.length).setValues([row]);
@@ -2691,7 +2699,7 @@ function setupTrainingRulesSheet() {
     var examples = ["Direct Support Professional", "Home Manager", "Admin Asst", "Teacher", "LPN", "Case Manager"];
     for (var r = 0; r < examples.length; r++) {
       var row = [examples[r]];
-      for (var i = 0; i < TRAINING_CONFIG.length; i++) {
+      for (var i = 0; i < numTrainingCols; i++) {
         row.push("Y");
       }
       sheet.getRange(r + 2, 1, 1, row.length).setValues([row]);
@@ -2700,7 +2708,7 @@ function setupTrainingRulesSheet() {
 
   // Format
   sheet.setColumnWidth(1, 250);
-  for (var i = 0; i < TRAINING_CONFIG.length; i++) {
+  for (var i = 0; i < numTrainingCols; i++) {
     sheet.setColumnWidth(i + 2, 120);
   }
   sheet.setFrozenRows(1);
@@ -2712,7 +2720,7 @@ function setupTrainingRulesSheet() {
     .requireValueInList(["Y", "N"])
     .setAllowInvalid(false)
     .build();
-  sheet.getRange(2, 2, lastRow, TRAINING_CONFIG.length).setDataValidation(ynRule);
+  sheet.getRange(2, 2, lastRow, numTrainingCols).setDataValidation(ynRule);
 
   ui.alert("Training Rules sheet created!\n\n" +
     (roles.length > 0 ? roles.length + " job titles pulled from Training sheet.\n" : "") +
@@ -2720,6 +2728,100 @@ function setupTrainingRulesSheet() {
     "Change to N for trainings that role doesn't need.\n\n" +
     "When done, run 5e. Apply Training Rules to set NA on the Training sheet.");
 }
+
+/**
+ * 5f. Sync Training Rules — detect new job titles on the Training
+ * sheet and append them to the Training Rules sheet with Y defaults.
+ * Runs automatically before Apply Training Rules.
+ */
+function syncTrainingRules() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var rulesSheet = ss.getSheetByName(TRAINING_RULES_SHEET);
+  if (!rulesSheet) {
+    ui.alert("No \"" + TRAINING_RULES_SHEET + "\" sheet found.\n\nRun 5d. Setup Training Rules Sheet first.");
+    return;
+  }
+
+  var trainingSheet = ss.getSheetByName(TRAINING_ACCESS_SHEET_NAME);
+  if (!trainingSheet) { ui.alert("Training sheet not found."); return; }
+
+  var trainingData = trainingSheet.getDataRange().getValues();
+  var trainingHeaders = trainingData[0];
+  var jobTitleCol = findColumnIndex(trainingHeaders, ["JOB TITLE", "JOB_TITLE", "POSITION", "TITLE"]);
+  var activeCol = findColumnIndex(trainingHeaders, ["ACTIVE", "STATUS"]);
+
+  if (jobTitleCol < 0) {
+    ui.alert("Training sheet needs a JOB TITLE column.");
+    return;
+  }
+
+  // Collect all active job titles from Training sheet
+  var allTitles = {};
+  for (var r = 1; r < trainingData.length; r++) {
+    if (activeCol >= 0) {
+      var active = trainingData[r][activeCol] ? trainingData[r][activeCol].toString().trim().toUpperCase() : "";
+      if (active === "NO" || active === "N" || active === "INACTIVE" || active === "TERMINATED") continue;
+    }
+    var title = trainingData[r][jobTitleCol] ? trainingData[r][jobTitleCol].toString().trim() : "";
+    if (title) allTitles[title.toLowerCase()] = title;
+  }
+
+  // Check which are already on the rules sheet
+  var rulesData = rulesSheet.getDataRange().getValues();
+  var existingTitles = {};
+  for (var r = 1; r < rulesData.length; r++) {
+    var t = rulesData[r][0] ? rulesData[r][0].toString().trim().toLowerCase() : "";
+    if (t) existingTitles[t] = true;
+  }
+
+  // Find new titles
+  var newTitles = [];
+  for (var key in allTitles) {
+    if (!existingTitles[key]) newTitles.push(allTitles[key]);
+  }
+  newTitles.sort();
+
+  if (newTitles.length === 0) {
+    ui.alert("Training Rules are up to date!\n\nNo new job titles found.");
+    return;
+  }
+
+  var confirm = ui.alert("Sync Training Rules",
+    "Found " + newTitles.length + " new job title(s):\n\n" +
+    newTitles.join("\n") +
+    "\n\nAdd them to the Training Rules sheet with Y defaults?",
+    ui.ButtonSet.YES_NO);
+  if (confirm !== ui.Button.YES) return;
+
+  // Build the rules headers for the correct number of training columns
+  var rulesHeaders = rulesData[0];
+  var numCols = rulesHeaders.length;
+
+  // Append new titles
+  var nextRow = rulesSheet.getLastRow() + 1;
+  for (var i = 0; i < newTitles.length; i++) {
+    var row = [newTitles[i]];
+    for (var c = 1; c < numCols; c++) {
+      row.push("Y");
+    }
+    rulesSheet.getRange(nextRow + i, 1, 1, row.length).setValues([row]);
+  }
+
+  // Extend Y/N validation to new rows
+  var ynRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(["Y", "N"])
+    .setAllowInvalid(false)
+    .build();
+  rulesSheet.getRange(nextRow, 2, newTitles.length, numCols - 1).setDataValidation(ynRule);
+
+  ui.alert("Added " + newTitles.length + " new job title(s) to Training Rules!\n\n" +
+    newTitles.join("\n") +
+    "\n\nReview and set N for trainings they don't need,\n" +
+    "then run 5e. Apply Training Rules.");
+}
+
 
 /**
  * 5e. Apply Training Rules
@@ -2772,11 +2874,17 @@ function applyTrainingRules() {
     return;
   }
 
-  // Map training config names to column indices
+  // Map rules names to column indices on the Training sheet
+  // Uses rulesName (if set) so rules headers match config entries
+  // e.g., "Med Training" in rules → MED_TRAIN column on Training sheet
   var trainingColMap = {};
   for (var i = 0; i < TRAINING_CONFIG.length; i++) {
     var colIdx = findColumnIndex(trainingHeaders, [TRAINING_CONFIG[i].column]);
-    if (colIdx >= 0) trainingColMap[TRAINING_CONFIG[i].name] = colIdx;
+    if (colIdx < 0 && TRAINING_CONFIG[i].columnAlt) {
+      colIdx = findColumnIndex(trainingHeaders, TRAINING_CONFIG[i].columnAlt);
+    }
+    var rn = TRAINING_CONFIG[i].rulesName || TRAINING_CONFIG[i].name;
+    if (colIdx >= 0 && !trainingColMap[rn]) trainingColMap[rn] = colIdx;
   }
 
   var confirm = ui.alert("Apply Training Rules",
