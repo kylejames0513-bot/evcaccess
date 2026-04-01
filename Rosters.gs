@@ -76,6 +76,25 @@ function buildRosterData(silent) {
   }
 
   var activeCol = findColumnIndex(headers, ["ACTIVE", "STATUS", "ACTIVE?"]);
+  var jobTitleCol = findColumnIndex(headers, ["JOB TITLE", "JOB_TITLE", "POSITION", "TITLE"]);
+
+  // Load Training Rules for filtering (job title → training → Y/N)
+  var rulesMap = {};
+  var rulesSheet = ss.getSheetByName(TRAINING_RULES_SHEET);
+  if (rulesSheet) {
+    var rulesData = rulesSheet.getDataRange().getValues();
+    var rulesHeaders = rulesData[0];
+    for (var rr = 1; rr < rulesData.length; rr++) {
+      var role = rulesData[rr][0] ? rulesData[rr][0].toString().trim() : "";
+      if (!role) continue;
+      rulesMap[role.toLowerCase()] = {};
+      for (var rc = 1; rc < rulesHeaders.length; rc++) {
+        var rTraining = rulesHeaders[rc] ? rulesHeaders[rc].toString().trim() : "";
+        var rVal = rulesData[rr][rc] ? rulesData[rr][rc].toString().trim().toUpperCase() : "Y";
+        rulesMap[role.toLowerCase()][rTraining] = rVal;
+      }
+    }
+  }
 
   var allRosters = [];
 
@@ -118,6 +137,18 @@ function buildRosterData(silent) {
       if (activeCol !== -1) {
         var activeVal = String(data[r][activeCol] || "").trim().toUpperCase();
         if (activeVal === "NO" || activeVal === "INACTIVE" || activeVal === "TERMINATED" || activeVal === "N") continue;
+      }
+
+      // Check Training Rules — skip if job title says N for this training
+      if (jobTitleCol !== -1 && Object.keys(rulesMap).length > 0) {
+        var jobTitle = String(data[r][jobTitleCol] || "").trim();
+        if (jobTitle) {
+          var titleRules = rulesMap[jobTitle.toLowerCase()];
+          if (titleRules) {
+            var rulesName = config.rulesName || config.name;
+            if (titleRules[rulesName] === "N") continue;
+          }
+        }
       }
 
       if (prereqColIdx !== -1) {
