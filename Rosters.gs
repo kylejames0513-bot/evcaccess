@@ -344,7 +344,6 @@ function generateRosters() {
   for (var ri = 0; ri < result.allRosters.length; ri++) {
     if (result.allRosters[ri].showOnRoster) rosterItems.push(result.allRosters[ri]);
   }
-  if (rosterItems.length === 0) rosterItems = result.allRosters;
   var summary = "Rosters generated!\n\n";
   for (var i = 0; i < rosterItems.length; i++) {
     var r = rosterItems[i];
@@ -441,7 +440,7 @@ function writeRosterSheet(ss, allRosters, today) {
   for (var f = 0; f < allRosters.length; f++) {
     if (allRosters[f].showOnRoster) filtered.push(allRosters[f]);
   }
-  if (filtered.length > 0) allRosters = filtered;
+  allRosters = filtered;
 
   var existing = ss.getSheetByName(ROSTER_SHEET_NAME);
   if (existing) ss.deleteSheet(existing);
