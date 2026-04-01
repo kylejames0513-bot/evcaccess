@@ -175,6 +175,7 @@ var TRAINING_CONFIG = [
   {
     name: "Post Med",
     column: "POST MED",
+    rulesName: "Med Training",
     renewalYears: 0,
     required: false,
     showOnRoster: true,
