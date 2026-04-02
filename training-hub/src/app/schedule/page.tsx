@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap, Archive } from "lucide-react";
+import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap, Archive, RefreshCw } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -41,6 +41,7 @@ export default function SchedulePage() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [archiving, setArchiving] = useState<number | null>(null);
   const [autoFilling, setAutoFilling] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Force re-fetch after changes
@@ -57,6 +58,15 @@ export default function SchedulePage() {
 
   function refresh() {
     setRefreshKey((k) => k + 1);
+  }
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await fetch("/api/refresh", { method: "POST" });
+      setRefreshKey((k) => k + 1);
+    } catch {}
+    setRefreshing(false);
   }
 
   async function handleAutoFill(session: SessionData) {
@@ -140,7 +150,15 @@ export default function SchedulePage() {
             {upcoming.length} upcoming — from Scheduled sheet
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 items-center">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-slate-600 hover:border-slate-300 transition-colors"
+            title="Refresh data"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
           <a
             href="/schedule/print"
             className="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"

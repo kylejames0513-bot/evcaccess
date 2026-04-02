@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Users,
   AlertTriangle,
@@ -7,6 +8,7 @@ import {
   Clock,
   CalendarDays,
   XCircle,
+  RefreshCw,
 } from "lucide-react";
 import StatCard from "@/components/ui/StatCard";
 import StatusBadge from "@/components/ui/StatusBadge";
@@ -40,7 +42,18 @@ interface DashboardData {
 }
 
 export default function DashboardPage() {
-  const { data, loading, error } = useFetch<DashboardData>("/api/dashboard");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const { data, loading, error } = useFetch<DashboardData>(`/api/dashboard?r=${refreshKey}`);
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await fetch("/api/refresh", { method: "POST" });
+      setRefreshKey((k) => k + 1);
+    } catch {}
+    setRefreshing(false);
+  }
 
   if (loading) return <Loading />;
   if (error) return <ErrorState message={error} />;
@@ -59,9 +72,19 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold text-slate-900">Training Dashboard</h1>
           <p className="text-sm text-slate-500 mt-0.5">Primary training compliance at a glance</p>
         </div>
-        <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs text-slate-500">
+        <div className="hidden sm:flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-slate-600 hover:border-slate-300 transition-colors"
+            title="Refresh data"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs text-slate-500">
           <div className={`w-2 h-2 rounded-full ${complianceRate >= 90 ? "bg-emerald-500" : complianceRate >= 70 ? "bg-amber-500" : "bg-red-500"}`} />
           {complianceRate}% compliant
+        </div>
         </div>
       </div>
 

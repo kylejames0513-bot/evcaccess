@@ -22,14 +22,27 @@ const OVERVIEW_SHEET = "Scheduled Overview";
 
 // Excusal codes from Config.gs
 const EXCUSAL_CODES = new Set([
+  // Standard not-applicable
   "NA", "N/A", "N/",
+  // Leadership / executive roles
   "VP", "DIR", "DIRECTOR", "CEO", "CFO", "COO", "CMO",
   "AVP", "SVP", "EVP", "PRESIDENT",
+  // Management
   "MGR", "MANAGER", "SUPERVISOR", "SUPV",
-  "ELC", "EI", "FACILITIES", "MAINT",
+  // Location/program excusals
+  "ELC", "EI",
+  // Department excusals
+  "FACILITIES", "MAINT",
   "HR", "FINANCE", "FIN", "IT", "ADMIN",
+  // Nursing credentials
   "NURSE", "LPN", "RN", "CNA",
+  // Role codes
   "BH", "PA", "BA", "QA", "TAC",
+  // Facility/failure codes (tracked separately by data integrity)
+  "FX1", "FX2", "FX3", "FS",
+  "F X 2", "FX 1",
+  "FX1*", "FX1/NS", "FX1 - S", "FX1 - R",
+  // Other
   "TRAINER", "LP", "NS", "LLL",
 ]);
 
@@ -758,6 +771,40 @@ export async function archiveSession(
 
   // Append to Archive
   await appendRows(ARCHIVE_SHEET, [[training, date, time, location, enrolled, noShows, archivedDate]]);
+
+  // Record completion dates on the Training sheet for enrolled employees (skip no-shows)
+  const trainingDef = TRAINING_DEFINITIONS.find(
+    (d) =>
+      d.name.toLowerCase() === training.toLowerCase() ||
+      d.columnKey.toLowerCase() === training.toLowerCase() ||
+      d.aliases?.some((a) => a.toLowerCase() === training.toLowerCase())
+  );
+  if (trainingDef) {
+    const enrolledNames = enrolled
+      ? enrolled.split(",").map((n) => n.trim()).filter((n) => n && n !== "TBD")
+      : [];
+    const noShowNames = noShows
+      ? noShows.split(",").map((n) => n.trim()).filter(Boolean)
+      : [];
+
+    const completionDate = normalizeDateDisplay(date);
+
+    for (const enrolledName of enrolledNames) {
+      // Skip no-shows
+      if (noShowNames.some((ns) => namesMatch(ns, enrolledName))) continue;
+
+      try {
+        const result = await recordCompletion(enrolledName, trainingDef.columnKey, completionDate);
+        if (!result.success) {
+          console.warn(`[archiveSession] Could not record completion for "${enrolledName}": ${result.message}`);
+        }
+      } catch (err) {
+        console.warn(`[archiveSession] Error recording completion for "${enrolledName}":`, err);
+      }
+    }
+  } else {
+    console.warn(`[archiveSession] No training definition found for "${training}" — skipping completion writes`);
+  }
 
   // Clear from Scheduled
   await writeRange(

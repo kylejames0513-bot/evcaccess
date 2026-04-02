@@ -308,15 +308,27 @@ export const AUTO_FILL_RULES = [
 
 // Excusal codes (migrated from Config.gs EXCUSAL_CODES)
 export const EXCUSAL_CODES = [
-  "NA", "N/A",
+  // Standard not-applicable
+  "NA", "N/A", "N/",
+  // Leadership / executive roles
   "VP", "DIR", "DIRECTOR", "CEO", "CFO", "COO", "CMO",
   "AVP", "SVP", "EVP", "PRESIDENT",
+  // Management
   "MGR", "MANAGER", "SUPERVISOR", "SUPV",
+  // Location/program excusals
   "ELC", "EI",
+  // Department excusals
   "FACILITIES", "MAINT",
   "HR", "FINANCE", "FIN", "IT", "ADMIN",
+  // Nursing credentials
   "NURSE", "LPN", "RN", "CNA",
+  // Role codes
   "BH", "PA", "BA", "QA", "TAC",
+  // Facility/failure codes (tracked separately by data integrity)
+  "FX1", "FX2", "FX3", "FS",
+  "F X 2", "FX 1",
+  "FX1*", "FX1/NS", "FX1 - S", "FX1 - R",
+  // Other
   "TRAINER", "LP", "NS", "LLL",
 ] as const;
 

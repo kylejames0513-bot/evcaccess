@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { XCircle, Clock, AlertTriangle, UserPlus, Loader2, Check, X, CalendarPlus } from "lucide-react";
+import { XCircle, Clock, AlertTriangle, UserPlus, Loader2, Check, X, CalendarPlus, RefreshCw } from "lucide-react";
 import StatCard from "@/components/ui/StatCard";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
@@ -35,13 +35,14 @@ interface ScheduleData {
 }
 
 export default function CompliancePage() {
-  const { data, loading, error } = useFetch<ComplianceData>("/api/compliance");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const { data, loading, error } = useFetch<ComplianceData>(`/api/compliance?r=${refreshKey}`);
   const { data: scheduleData } = useFetch<ScheduleData>("/api/schedule");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [trainingFilter, setTrainingFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [enrollPopup, setEnrollPopup] = useState<{ employee: string; training: string } | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
 
   // Re-fetch schedule after enrollment
   const { data: freshSchedule } = useFetch<ScheduleData>(`/api/schedule?r=${refreshKey}`);
@@ -77,9 +78,26 @@ export default function CompliancePage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Compliance Report</h1>
-        <p className="text-sm text-slate-500 mt-0.5">{issues.length} total issues — sorted by date</p>
+      <div className="flex items-center gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Compliance Report</h1>
+          <p className="text-sm text-slate-500 mt-0.5">{issues.length} total issues — sorted by date</p>
+        </div>
+        <button
+          onClick={async () => {
+            setRefreshing(true);
+            try {
+              await fetch("/api/refresh", { method: "POST" });
+              setRefreshKey((k) => k + 1);
+            } catch {}
+            setRefreshing(false);
+          }}
+          disabled={refreshing}
+          className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-slate-600 hover:border-slate-300 transition-colors"
+          title="Refresh data"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+        </button>
       </div>
 
       <div className="grid grid-cols-3 gap-4">

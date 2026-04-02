@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, UserMinus, UserPlus, X, Loader2, Check, Clock, XCircle, AlertTriangle, CheckCircle, CalendarPlus, ShieldOff, ShieldCheck } from "lucide-react";
+import { Search, UserMinus, UserPlus, X, Loader2, Check, Clock, XCircle, AlertTriangle, CheckCircle, CalendarPlus, ShieldOff, ShieldCheck, RefreshCw } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -49,6 +49,7 @@ export default function EmployeesPage() {
   const [excludedList, setExcludedList] = useState<string[]>([]);
   const [excluding, setExcluding] = useState<string | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     fetch("/api/excluded-list")
@@ -101,17 +102,36 @@ export default function EmployeesPage() {
 
   function refresh() { setRefreshKey((k) => k + 1); }
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    try {
+      await fetch("/api/refresh", { method: "POST" });
+      setRefreshKey((k) => k + 1);
+    } catch {}
+    setRefreshing(false);
+  }
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Employees</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {employees.length} tracked &middot; {pctCompliant}% compliant
-            {excludedList.length > 0 && (
-              <> &middot; <button onClick={() => setShowExcluded(!showExcluded)} className="text-blue-600 hover:text-blue-800 font-medium">{excludedList.length} excluded</button></>
-            )}
-          </p>
+        <div className="flex items-center gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Employees</h1>
+            <p className="text-sm text-slate-500 mt-0.5">
+              {employees.length} tracked &middot; {pctCompliant}% compliant
+              {excludedList.length > 0 && (
+                <> &middot; <button onClick={() => setShowExcluded(!showExcluded)} className="text-blue-600 hover:text-blue-800 font-medium">{excludedList.length} excluded</button></>
+              )}
+            </p>
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-slate-600 hover:border-slate-300 transition-colors"
+            title="Refresh data"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
         </div>
       </div>
 
