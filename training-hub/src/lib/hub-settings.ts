@@ -177,6 +177,63 @@ export async function setComplianceTracks(columnKeys: string[]): Promise<string[
   return columnKeys;
 }
 
+// ────────────────────────────────────────────────────────────
+// Department training rules — which trainings each department needs
+// ────────────────────────────────────────────────────────────
+
+// Type="dept_rule", Key=department name, Value="ALL" or comma-separated columnKeys
+// e.g. { type: "dept_rule", key: "Facilities", value: "CPR" }
+// e.g. { type: "dept_rule", key: "100-Residential", value: "ALL" }
+
+export interface DeptRule {
+  department: string;
+  trainings: string[]; // column keys, or ["ALL"]
+}
+
+export async function getDeptRules(): Promise<DeptRule[]> {
+  const settings = await readSettings();
+  return settings
+    .filter((s) => s.type === "dept_rule")
+    .map((s) => ({
+      department: s.key,
+      trainings: s.value === "ALL" ? ["ALL"] : s.value.split(",").map((t) => t.trim()).filter(Boolean),
+    }));
+}
+
+export async function setDeptRule(department: string, trainings: string[]): Promise<DeptRule[]> {
+  const settings = await readSettings();
+  const idx = settings.findIndex(
+    (s) => s.type === "dept_rule" && s.key.toLowerCase() === department.toLowerCase()
+  );
+  const value = trainings.includes("ALL") ? "ALL" : trainings.join(", ");
+  if (idx >= 0) {
+    settings[idx].value = value;
+    settings[idx].key = department; // preserve original casing
+  } else {
+    settings.push({ type: "dept_rule", key: department, value });
+  }
+  await writeSettings(settings);
+  return getDeptRulesSync(settings);
+}
+
+export async function removeDeptRule(department: string): Promise<DeptRule[]> {
+  let settings = await readSettings();
+  settings = settings.filter(
+    (s) => !(s.type === "dept_rule" && s.key.toLowerCase() === department.toLowerCase())
+  );
+  await writeSettings(settings);
+  return getDeptRulesSync(settings);
+}
+
+function getDeptRulesSync(settings: Array<{ type: string; key: string; value: string }>): DeptRule[] {
+  return settings
+    .filter((s) => s.type === "dept_rule")
+    .map((s) => ({
+      department: s.key,
+      trainings: s.value === "ALL" ? ["ALL"] : s.value.split(",").map((t) => t.trim()).filter(Boolean),
+    }));
+}
+
 /**
  * Get capacity for a training, checking overrides first.
  * Uses alias resolution to match "CPR" → "CPR/FA" etc.

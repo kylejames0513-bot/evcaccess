@@ -199,9 +199,16 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
   // Load excluded employees and compliance tracks from Hub Settings
   const excluded = await getExcludedEmployees();
   const excludedSet = new Set(excluded.map((n) => n.toLowerCase()));
-  const { getComplianceTracks } = await import("@/lib/hub-settings");
+  const { getComplianceTracks, getDeptRules } = await import("@/lib/hub-settings");
   const trackedKeys = new Set(await getComplianceTracks());
   const trackedDefs = TRAINING_DEFINITIONS.filter((d) => trackedKeys.has(d.columnKey));
+
+  // Load department training rules
+  const deptRules = await getDeptRules();
+  const deptRuleMap = new Map<string, Set<string>>(); // lowercase dept → set of columnKeys (or "ALL")
+  for (const rule of deptRules) {
+    deptRuleMap.set(rule.department.toLowerCase(), new Set(rule.trainings));
+  }
 
   const employees: EmployeeTrainingRow[] = [];
 
@@ -213,7 +220,7 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     const row = rows[i];
     const lastName = (row[0] || "").trim();
     const firstName = (row[1] || "").trim();
-    const position = (row[3] || "").trim(); // Column D = job title
+    const position = (row[4] || "").trim(); // Column E = Department Description
     if (!lastName) continue;
 
     // Combine to "Last, First"
@@ -226,9 +233,17 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     // Skip excluded employees
     if (excludedSet.has(name.toLowerCase())) continue;
 
+    // Determine which trainings this employee needs based on department rules
+    const empDeptRule = position ? deptRuleMap.get(position.toLowerCase()) : undefined;
+    const employeeDefs = empDeptRule
+      ? empDeptRule.has("ALL")
+        ? trackedDefs
+        : trackedDefs.filter((d) => empDeptRule.has(d.columnKey))
+      : trackedDefs; // no rule = gets all tracked trainings (default)
+
     const trainings: EmployeeTrainingRow["trainings"] = {};
 
-    for (const def of trackedDefs) {
+    for (const def of employeeDefs) {
       const colIndex = headers.findIndex(
         (h) => h.trim().toUpperCase() === def.columnKey.toUpperCase()
       );

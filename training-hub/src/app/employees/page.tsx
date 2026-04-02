@@ -166,7 +166,7 @@ export default function EmployeesPage() {
             <thead>
               <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
                 <th className="px-5 py-3">Employee</th>
-                <th className="px-5 py-3">Position</th>
+                <th className="px-5 py-3">Department</th>
                 <th className="px-5 py-3 w-64">Compliance</th>
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3 w-20 text-right">Actions</th>

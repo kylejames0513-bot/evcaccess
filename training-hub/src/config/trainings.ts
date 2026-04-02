@@ -173,7 +173,7 @@ export const TRAINING_DEFINITIONS: TrainingDef[] = [
   },
   {
     name: "Dysphagia",
-    columnKey: "Dysphagia Oveview",
+    columnKey: "Dysphagia Overview",
     renewalYears: 0,
     isRequired: false,
     classCapacity: 15,
