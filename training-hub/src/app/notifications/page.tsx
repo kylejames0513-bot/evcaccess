@@ -1,172 +1,486 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, Mail, Send, Settings, Clock, CheckCircle, AlertTriangle } from "lucide-react";
+import {
+  Bell,
+  Send,
+  AlertTriangle,
+  Clock,
+  CalendarDays,
+  Users,
+} from "lucide-react";
+import { useFetch } from "@/lib/use-fetch";
+import { Loading, ErrorState } from "@/components/ui/DataState";
 
-// Demo notification history
-const demoNotifications = [
-  { id: "1", type: "expiration_warning", recipient: "Johnson, Maria", subject: "CPR/FA expires in 14 days", sent: "2026-04-01 8:00 AM", channel: "email" },
-  { id: "2", type: "expiration_warning", recipient: "Smith, Terrence", subject: "Med Recert expires in 7 days", sent: "2026-04-01 8:00 AM", channel: "email" },
-  { id: "3", type: "enrollment_confirm", recipient: "Williams, Aisha", subject: "Enrolled in CPR/FA — Apr 10", sent: "2026-03-31 2:15 PM", channel: "email" },
-  { id: "4", type: "class_reminder", recipient: "Anderson, James", subject: "CPR/FA class tomorrow at 9:00 AM", sent: "2026-04-02 8:00 AM", channel: "email" },
-  { id: "5", type: "expiration_warning", recipient: "Brown, Marcus", subject: "Ukeru training EXPIRED", sent: "2026-03-29 8:00 AM", channel: "email" },
-  { id: "6", type: "manager_digest", recipient: "Garcia, Sofia (Supervisor)", subject: "Weekly compliance digest — 3 issues", sent: "2026-03-31 7:00 AM", channel: "email" },
-];
+/* ── API response types ─────────────────────────────────── */
 
-const automationRules = [
-  { name: "60-day expiration warning", description: "Email employees when any training expires within 60 days", enabled: true, frequency: "Daily check" },
-  { name: "30-day expiration warning", description: "Follow-up email at 30 days before expiration", enabled: true, frequency: "Daily check" },
-  { name: "7-day expiration urgent", description: "Urgent notice 7 days before expiration + CC supervisor", enabled: true, frequency: "Daily check" },
-  { name: "Expired training alert", description: "Notify employee + supervisor when training expires", enabled: true, frequency: "Daily check" },
-  { name: "Enrollment confirmation", description: "Email when enrolled in a training session", enabled: true, frequency: "On event" },
-  { name: "Class reminder (1 day)", description: "Remind attendees 1 day before their scheduled class", enabled: true, frequency: "Daily check" },
-  { name: "Weekly manager digest", description: "Send supervisors a compliance summary every Monday", enabled: true, frequency: "Weekly (Monday)" },
-  { name: "No-show follow-up", description: "Email employee + supervisor after a no-show", enabled: false, frequency: "On event" },
-];
+interface ComplianceIssue {
+  employee: string;
+  training: string;
+  status: "expired" | "expiring_soon" | "needed";
+  date: string | null;
+  expirationDate: string | null;
+}
+
+interface ScheduledSession {
+  training: string;
+  date: string;
+  sortDateMs: number;
+  time: string;
+  location: string;
+  enrolled: string[];
+  capacity: number;
+  status: "scheduled" | "completed";
+}
+
+/* ── Helpers ────────────────────────────────────────────── */
+
+function formatDate(d: string | null): string {
+  if (!d) return "N/A";
+  const date = new Date(d + "T00:00:00");
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function withinDays(dateStr: string, days: number): boolean {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const target = new Date(dateStr + "T00:00:00");
+  const diff = (target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+  return diff >= 0 && diff <= days;
+}
+
+/* ── Badge component ────────────────────────────────────── */
+
+function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    expired: "bg-red-100 text-red-700",
+    expiring_soon: "bg-amber-100 text-amber-700",
+    needed: "bg-red-100 text-red-700",
+    upcoming: "bg-blue-100 text-blue-700",
+  };
+  const labels: Record<string, string> = {
+    expired: "Expired",
+    expiring_soon: "Expiring Soon",
+    needed: "Needed",
+    upcoming: "Upcoming",
+  };
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${
+        styles[status] ?? "bg-slate-100 text-slate-600"
+      }`}
+    >
+      {labels[status] ?? status}
+    </span>
+  );
+}
+
+/* ── Alert row ──────────────────────────────────────────── */
+
+function AlertRow({
+  icon,
+  employee,
+  training,
+  detail,
+  status,
+}: {
+  icon: React.ReactNode;
+  employee?: string;
+  training: string;
+  detail: string;
+  status: string;
+}) {
+  return (
+    <div className="px-6 py-4 flex items-center justify-between">
+      <div className="flex items-center gap-4 min-w-0">
+        {icon}
+        <div className="min-w-0">
+          {employee && (
+            <p className="text-sm font-medium text-slate-900 truncate">
+              {employee}
+            </p>
+          )}
+          <p className="text-sm text-slate-600 truncate">{training}</p>
+          <p className="text-xs text-slate-400 mt-0.5">{detail}</p>
+        </div>
+      </div>
+      <StatusBadge status={status} />
+    </div>
+  );
+}
+
+/* ── Section wrapper ────────────────────────────────────── */
+
+function Section({
+  title,
+  count,
+  color,
+  children,
+}: {
+  title: string;
+  count: number;
+  color: "red" | "amber" | "blue";
+  children: React.ReactNode;
+}) {
+  const border = {
+    red: "border-red-200",
+    amber: "border-amber-200",
+    blue: "border-blue-200",
+  }[color];
+  const headerBg = {
+    red: "bg-red-50",
+    amber: "bg-amber-50",
+    blue: "bg-blue-50",
+  }[color];
+  const headerText = {
+    red: "text-red-800",
+    amber: "text-amber-800",
+    blue: "text-blue-800",
+  }[color];
+  const badge = {
+    red: "bg-red-200 text-red-800",
+    amber: "bg-amber-200 text-amber-800",
+    blue: "bg-blue-200 text-blue-800",
+  }[color];
+
+  return (
+    <div
+      className={`bg-white rounded-xl border ${border} shadow-sm overflow-hidden`}
+    >
+      <div className={`${headerBg} px-6 py-3 flex items-center justify-between`}>
+        <h3 className={`text-sm font-semibold ${headerText}`}>{title}</h3>
+        <span
+          className={`text-xs font-medium px-2 py-0.5 rounded-full ${badge}`}
+        >
+          {count}
+        </span>
+      </div>
+      <div className="divide-y divide-slate-100">{children}</div>
+    </div>
+  );
+}
+
+/* ── Alerts tab ─────────────────────────────────────────── */
+
+function AlertsTab() {
+  const { data: compData, loading: compLoading, error: compError } =
+    useFetch<{ issues: ComplianceIssue[] }>("/api/compliance");
+  const { data: schedData, loading: schedLoading, error: schedError } =
+    useFetch<{ sessions: ScheduledSession[] }>("/api/schedule");
+
+  if (compLoading || schedLoading) return <Loading />;
+  if (compError) return <ErrorState message={compError} />;
+  if (schedError) return <ErrorState message={schedError} />;
+
+  const issues = compData?.issues ?? [];
+  const sessions = schedData?.sessions ?? [];
+
+  const expired = issues.filter((i) => i.status === "expired" || i.status === "needed");
+  const expiringSoon = issues.filter((i) => i.status === "expiring_soon");
+  const upcomingSessions = sessions.filter(
+    (s) => s.status === "scheduled" && s.date && withinDays(s.date, 7)
+  );
+
+  if (expired.length === 0 && expiringSoon.length === 0 && upcomingSessions.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
+        <Bell className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+        <h3 className="text-sm font-medium text-slate-700">All clear</h3>
+        <p className="text-sm text-slate-500 mt-1">
+          No compliance alerts or upcoming sessions right now.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {expired.length > 0 && (
+        <Section title="Expired / Needed" count={expired.length} color="red">
+          {expired.map((issue, i) => (
+            <AlertRow
+              key={`exp-${i}`}
+              icon={
+                <div className="p-2 rounded-lg bg-red-50">
+                  <AlertTriangle className="h-4 w-4 text-red-600" />
+                </div>
+              }
+              employee={issue.employee}
+              training={issue.training}
+              detail={
+                issue.expirationDate
+                  ? `Expired ${formatDate(issue.expirationDate)}`
+                  : issue.date
+                    ? `Last completed ${formatDate(issue.date)}`
+                    : "Never completed"
+              }
+              status={issue.status}
+            />
+          ))}
+        </Section>
+      )}
+
+      {expiringSoon.length > 0 && (
+        <Section title="Expiring Soon" count={expiringSoon.length} color="amber">
+          {expiringSoon.map((issue, i) => (
+            <AlertRow
+              key={`es-${i}`}
+              icon={
+                <div className="p-2 rounded-lg bg-amber-50">
+                  <Clock className="h-4 w-4 text-amber-600" />
+                </div>
+              }
+              employee={issue.employee}
+              training={issue.training}
+              detail={
+                issue.expirationDate
+                  ? `Expires ${formatDate(issue.expirationDate)}`
+                  : "Expiring soon"
+              }
+              status="expiring_soon"
+            />
+          ))}
+        </Section>
+      )}
+
+      {upcomingSessions.length > 0 && (
+        <Section
+          title="Upcoming Classes (Next 7 Days)"
+          count={upcomingSessions.length}
+          color="blue"
+        >
+          {upcomingSessions.map((session, i) => (
+            <AlertRow
+              key={`up-${i}`}
+              icon={
+                <div className="p-2 rounded-lg bg-blue-50">
+                  <CalendarDays className="h-4 w-4 text-blue-600" />
+                </div>
+              }
+              training={session.training}
+              detail={`${formatDate(session.date)} at ${session.time || "TBD"} — ${session.enrolled.length} enrolled`}
+              status="upcoming"
+            />
+          ))}
+        </Section>
+      )}
+    </div>
+  );
+}
+
+/* ── Send Report tab ────────────────────────────────────── */
+
+function SendReportTab() {
+  const [scope, setScope] = useState<"expired" | "expired_expiring" | "full">(
+    "expired"
+  );
+  const [generating, setGenerating] = useState(false);
+  const [report, setReport] = useState<string | null>(null);
+  const [counts, setCounts] = useState<{ expired: number; expiring: number; needed: number; total: number } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const { data: compData, loading, error } =
+    useFetch<{ issues: ComplianceIssue[] }>("/api/compliance");
+
+  const issues = compData?.issues ?? [];
+  const expiredCount = issues.filter(
+    (i) => i.status === "expired" || i.status === "needed"
+  ).length;
+  const expiringSoonCount = issues.filter(
+    (i) => i.status === "expiring_soon"
+  ).length;
+
+  const previewCount =
+    scope === "expired"
+      ? expiredCount
+      : scope === "expired_expiring"
+        ? expiredCount + expiringSoonCount
+        : issues.length;
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setReport(null);
+    setCopied(false);
+    try {
+      const res = await fetch("/api/send-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scope }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setReport(json.report);
+      setCounts(json.counts);
+    } catch {
+      setReport("Error generating report.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function handleCopy() {
+    if (!report) return;
+    await navigator.clipboard.writeText(report);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-5">
+        {/* Report scope */}
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-2">
+            Report Scope
+          </label>
+          <div className="space-y-2">
+            {[
+              { value: "expired" as const, label: "Expired Only" },
+              {
+                value: "expired_expiring" as const,
+                label: "Expired + Expiring Soon",
+              },
+              { value: "full" as const, label: "Full Report" },
+            ].map((opt) => (
+              <label
+                key={opt.value}
+                className="flex items-center gap-3 cursor-pointer"
+              >
+                <input
+                  type="radio"
+                  name="scope"
+                  value={opt.value}
+                  checked={scope === opt.value}
+                  onChange={() => setScope(opt.value)}
+                  className="h-4 w-4 text-blue-600 border-slate-300 focus:ring-blue-500"
+                />
+                <span className="text-sm text-slate-700">{opt.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Preview */}
+        {loading ? (
+          <p className="text-xs text-slate-400">Loading issue counts...</p>
+        ) : error ? (
+          <p className="text-xs text-red-500">{error}</p>
+        ) : (
+          <div className="bg-slate-50 rounded-lg p-4">
+            <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
+              Report Preview
+            </h4>
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <p className="text-2xl font-bold text-red-600">{expiredCount}</p>
+                <p className="text-xs text-slate-500">Expired / Needed</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-amber-600">
+                  {expiringSoonCount}
+                </p>
+                <p className="text-xs text-slate-500">Expiring Soon</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-slate-700">
+                  {previewCount}
+                </p>
+                <p className="text-xs text-slate-500">Total in Report</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Generate button */}
+        <button
+          onClick={handleGenerate}
+          disabled={generating}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <Send className="h-4 w-4" />
+          {generating ? "Generating..." : "Generate Report"}
+        </button>
+
+        {/* Generated report */}
+        {report && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-medium text-slate-700">Generated Report</h4>
+              <button
+                onClick={handleCopy}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                  copied
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {copied ? "Copied!" : "Copy to Clipboard"}
+              </button>
+            </div>
+            <pre className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-xs text-slate-700 overflow-x-auto whitespace-pre-wrap max-h-80 overflow-y-auto font-mono">
+              {report}
+            </pre>
+            {counts && (
+              <p className="text-xs text-slate-400">
+                {counts.expired} expired, {counts.expiring} expiring, {counts.needed} needed — {counts.total} total issues
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Main page ──────────────────────────────────────────── */
 
 export default function NotificationsPage() {
-  const [tab, setTab] = useState<"history" | "automation">("automation");
+  const [tab, setTab] = useState<"alerts" | "send">("alerts");
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Notifications</h1>
         <p className="text-slate-500 mt-1">
-          Automated alerts and notification history
+          Compliance alerts and report delivery
         </p>
       </div>
 
       {/* Tabs */}
       <div className="flex bg-slate-100 rounded-lg p-0.5 w-fit">
         <button
-          onClick={() => setTab("automation")}
+          onClick={() => setTab("alerts")}
           className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-            tab === "automation" ? "bg-white shadow text-slate-900" : "text-slate-600"
+            tab === "alerts"
+              ? "bg-white shadow text-slate-900"
+              : "text-slate-600"
           }`}
         >
-          Automation Rules
+          <span className="inline-flex items-center gap-1.5">
+            <Bell className="h-4 w-4" />
+            Alerts
+          </span>
         </button>
         <button
-          onClick={() => setTab("history")}
+          onClick={() => setTab("send")}
           className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-            tab === "history" ? "bg-white shadow text-slate-900" : "text-slate-600"
+            tab === "send"
+              ? "bg-white shadow text-slate-900"
+              : "text-slate-600"
           }`}
         >
-          History
+          <span className="inline-flex items-center gap-1.5">
+            <Users className="h-4 w-4" />
+            Send Report
+          </span>
         </button>
       </div>
 
-      {tab === "automation" ? (
-        <div className="space-y-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex gap-3">
-              <Bell className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-sm font-medium text-blue-900">
-                  Automated Notifications
-                </h3>
-                <p className="text-sm text-blue-700 mt-1">
-                  These rules run automatically. When connected to Supabase, the system
-                  will check daily for expiring trainings and send emails without any
-                  manual intervention. No more chasing people down.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
-            {automationRules.map((rule, i) => (
-              <div key={i} className="px-6 py-4 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className={`p-2 rounded-lg ${rule.enabled ? "bg-green-50" : "bg-slate-50"}`}>
-                    {rule.enabled ? (
-                      <CheckCircle className="h-5 w-5 text-green-600" />
-                    ) : (
-                      <Clock className="h-5 w-5 text-slate-400" />
-                    )}
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-medium text-slate-900">
-                      {rule.name}
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {rule.description}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-xs text-slate-500">{rule.frequency}</span>
-                  <button
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      rule.enabled ? "bg-blue-600" : "bg-slate-200"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        rule.enabled ? "translate-x-6" : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-slate-50 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                  <th className="px-6 py-3">Type</th>
-                  <th className="px-6 py-3">Recipient</th>
-                  <th className="px-6 py-3">Subject</th>
-                  <th className="px-6 py-3">Sent</th>
-                  <th className="px-6 py-3">Channel</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {demoNotifications.map((notif) => (
-                  <tr key={notif.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${
-                        notif.type === "expiration_warning"
-                          ? "text-yellow-700"
-                          : notif.type === "enrollment_confirm"
-                            ? "text-green-700"
-                            : notif.type === "class_reminder"
-                              ? "text-blue-700"
-                              : "text-purple-700"
-                      }`}>
-                        {notif.type === "expiration_warning" && <AlertTriangle className="h-3.5 w-3.5" />}
-                        {notif.type === "enrollment_confirm" && <CheckCircle className="h-3.5 w-3.5" />}
-                        {notif.type === "class_reminder" && <Clock className="h-3.5 w-3.5" />}
-                        {notif.type === "manager_digest" && <Mail className="h-3.5 w-3.5" />}
-                        {notif.type.replace(/_/g, " ")}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-900">
-                      {notif.recipient}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {notif.subject}
-                    </td>
-                    <td className="px-6 py-4 text-xs text-slate-500">
-                      {notif.sent}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="inline-flex items-center gap-1 text-xs text-slate-600">
-                        <Mail className="h-3.5 w-3.5" />
-                        {notif.channel}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {tab === "alerts" ? <AlertsTab /> : <SendReportTab />}
     </div>
   );
 }

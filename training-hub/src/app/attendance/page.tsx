@@ -1,201 +1,459 @@
 "use client";
 
 import { useState } from "react";
-import { QrCode, CheckCircle, UserCheck, Clock, Search } from "lucide-react";
-import StatusBadge from "@/components/ui/StatusBadge";
+import { CheckCircle, UserPlus, Loader2, AlertCircle, Users, Search } from "lucide-react";
+import { Loading, ErrorState } from "@/components/ui/DataState";
+import { useFetch } from "@/lib/use-fetch";
+import { TRAINING_DEFINITIONS } from "@/config/trainings";
 
-// Demo recent check-ins
-const recentCheckins = [
-  { employee: "Anderson, James", training: "CPR/FA", time: "9:03 AM", status: "attended" as const },
-  { employee: "Taylor, Aisha", training: "CPR/FA", time: "9:01 AM", status: "attended" as const },
-  { employee: "Wilson, David", training: "CPR/FA", time: "8:58 AM", status: "attended" as const },
-  { employee: "Garcia, Sofia", training: "CPR/FA", time: "8:55 AM", status: "attended" as const },
-  { employee: "Johnson, Maria", training: "CPR/FA", time: "8:52 AM", status: "attended" as const },
-];
+// ── Types ──────────────────────────────────────────────────────────
+interface SessionData {
+  rowIndex: number;
+  training: string;
+  date: string;
+  time: string;
+  location: string;
+  enrolled: string[];
+  noShows: string[];
+  capacity: number;
+  status: "scheduled" | "completed";
+}
 
+interface ScheduleData {
+  sessions: SessionData[];
+}
+
+// ── Helpers ────────────────────────────────────────────────────────
+
+/** Find the TRAINING_DEFINITIONS entry whose name (or aliases) match a session training string */
+function findTrainingDef(trainingName: string) {
+  const lower = trainingName.toLowerCase();
+  return TRAINING_DEFINITIONS.find((td) => {
+    if (td.name.toLowerCase() === lower) return true;
+    return td.aliases?.some((a) => a.toLowerCase() === lower);
+  });
+}
+
+/** Convert a session date like "2026-04-03" to YYYY-MM-DD (pass-through) */
+function toISODate(dateStr: string): string {
+  // The API already returns dates in a parseable format.
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toISOString().slice(0, 10);
+}
+
+/** Format a date string for display */
+function formatDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+// ── Component ──────────────────────────────────────────────────────
 export default function AttendancePage() {
-  const [mode, setMode] = useState<"scan" | "manual" | "session">("scan");
+  // Fetch sessions
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { data, loading, error } = useFetch<ScheduleData>(`/api/schedule?r=${refreshKey}`);
+
+  // Session selection
+  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
+
+  // Attendance tracking (local state: set of names marked present)
+  const [presentNames, setPresentNames] = useState<Set<string>>(new Set());
+
+  // Manual entry
   const [manualName, setManualName] = useState("");
-  const [selectedSession, setSelectedSession] = useState("");
+  const [enrolling, setEnrolling] = useState(false);
+  const [enrollError, setEnrollError] = useState<string | null>(null);
+  const [enrollSuccess, setEnrollSuccess] = useState<string | null>(null);
+
+  // No-show processing
+  const [processingNoShow, setProcessingNoShow] = useState<string | null>(null);
+
+  // Complete session
+  const [completing, setCompleting] = useState(false);
+  const [completeMessage, setCompleteMessage] = useState<string | null>(null);
+  const [completeError, setCompleteError] = useState<string | null>(null);
+
+  // Tab: "session" or "manual"
+  const [mode, setMode] = useState<"session" | "manual">("session");
+
+  // Derive scheduled sessions only
+  const sessions = (data?.sessions ?? []).filter((s) => s.status === "scheduled");
+  const selectedSession = sessions.find((s) => s.rowIndex === selectedRowIndex) ?? null;
+
+  // When selection changes, reset attendance state
+  function handleSelectSession(rowIndex: number | null) {
+    setSelectedRowIndex(rowIndex);
+    setPresentNames(new Set());
+    setCompleteMessage(null);
+    setCompleteError(null);
+  }
+
+  // ── Mark present ───────────────────────────────────────────────
+  function markPresent(name: string) {
+    setPresentNames((prev) => new Set(prev).add(name));
+  }
+
+  // ── Mark no-show ───────────────────────────────────────────────
+  async function markNoShow(name: string) {
+    if (!selectedSession) return;
+    setProcessingNoShow(name);
+    try {
+      const res = await fetch("/api/no-shows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionRowIndex: selectedSession.rowIndex, names: [name] }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `HTTP ${res.status}`);
+      }
+      // Refresh data so the enrolled list updates
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      console.error("No-show error:", err);
+    } finally {
+      setProcessingNoShow(null);
+    }
+  }
+
+  // ── Manual enroll ──────────────────────────────────────────────
+  async function handleManualEnroll() {
+    if (!selectedSession || !manualName.trim()) return;
+    setEnrolling(true);
+    setEnrollError(null);
+    setEnrollSuccess(null);
+    try {
+      const res = await fetch("/api/enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionRowIndex: selectedSession.rowIndex, names: [manualName.trim()] }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+      setEnrollSuccess(`Added "${manualName.trim()}" to session.`);
+      setManualName("");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      setEnrollError(err instanceof Error ? err.message : "Failed to enroll");
+    } finally {
+      setEnrolling(false);
+    }
+  }
+
+  // ── Complete session ───────────────────────────────────────────
+  async function handleCompleteSession() {
+    if (!selectedSession || presentNames.size === 0) return;
+    setCompleting(true);
+    setCompleteMessage(null);
+    setCompleteError(null);
+
+    try {
+      // 1. Resolve the training column key
+      const trainingDef = findTrainingDef(selectedSession.training);
+      if (!trainingDef) {
+        throw new Error(`Could not find training definition for "${selectedSession.training}"`);
+      }
+
+      const completionDate = toISODate(selectedSession.date);
+      const presentList = Array.from(presentNames);
+
+      // 2. Record completion for each present employee
+      const failures: string[] = [];
+      for (const name of presentList) {
+        try {
+          const res = await fetch("/api/record-completion", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              employeeName: name,
+              trainingColumnKey: trainingDef.columnKey,
+              completionDate,
+            }),
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            failures.push(`${name}: ${body.error || `HTTP ${res.status}`}`);
+          }
+        } catch {
+          failures.push(`${name}: network error`);
+        }
+      }
+
+      // 3. Archive the session
+      const archiveRes = await fetch("/api/archive-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionRowIndex: selectedSession.rowIndex }),
+      });
+      if (!archiveRes.ok) {
+        const body = await archiveRes.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to archive session");
+      }
+
+      if (failures.length > 0) {
+        setCompleteMessage(
+          `Session archived. ${presentList.length - failures.length} of ${presentList.length} completions recorded. Some failures:\n${failures.join("\n")}`
+        );
+      } else {
+        setCompleteMessage(
+          `Session completed! ${presentList.length} completion${presentList.length === 1 ? "" : "s"} recorded and session archived.`
+        );
+      }
+
+      // Refresh and clear selection
+      setRefreshKey((k) => k + 1);
+      setSelectedRowIndex(null);
+      setPresentNames(new Set());
+    } catch (err) {
+      setCompleteError(err instanceof Error ? err.message : "Failed to complete session");
+    } finally {
+      setCompleting(false);
+    }
+  }
+
+  // ── Render ─────────────────────────────────────────────────────
+  if (loading) return <Loading message="Loading scheduled sessions..." />;
+  if (error) return <ErrorState message={error} />;
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">QR Attendance</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Session Management</h1>
         <p className="text-slate-500 mt-1">
-          Scan QR codes or manually record attendance
+          Track attendance and complete training sessions
         </p>
       </div>
 
       {/* Mode selector */}
       <div className="flex bg-slate-100 rounded-lg p-0.5 w-fit">
-        {(["scan", "manual", "session"] as const).map((m) => (
+        {(["session", "manual"] as const).map((m) => (
           <button
             key={m}
             onClick={() => setMode(m)}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors capitalize ${
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
               mode === m ? "bg-white shadow text-slate-900" : "text-slate-600"
             }`}
           >
-            {m === "scan" ? "QR Scan" : m === "manual" ? "Manual Entry" : "Session View"}
+            {m === "session" ? "Session View" : "Manual Entry"}
           </button>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left panel — scan/entry */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
-          {mode === "scan" ? (
-            <div className="text-center space-y-4">
-              <div className="inline-flex p-6 bg-blue-50 rounded-2xl">
-                <QrCode className="h-24 w-24 text-blue-600" />
-              </div>
-              <h2 className="text-lg font-semibold text-slate-900">
-                QR Code Scanner
-              </h2>
-              <p className="text-sm text-slate-500 max-w-sm mx-auto">
-                Point employee&apos;s QR code at the camera to automatically record
-                attendance. The system will match their name and mark them present.
-              </p>
-              <button className="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors">
-                Start Camera
-              </button>
-              <p className="text-xs text-slate-400">
-                Camera access required. Works on mobile and desktop.
-              </p>
-            </div>
-          ) : mode === "manual" ? (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-slate-900">
-                Manual Check-In
-              </h2>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Training Session
-                </label>
-                <select
-                  value={selectedSession}
-                  onChange={(e) => setSelectedSession(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select a session...</option>
-                  <option value="cpr-0403">CPR/FA — Apr 3, 2026</option>
-                  <option value="ukeru-0413">Ukeru — Apr 13, 2026</option>
-                  <option value="meal-0415">Mealtime — Apr 15, 2026</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Employee Name
-                </label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Last, First..."
-                    value={manualName}
-                    onChange={(e) => setManualName(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+      {/* Success / error banners */}
+      {completeMessage && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
+          <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
+          <p className="text-sm text-green-800 whitespace-pre-line">{completeMessage}</p>
+        </div>
+      )}
+      {completeError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+          <p className="text-sm text-red-800">{completeError}</p>
+        </div>
+      )}
+
+      {/* ── Session View ─────────────────────────────────────── */}
+      {mode === "session" && (
+        <div className="space-y-6">
+          {/* Session selector */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Select Session
+            </label>
+            <select
+              value={selectedRowIndex ?? ""}
+              onChange={(e) =>
+                handleSelectSession(e.target.value ? Number(e.target.value) : null)
+              }
+              className="w-full max-w-xl px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Choose a scheduled session...</option>
+              {sessions.map((s) => (
+                <option key={s.rowIndex} value={s.rowIndex}>
+                  {s.training} — {formatDate(s.date)}{s.time ? ` at ${s.time}` : ""} ({s.enrolled.length}/{s.capacity} enrolled)
+                </option>
+              ))}
+            </select>
+            {sessions.length === 0 && (
+              <p className="text-sm text-slate-500 mt-2">No scheduled sessions found.</p>
+            )}
+          </div>
+
+          {/* Enrolled list */}
+          {selectedSession && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+              <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">
+                    {selectedSession.training}
+                  </h2>
+                  <p className="text-sm text-slate-500">
+                    {formatDate(selectedSession.date)}{selectedSession.time ? ` at ${selectedSession.time}` : ""}
+                    {selectedSession.location ? ` — ${selectedSession.location}` : ""}
+                  </p>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">
-                  Nickname matching enabled (e.g., &quot;Mike&quot; matches &quot;Michael&quot;)
-                </p>
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <Users className="h-4 w-4" />
+                  <span>{selectedSession.enrolled.length}/{selectedSession.capacity} enrolled</span>
+                </div>
               </div>
-              <div className="flex gap-3">
-                <button className="flex-1 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors inline-flex items-center justify-center gap-2">
-                  <UserCheck className="h-4 w-4" />
-                  Check In
-                </button>
-                <button className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors inline-flex items-center justify-center gap-2">
-                  <CheckCircle className="h-4 w-4" />
-                  Mark Pass
-                </button>
-              </div>
+
+              {selectedSession.enrolled.length === 0 ? (
+                <div className="px-6 py-8 text-center text-slate-500 text-sm">
+                  No employees enrolled in this session yet.
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100">
+                  {selectedSession.enrolled.map((name) => {
+                    const isPresent = presentNames.has(name);
+                    const isProcessingNoShow = processingNoShow === name;
+                    return (
+                      <div
+                        key={name}
+                        className="flex items-center justify-between px-6 py-3"
+                      >
+                        <span className="text-sm text-slate-900">{name}</span>
+                        <div className="flex items-center gap-2">
+                          {isPresent ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-green-700 bg-green-50 rounded-md">
+                              <CheckCircle className="h-3.5 w-3.5" />
+                              Present
+                            </span>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => markPresent(name)}
+                                className="px-3 py-1 text-xs font-medium bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors"
+                              >
+                                Present
+                              </button>
+                              <button
+                                onClick={() => markNoShow(name)}
+                                disabled={isProcessingNoShow}
+                                className="px-3 py-1 text-xs font-medium bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors disabled:opacity-50"
+                              >
+                                {isProcessingNoShow ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  "No Show"
+                                )}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Summary bar */}
+              {selectedSession.enrolled.length > 0 && (
+                <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between bg-slate-50 rounded-b-xl">
+                  <span className="text-sm font-medium text-slate-700">
+                    {presentNames.size} of {selectedSession.enrolled.length} Present
+                  </span>
+                  <button
+                    onClick={handleCompleteSession}
+                    disabled={completing || presentNames.size === 0}
+                    className="px-5 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                  >
+                    {completing ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Completing...
+                      </>
+                    ) : (
+                      "Complete Session"
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-slate-900">
-                Session Roster
-              </h2>
+          )}
+        </div>
+      )}
+
+      {/* ── Manual Entry ─────────────────────────────────────── */}
+      {mode === "manual" && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 max-w-xl">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">
+            Add Employee to Session
+          </h2>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Training Session
+              </label>
               <select
-                value={selectedSession}
-                onChange={(e) => setSelectedSession(e.target.value)}
+                value={selectedRowIndex ?? ""}
+                onChange={(e) =>
+                  handleSelectSession(e.target.value ? Number(e.target.value) : null)
+                }
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">Select a session...</option>
-                <option value="cpr-0403">CPR/FA — Apr 3, 2026 (8/10 enrolled)</option>
-                <option value="ukeru-0413">Ukeru — Apr 13, 2026 (10/12 enrolled)</option>
+                {sessions.map((s) => (
+                  <option key={s.rowIndex} value={s.rowIndex}>
+                    {s.training} — {formatDate(s.date)}{s.time ? ` at ${s.time}` : ""} ({s.enrolled.length}/{s.capacity})
+                  </option>
+                ))}
               </select>
-              <div className="border border-slate-200 rounded-lg divide-y divide-slate-100">
-                {["Anderson, James", "Garcia, Sofia", "Johnson, Maria", "Taylor, Aisha", "Wilson, David"].map(
-                  (name, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between px-4 py-3"
-                    >
-                      <span className="text-sm text-slate-900">{name}</span>
-                      <div className="flex gap-2">
-                        <button className="px-2.5 py-1 text-xs bg-green-100 text-green-700 rounded font-medium hover:bg-green-200">
-                          Pass
-                        </button>
-                        <button className="px-2.5 py-1 text-xs bg-red-100 text-red-700 rounded font-medium hover:bg-red-200">
-                          Fail
-                        </button>
-                        <button className="px-2.5 py-1 text-xs bg-orange-100 text-orange-700 rounded font-medium hover:bg-orange-200">
-                          No Show
-                        </button>
-                      </div>
-                    </div>
-                  )
-                )}
-              </div>
-              <button className="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
-                Finalize Session
-              </button>
             </div>
-          )}
-        </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Employee Name
+              </label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Last, First..."
+                  value={manualName}
+                  onChange={(e) => {
+                    setManualName(e.target.value);
+                    setEnrollError(null);
+                    setEnrollSuccess(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleManualEnroll();
+                  }}
+                  className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
 
-        {/* Right panel — recent check-ins */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-          <div className="px-6 py-4 border-b border-slate-200">
-            <h2 className="text-lg font-semibold text-slate-900">
-              Recent Check-Ins
-            </h2>
-            <p className="text-sm text-slate-500">Today&apos;s attendance log</p>
+            {enrollError && (
+              <p className="text-sm text-red-600">{enrollError}</p>
+            )}
+            {enrollSuccess && (
+              <p className="text-sm text-green-600">{enrollSuccess}</p>
+            )}
+
+            <button
+              onClick={handleManualEnroll}
+              disabled={enrolling || !selectedRowIndex || !manualName.trim()}
+              className="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+            >
+              {enrolling ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                <>
+                  <UserPlus className="h-4 w-4" />
+                  Add to Session
+                </>
+              )}
+            </button>
           </div>
-          <div className="divide-y divide-slate-100">
-            {recentCheckins.map((checkin, i) => (
-              <div
-                key={i}
-                className="px-6 py-3 flex items-center justify-between"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-1.5 bg-green-100 rounded-full">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">
-                      {checkin.employee}
-                    </p>
-                    <p className="text-xs text-slate-500">{checkin.training}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-slate-500">{checkin.time}</span>
-                  <StatusBadge status={checkin.status} type="attendance" />
-                </div>
-              </div>
-            ))}
-          </div>
-          {recentCheckins.length === 0 && (
-            <div className="px-6 py-8 text-center text-slate-500 text-sm">
-              No check-ins recorded today yet.
-            </div>
-          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

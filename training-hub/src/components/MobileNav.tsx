@@ -13,7 +13,8 @@ import {
   Archive,
   Settings,
   ClipboardCheck,
-  PenLine,
+  UserCheck,
+  Bell,
 } from "lucide-react";
 
 const navItems = [
@@ -21,7 +22,8 @@ const navItems = [
   { href: "/schedule", label: "Schedule", icon: CalendarPlus },
   { href: "/employees", label: "Employees", icon: Users },
   { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
-  { href: "/signin", label: "Sign In", icon: PenLine },
+  { href: "/attendance", label: "Attendance", icon: UserCheck },
+  { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/trainings", label: "Training Types", icon: GraduationCap },
   { href: "/archive", label: "Archive", icon: Archive },
   { href: "/settings", label: "Settings", icon: Settings },
