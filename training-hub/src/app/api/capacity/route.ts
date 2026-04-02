@@ -1,4 +1,4 @@
-import { setCapacity } from "@/lib/capacity-overrides";
+import { setCapacityOverride } from "@/lib/hub-settings";
 
 export async function POST(request: Request) {
   try {
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const overrides = setCapacity(trainingName, capacity);
+    const overrides = await setCapacityOverride(trainingName, capacity);
     return Response.json({ overrides });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

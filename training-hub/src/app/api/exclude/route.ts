@@ -1,4 +1,4 @@
-import { addExcludedEmployee, removeExcludedEmployee, getExcludedEmployees } from "@/lib/exclude-list";
+import { addExcludedEmployee, removeExcludedEmployee } from "@/lib/hub-settings";
 
 export async function POST(request: Request) {
   try {
@@ -11,9 +11,9 @@ export async function POST(request: Request) {
 
     let excluded: string[];
     if (action === "remove") {
-      excluded = removeExcludedEmployee(name);
+      excluded = await removeExcludedEmployee(name);
     } else {
-      excluded = addExcludedEmployee(name);
+      excluded = await addExcludedEmployee(name);
     }
 
     return Response.json({ excluded });

@@ -1,8 +1,7 @@
 import { readRange, readSheetAsObjects, appendRows, findRow, updateCell } from "./google-sheets";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import { toFirstLast as toFirstLastUtil, namesMatch } from "@/lib/name-utils";
-import { getExcludedEmployees } from "@/lib/exclude-list";
-import { getCapacity } from "@/lib/capacity-overrides";
+import { getExcludedEmployees, getCapacity } from "@/lib/hub-settings";
 import type { ComplianceStatus } from "@/types/database";
 
 // Primary trainings — the ones HR actively manages and tracks
@@ -210,8 +209,8 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
   const soonThreshold = new Date();
   soonThreshold.setDate(soonThreshold.getDate() + 60);
 
-  // Load excluded employees list
-  const excluded = getExcludedEmployees();
+  // Load excluded employees list from Hub Settings sheet
+  const excluded = await getExcludedEmployees();
   const excludedSet = new Set(excluded.map((n) => n.toLowerCase()));
 
   const employees: EmployeeTrainingRow[] = [];
@@ -430,7 +429,7 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
       time: colC,
       location: colD,
       enrolled,
-      capacity: getCapacity(training, def?.classCapacity || 15),
+      capacity: await getCapacity(training, def?.classCapacity || 15),
       status: sortDate && sortDate < now ? "completed" : "scheduled",
     });
   }
