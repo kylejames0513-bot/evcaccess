@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Plus } from "lucide-react";
+import { Search } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -26,74 +26,77 @@ export default function EmployeesPage() {
   if (!data) return null;
 
   const { employees } = data;
-
   const filtered = employees.filter((emp) => {
     const matchesSearch = emp.name.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || emp.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
+  const compliant = employees.filter((e) => e.status === "current").length;
+  const pctCompliant = employees.length > 0 ? Math.round((compliant / employees.length) * 100) : 0;
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-6 max-w-7xl mx-auto">
+      <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Employees</h1>
-          <p className="text-slate-500 mt-1">{employees.length} active employees from Training sheet</p>
+          <p className="text-sm text-slate-500 mt-0.5">{employees.length} active &middot; {pctCompliant}% fully compliant</p>
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 items-center bg-white rounded-xl border border-slate-200 px-4 py-3">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
-            placeholder="Search employees..."
+            placeholder="Search..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-48"
           />
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
-          <option value="all">All Statuses</option>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="all">All statuses</option>
           <option value="current">Current</option>
           <option value="expiring_soon">Expiring Soon</option>
           <option value="expired">Expired</option>
           <option value="needed">Needed</option>
         </select>
+        <span className="ml-auto text-xs text-slate-400">{filtered.length} employee{filtered.length !== 1 ? "s" : ""}</span>
       </div>
 
+      {/* Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full table-striped">
             <thead>
-              <tr className="bg-slate-50 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                <th className="px-6 py-3">Employee</th>
-                <th className="px-6 py-3">Compliance</th>
-                <th className="px-6 py-3">Status</th>
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
+                <th className="px-5 py-3">Employee</th>
+                <th className="px-5 py-3 w-64">Compliance</th>
+                <th className="px-5 py-3">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-slate-50">
               {filtered.map((emp, i) => {
                 const pct = emp.totalRequired > 0 ? Math.round((emp.completedCount / emp.totalRequired) * 100) : 0;
                 return (
-                  <tr key={i} className="hover:bg-slate-50">
-                    <td className="px-6 py-4">
-                      <span className="font-medium text-slate-900">{emp.name}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-2 bg-slate-100 rounded-full max-w-[120px]">
+                  <tr key={i} className="hover:bg-blue-50/30">
+                    <td className="px-5 py-3 text-sm font-medium text-slate-900">{emp.name}</td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 h-2 bg-slate-100 rounded-full">
                           <div
-                            className={`h-2 rounded-full ${pct === 100 ? "bg-green-500" : pct >= 80 ? "bg-yellow-500" : "bg-red-500"}`}
+                            className={`h-2 rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : pct >= 70 ? "bg-amber-500" : "bg-red-500"}`}
                             style={{ width: `${pct}%` }}
                           />
                         </div>
-                        <span className="text-xs text-slate-600 whitespace-nowrap">
-                          {emp.completedCount}/{emp.totalRequired} ({pct}%)
+                        <span className="text-xs font-medium text-slate-600 w-16 text-right">
+                          {emp.completedCount}/{emp.totalRequired}
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4"><StatusBadge status={emp.status} /></td>
+                    <td className="px-5 py-3"><StatusBadge status={emp.status} /></td>
                   </tr>
                 );
               })}
@@ -101,7 +104,7 @@ export default function EmployeesPage() {
           </table>
         </div>
         {filtered.length === 0 && (
-          <div className="text-center py-12 text-slate-500">No employees match your search.</div>
+          <div className="text-center py-10 text-sm text-slate-400">No employees match your search.</div>
         )}
       </div>
     </div>

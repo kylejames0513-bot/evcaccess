@@ -1,26 +1,36 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-background: #f8fafc;
+  --color-foreground: #1e293b;
+  --color-evc-blue: #1e40af;
+  --color-evc-blue-light: #3b82f6;
+  --color-evc-navy: #0f172a;
+  --color-evc-green: #059669;
+  --color-evc-red: #dc2626;
+  --color-evc-yellow: #d97706;
+  --color-evc-purple: #7c3aed;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Smooth scrolling */
+html { scroll-behavior: smooth; }
+
+/* Better table striping */
+.table-striped tbody tr:nth-child(even) {
+  background-color: #f1f5f9;
+}
+
+/* Card hover effect */
+.card-hover {
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+.card-hover:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  transform: translateY(-1px);
 }
