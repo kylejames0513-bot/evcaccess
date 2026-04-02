@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer } from "lucide-react";
+import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -31,6 +31,7 @@ export default function SchedulePage() {
   const { data, loading, error } = useFetch<ScheduleData>("/api/schedule");
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [enrollingSession, setEnrollingSession] = useState<number | null>(null);
+  const [finalizingSession, setFinalizingSession] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Force re-fetch after changes
@@ -93,6 +94,15 @@ export default function SchedulePage() {
         />
       )}
 
+      {/* Finalize Modal */}
+      {finalizingSession !== null && (
+        <FinalizeModal
+          session={sessions.find((s) => s.rowIndex === finalizingSession)!}
+          onClose={() => setFinalizingSession(null)}
+          onFinalized={() => { setFinalizingSession(null); refresh(); }}
+        />
+      )}
+
       {/* Upcoming sessions */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200">
@@ -130,6 +140,13 @@ export default function SchedulePage() {
                           {isFull ? "FULL" : `${spotsLeft} left`}
                         </span>
                       </div>
+                      <button
+                        onClick={() => setFinalizingSession(session.rowIndex)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-amber-50 text-amber-700 hover:bg-amber-100"
+                      >
+                        <ClipboardCheck className="h-4 w-4" />
+                        No-Shows
+                      </button>
                       <button
                         onClick={() => setEnrollingSession(session.rowIndex)}
                         disabled={isFull}
@@ -516,5 +533,139 @@ function EnrolledChip({
         {removing ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
       </button>
     </span>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Finalize Modal — mark no-shows after a class
+// ────────────────────────────────────────────────────────────
+
+function FinalizeModal({
+  session,
+  onClose,
+  onFinalized,
+}: {
+  session: { rowIndex: number; training: string; date: string; time: string; enrolled: string[]; capacity: number };
+  onClose: () => void;
+  onFinalized: () => void;
+}) {
+  const [noShows, setNoShows] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
+
+  function toggleNoShow(name: string) {
+    const next = new Set(noShows);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    setNoShows(next);
+  }
+
+  async function handleFinalize() {
+    if (noShows.size === 0) {
+      onClose();
+      return;
+    }
+    setSaving(true);
+    // Remove no-shows from enrollment one at a time
+    for (const name of noShows) {
+      try {
+        await fetch("/api/remove-enrollee", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionRowIndex: session.rowIndex, name }),
+        });
+      } catch {}
+    }
+    setDone(true);
+    setSaving(false);
+    setTimeout(onFinalized, 1200);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div>
+            <h2 className="font-semibold text-slate-900">Mark No-Shows</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {session.training} — {session.date}{session.time ? ` at ${session.time}` : ""}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg">
+            <X className="h-5 w-5 text-slate-400" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {done ? (
+            <div className="p-5">
+              <div className="flex items-center gap-3 p-4 bg-emerald-50 text-emerald-700 rounded-lg">
+                <Check className="h-5 w-5" />
+                <span className="text-sm font-medium">Removed {noShows.size} no-show{noShows.size !== 1 ? "s" : ""} from enrollment.</span>
+              </div>
+            </div>
+          ) : session.enrolled.length === 0 ? (
+            <div className="p-5 text-center text-sm text-slate-400">No one enrolled in this session.</div>
+          ) : (
+            <>
+              <p className="px-5 pt-4 text-xs text-slate-500">
+                Check anyone who did <strong>not</strong> attend. They&apos;ll be removed from enrollment.
+              </p>
+              <div className="divide-y divide-slate-100 mt-2">
+                {session.enrolled.map((name) => {
+                  const isNoShow = noShows.has(name);
+                  return (
+                    <button
+                      key={name}
+                      onClick={() => toggleNoShow(name)}
+                      className={`w-full flex items-center justify-between px-5 py-3 text-left transition-colors ${
+                        isNoShow ? "bg-red-50" : "hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                          isNoShow ? "bg-red-500 border-red-500" : "border-slate-300"
+                        }`}>
+                          {isNoShow && <X className="h-3.5 w-3.5 text-white" />}
+                        </div>
+                        <span className={`text-sm font-medium ${isNoShow ? "text-red-700 line-through" : "text-slate-900"}`}>
+                          {name}
+                        </span>
+                      </div>
+                      {isNoShow && (
+                        <span className="text-xs font-semibold text-red-600 uppercase">No Show</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="px-5 py-4 border-t border-slate-100 flex gap-3">
+          <button onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+            Cancel
+          </button>
+          <button
+            onClick={handleFinalize}
+            disabled={saving}
+            className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium inline-flex items-center justify-center gap-2 ${
+              noShows.size > 0
+                ? "bg-red-600 text-white hover:bg-red-700"
+                : "bg-emerald-600 text-white hover:bg-emerald-700"
+            }`}
+          >
+            {saving ? (
+              <><Loader2 className="h-4 w-4 animate-spin" /> Removing...</>
+            ) : noShows.size > 0 ? (
+              <>Remove {noShows.size} No-Show{noShows.size !== 1 ? "s" : ""}</>
+            ) : (
+              <>All Attended</>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
