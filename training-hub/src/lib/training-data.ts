@@ -92,12 +92,20 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    const name = (row[0] || "").trim();
-    if (!name) continue;
+    const lastName = (row[0] || "").trim();
+    const firstName = (row[1] || "").trim();
+    if (!lastName) continue;
+
+    // Combine to "Last, First"
+    const name = firstName ? `${lastName}, ${firstName}` : lastName;
 
     // Only include active employees
     const activeFlag = (row[activeColIndex] || "").toString().trim().toUpperCase();
     if (activeFlag !== "Y") continue;
+
+    // Skip board members (Column D / index 3)
+    const title = (row[3] || "").toString().trim().toUpperCase();
+    if (title.includes("BOARD")) continue;
 
     const trainings: EmployeeTrainingRow["trainings"] = {};
 
@@ -320,12 +328,127 @@ export async function recordCompletion(
 }
 
 /**
- * Get the list of employees (names) from column A of the Training sheet.
+ * Get the list of active employees (names) from the Training sheet.
  */
 export async function getEmployeeList(): Promise<string[]> {
-  const rows = await readRange(`${TRAINING_SHEET}!A:A`);
+  const rows = await readRange(`${TRAINING_SHEET}!A:C`);
   return rows
     .slice(1)
-    .map((r) => (r[0] || "").trim())
+    .filter((r) => (r[2] || "").toString().trim().toUpperCase() === "Y")
+    .map((r) => {
+      const last = (r[0] || "").trim();
+      const first = (r[1] || "").trim();
+      return first ? `${last}, ${first}` : last;
+    })
     .filter(Boolean);
+}
+
+/**
+ * Get employees who need a specific training (expired, expiring, or never completed).
+ * Returns names sorted by priority: expired first, then expiring, then needed.
+ */
+export async function getEmployeesNeedingTraining(
+  trainingName: string
+): Promise<Array<{ name: string; status: ComplianceStatus }>> {
+  const data = await getTrainingData();
+  const def = TRAINING_DEFINITIONS.find(
+    (d) => d.name.toLowerCase() === trainingName.toLowerCase() ||
+      d.aliases?.some((a) => a.toLowerCase() === trainingName.toLowerCase())
+  );
+  if (!def) return [];
+
+  const results: Array<{ name: string; status: ComplianceStatus }> = [];
+  for (const emp of data) {
+    const t = emp.trainings[def.columnKey];
+    if (!t) continue;
+    if (t.status === "expired" || t.status === "expiring_soon" || t.status === "needed") {
+      results.push({ name: emp.name, status: t.status });
+    }
+  }
+
+  const priority: Record<string, number> = { expired: 0, expiring_soon: 1, needed: 2 };
+  results.sort((a, b) => (priority[a.status] ?? 3) - (priority[b.status] ?? 3));
+  return results;
+}
+
+/**
+ * Create a new session on the Scheduled sheet.
+ * Appends a row: [Type, Date, Time, Location, Enrollment]
+ */
+export async function createSession(
+  trainingType: string,
+  date: string,
+  time: string,
+  location: string,
+  enrollees: string[]
+): Promise<{ success: boolean; message: string }> {
+  const enrollStr = enrollees.length > 0 ? enrollees.join(", ") : "TBD";
+  await appendRows(SCHEDULED_SHEET, [[trainingType, date, time, location, enrollStr]]);
+  return {
+    success: true,
+    message: `Created ${trainingType} session on ${date} with ${enrollees.length} enrollee(s)`,
+  };
+}
+
+/**
+ * Add enrollees to an existing session on the Scheduled sheet.
+ * Reads current enrollment from column E, appends new names, writes back.
+ */
+export async function addEnrollees(
+  sessionRowIndex: number,
+  newNames: string[]
+): Promise<{ success: boolean; message: string }> {
+  const rows = await readRange(SCHEDULED_SHEET);
+  const row = rows[sessionRowIndex - 1];
+  if (!row) return { success: false, message: "Session row not found" };
+
+  const currentEnrollment = (row[4] || "").trim();
+  const existing = currentEnrollment && currentEnrollment !== "TBD"
+    ? currentEnrollment.split(",").map((n) => n.trim()).filter(Boolean)
+    : [];
+
+  // Don't add duplicates
+  const toAdd = newNames.filter(
+    (n) => !existing.some((e) => e.toLowerCase() === n.toLowerCase())
+  );
+
+  if (toAdd.length === 0) {
+    return { success: false, message: "All selected employees are already enrolled" };
+  }
+
+  const updated = [...existing, ...toAdd].join(", ");
+  await updateCell(SCHEDULED_SHEET, sessionRowIndex, 4, updated);
+  return {
+    success: true,
+    message: `Added ${toAdd.length} enrollee(s): ${toAdd.join(", ")}`,
+  };
+}
+
+/**
+ * Remove an enrollee from an existing session.
+ */
+export async function removeEnrollee(
+  sessionRowIndex: number,
+  nameToRemove: string
+): Promise<{ success: boolean; message: string }> {
+  const rows = await readRange(SCHEDULED_SHEET);
+  const row = rows[sessionRowIndex - 1];
+  if (!row) return { success: false, message: "Session row not found" };
+
+  const currentEnrollment = (row[4] || "").trim();
+  const existing = currentEnrollment
+    ? currentEnrollment.split(",").map((n) => n.trim()).filter(Boolean)
+    : [];
+
+  const updated = existing.filter(
+    (n) => n.toLowerCase() !== nameToRemove.toLowerCase()
+  );
+
+  if (updated.length === existing.length) {
+    return { success: false, message: `"${nameToRemove}" not found in enrollment` };
+  }
+
+  const newStr = updated.length > 0 ? updated.join(", ") : "TBD";
+  await updateCell(SCHEDULED_SHEET, sessionRowIndex, 4, newStr);
+  return { success: true, message: `Removed ${nameToRemove}` };
 }
