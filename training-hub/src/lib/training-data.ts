@@ -220,7 +220,7 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     const row = rows[i];
     const lastName = (row[0] || "").trim();
     const firstName = (row[1] || "").trim();
-    const position = (row[4] || "").trim(); // Column E = Department Description
+    const position = (row[3] || "").trim(); // Column D = Division Description
     if (!lastName) continue;
 
     // Combine to "Last, First"
