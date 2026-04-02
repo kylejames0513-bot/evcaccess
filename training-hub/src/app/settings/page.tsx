@@ -489,3 +489,167 @@ function TrainingCheckboxes({
     </div>
   );
 }
+
+// ────────────────────────────────────────────────────────────
+// Bulk Excuse Section
+// ────────────────────────────────────────────────────────────
+
+const EXCUSAL_REASONS = [
+  { code: "N/A", label: "N/A (General)" },
+  { code: "Facilities", label: "Facilities" },
+  { code: "MAINT", label: "Maintenance" },
+  { code: "HR", label: "HR" },
+  { code: "ADMIN", label: "Admin" },
+  { code: "FINANCE", label: "Finance" },
+  { code: "IT", label: "IT" },
+  { code: "NURSE", label: "Nurse" },
+  { code: "LPN", label: "LPN" },
+  { code: "RN", label: "RN" },
+  { code: "DIR", label: "Director" },
+  { code: "MGR", label: "Manager" },
+  { code: "SUPERVISOR", label: "Supervisor" },
+  { code: "TRAINER", label: "Trainer" },
+  { code: "BH", label: "Behavioral Health" },
+  { code: "ELC", label: "ELC" },
+  { code: "EI", label: "EI" },
+];
+
+function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string> }) {
+  const [divisions, setDivisions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [division, setDivision] = useState("");
+  const [trainingKey, setTrainingKey] = useState("");
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<{ excused: number; skipped: number } | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/divisions")
+      .then((r) => r.json())
+      .then((d) => setDivisions(d.divisions || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const trackedList = ALL_TRAININGS.filter((t) => trackedTrainings.has(t.columnKey));
+
+  async function handleExcuse() {
+    if (!division || !trainingKey || !reason) return;
+    setSubmitting(true);
+    setResult(null);
+    setError("");
+    try {
+      const res = await fetch("/api/bulk-excuse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ division, trainingColumnKey: trainingKey, reason }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed");
+      setResult({ excused: data.excused, skipped: data.skipped });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-3">
+        <div className="p-2 bg-emerald-50 rounded-lg">
+          <Users className="h-5 w-5 text-emerald-600" />
+        </div>
+        <div>
+          <h2 className="font-semibold text-slate-900">Bulk Excuse</h2>
+          <p className="text-xs text-slate-500">Excuse an entire division from a training at once</p>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="px-6 py-12 text-center">
+          <Loader2 className="h-5 w-5 animate-spin text-slate-400 mx-auto" />
+        </div>
+      ) : (
+        <div className="px-6 py-5 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Division</label>
+              <select
+                value={division}
+                onChange={(e) => { setDivision(e.target.value); setResult(null); }}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select division...</option>
+                {divisions.map((d) => (
+                  <option key={d} value={d}>{formatDivision(d)}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Training</label>
+              <select
+                value={trainingKey}
+                onChange={(e) => { setTrainingKey(e.target.value); setResult(null); }}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select training...</option>
+                {trackedList.map((t) => (
+                  <option key={t.columnKey} value={t.columnKey}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Reason</label>
+              <select
+                value={reason}
+                onChange={(e) => { setReason(e.target.value); setResult(null); }}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select reason...</option>
+                {EXCUSAL_REASONS.map((r) => (
+                  <option key={r.code} value={r.code}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleExcuse}
+              disabled={!division || !trainingKey || !reason || submitting}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#1e3a5f] text-white hover:bg-[#2a4d7a] disabled:opacity-50 transition-all"
+            >
+              {submitting ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Excusing...</>
+              ) : (
+                <><ShieldCheck className="h-4 w-4" /> Excuse Division</>
+              )}
+            </button>
+
+            {result && (
+              <p className="text-sm text-slate-600">
+                <span className="font-semibold text-emerald-700">{result.excused} excused</span>
+                {result.skipped > 0 && (
+                  <>, <span className="text-slate-400">{result.skipped} skipped (already completed or excused)</span></>
+                )}
+              </p>
+            )}
+
+            {error && (
+              <p className="text-sm text-red-600 font-medium">{error}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="px-6 py-3 border-t border-slate-100 bg-slate-50">
+        <p className="text-xs text-slate-500">
+          Only employees with an empty value for the selected training will be excused. Existing dates and excusals are never overwritten.
+        </p>
+      </div>
+    </div>
+  );
+}

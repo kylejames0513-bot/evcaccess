@@ -80,11 +80,7 @@ export default function LoginPage() {
             {loading ? "Checking..." : "Sign In"}
           </button>
 
-          <p className="text-center">
-            <a href="/signin" className="text-xs text-slate-400 hover:text-slate-600">
-              Employee training sign-in →
-            </a>
-          </p>
+          {/* Sign-in link removed — page was deprecated */}
         </form>
       </div>
     </div>
