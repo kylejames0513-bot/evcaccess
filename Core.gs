@@ -745,7 +745,6 @@ function onTrainingEdit(e) {
         // Roster refresh is manual — use EVC Tools > 5a. Refresh All
       }
     }
-    }
 
   } catch (err) {
     Logger.log("onTrainingEdit error: " + err.toString());
