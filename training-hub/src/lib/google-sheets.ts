@@ -53,18 +53,30 @@ export function getSpreadsheetId(): string {
 // Core read/write helpers
 // ============================================================
 
+import { cached, invalidateCache } from "@/lib/cache";
+
 /**
  * Read a range from the spreadsheet.
- * Returns a 2D array of cell values (strings).
+ * Results are cached for 60 seconds to avoid hitting API quota.
  */
 export async function readRange(range: string): Promise<string[][]> {
-  const sheets = getSheets();
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: getSpreadsheetId(),
-    range,
-    valueRenderOption: "FORMATTED_VALUE",
+  return cached(`sheet:${range}`, async () => {
+    const sheets = getSheets();
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: getSpreadsheetId(),
+      range,
+      valueRenderOption: "FORMATTED_VALUE",
+    });
+    return (res.data.values as string[][]) || [];
   });
-  return (res.data.values as string[][]) || [];
+}
+
+/**
+ * Read without cache — for when you need fresh data right after a write.
+ */
+export async function readRangeFresh(range: string): Promise<string[][]> {
+  invalidateCache(`sheet:${range}`);
+  return readRange(range);
 }
 
 /**

@@ -2,6 +2,7 @@ import { readRange, readSheetAsObjects, appendRows, findRow, updateCell } from "
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import { toFirstLast as toFirstLastUtil, namesMatch } from "@/lib/name-utils";
 import { getExcludedEmployees, getCapacity } from "@/lib/hub-settings";
+import { cached, invalidateAll } from "@/lib/cache";
 import type { ComplianceStatus } from "@/types/database";
 
 // Primary trainings — the ones HR actively manages and tracks
@@ -472,6 +473,7 @@ export async function recordCompletion(
   }
 
   await updateCell(TRAINING_SHEET, empRow + 1, colIndex, completionDate);
+  invalidateAll();
   return { success: true, message: `Recorded ${completionDate} for ${employeeName} — ${trainingColumnKey}` };
 }
 
@@ -535,6 +537,7 @@ export async function createSession(
 ): Promise<{ success: boolean; message: string }> {
   const enrollStr = enrollees.length > 0 ? enrollees.map(toFirstLast).join(", ") : "TBD";
   await appendRows(SCHEDULED_SHEET, [[trainingType, date, time, location, enrollStr]]);
+  invalidateAll();
   return {
     success: true,
     message: `Created ${trainingType} session on ${date} with ${enrollees.length} enrollee(s)`,
@@ -572,6 +575,7 @@ export async function addEnrollees(
 
   const updated = [...existing, ...toAdd].join(", ");
   await updateCell(SCHEDULED_SHEET, sessionRowIndex, 4, updated);
+  invalidateAll();
   return {
     success: true,
     message: `Added ${toAdd.length} enrollee(s): ${toAdd.join(", ")}`,
@@ -604,5 +608,6 @@ export async function removeEnrollee(
 
   const newStr = updated.length > 0 ? updated.join(", ") : "TBD";
   await updateCell(SCHEDULED_SHEET, sessionRowIndex, 4, newStr);
+  invalidateAll();
   return { success: true, message: `Removed ${nameToRemove}` };
 }

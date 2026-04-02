@@ -1,6 +1,6 @@
 import { readRange, writeRange, appendRows, getSheetNames } from "./google-sheets";
-import { google } from "googleapis";
 import { getSheets, getSpreadsheetId } from "./google-sheets";
+import { invalidateAll } from "@/lib/cache";
 
 // ============================================================
 // Hub Settings — stored in a "Hub Settings" tab on the spreadsheet
@@ -72,6 +72,9 @@ async function writeSettings(settings: Array<{ type: string; key: string; value:
 
   // Write all rows
   await writeRange(`'${SETTINGS_SHEET}'!A1`, rows);
+
+  // Clear cache so next read gets fresh data
+  invalidateAll();
 }
 
 // ────────────────────────────────────────────────────────────
