@@ -63,11 +63,13 @@ export default function CompliancePage() {
 
   // Check if there's an open session for a training
   function getOpenSessions(trainingName: string) {
-    return schedSessions.filter(
-      (s) => s.status === "scheduled" &&
-        s.training.toLowerCase() === trainingName.toLowerCase() &&
-        s.enrolled.length < s.capacity
-    );
+    return schedSessions
+      .filter(
+        (s) => s.status === "scheduled" &&
+          s.training.toLowerCase() === trainingName.toLowerCase() &&
+          s.enrolled.length < s.capacity
+      )
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 
   return (
@@ -138,34 +140,55 @@ export default function CompliancePage() {
                 const openSessions = getOpenSessions(item.training);
                 const hasOpenSession = openSessions.length > 0;
 
+                // Check if employee is already enrolled in a session for this training
+                const enrolledSession = schedSessions.find(
+                  (s) => s.status === "scheduled" &&
+                    s.training.toLowerCase() === item.training.toLowerCase() &&
+                    s.enrolled.some((n) => n.toLowerCase() === item.employee.toLowerCase())
+                );
+
                 return (
-                  <tr key={i} className="hover:bg-blue-50/30 group">
+                  <tr key={i} className={`hover:bg-blue-50/30 group ${enrolledSession ? "bg-emerald-50/30" : ""}`}>
                     <td className="px-5 py-3 text-sm font-medium text-slate-900">{item.employee}</td>
                     <td className="px-5 py-3 text-sm text-slate-600">{item.training}</td>
                     <td className="px-5 py-3 text-sm text-slate-500">{item.date || "—"}</td>
                     <td className="px-5 py-3 text-sm text-slate-500">{item.expirationDate || "—"}</td>
-                    <td className="px-5 py-3"><StatusBadge status={item.status} /></td>
-                    <td className="px-5 py-3 text-right">
-                      <button
-                        onClick={() => setEnrollPopup({ employee: item.employee, training: item.training })}
-                        className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                          hasOpenSession
-                            ? "bg-blue-50 text-blue-700 hover:bg-blue-100 ring-1 ring-inset ring-blue-600/20"
-                            : "bg-slate-50 text-slate-500 hover:bg-slate-100 ring-1 ring-inset ring-slate-500/10"
-                        }`}
-                      >
-                        {hasOpenSession ? (
-                          <>
-                            <UserPlus className="h-3 w-3" />
-                            Add to Class
-                          </>
-                        ) : (
-                          <>
-                            <CalendarPlus className="h-3 w-3" />
-                            Schedule
-                          </>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={item.status} />
+                        {enrolledSession && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-100 text-blue-700 ring-1 ring-inset ring-blue-600/20">
+                            <CalendarPlus className="h-2.5 w-2.5" />
+                            Scheduled {enrolledSession.date}
+                          </span>
                         )}
-                      </button>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      {enrolledSession ? (
+                        <span className="text-xs text-emerald-600 font-medium">Enrolled</span>
+                      ) : (
+                        <button
+                          onClick={() => setEnrollPopup({ employee: item.employee, training: item.training })}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                            hasOpenSession
+                              ? "bg-blue-50 text-blue-700 hover:bg-blue-100 ring-1 ring-inset ring-blue-600/20"
+                              : "bg-slate-50 text-slate-500 hover:bg-slate-100 ring-1 ring-inset ring-slate-500/10"
+                          }`}
+                        >
+                          {hasOpenSession ? (
+                            <>
+                              <UserPlus className="h-3 w-3" />
+                              Add to Class
+                            </>
+                          ) : (
+                            <>
+                              <CalendarPlus className="h-3 w-3" />
+                              Schedule
+                            </>
+                          )}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -273,17 +296,39 @@ function QuickEnrollPopup({
               <p className="text-xs text-slate-500 mb-3">Choose a session to add {employee} to:</p>
               {sessions.map((s) => {
                 const spotsLeft = s.capacity - s.enrolled.length;
+                const sessionDate = new Date(s.date);
+                const now = new Date();
+                const daysUntil = Math.ceil((sessionDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+                const isWithinCutoff = daysUntil < 14;
+                const isPast = daysUntil < 0;
+
                 return (
                   <button
                     key={s.rowIndex}
                     onClick={() => handleEnroll(s.rowIndex)}
                     disabled={saving}
-                    className="w-full flex items-center justify-between p-3 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 transition-all text-left"
+                    className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all text-left ${
+                      isPast
+                        ? "border-slate-200 bg-slate-50 opacity-60"
+                        : isWithinCutoff
+                          ? "border-amber-200 hover:border-amber-300 hover:bg-amber-50/50"
+                          : "border-slate-200 hover:border-blue-300 hover:bg-blue-50/50"
+                    }`}
                   >
                     <div>
-                      <p className="text-sm font-medium text-slate-900">
-                        {s.date}{s.time ? ` at ${s.time}` : ""}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-slate-900">
+                          {s.date}{s.time ? ` at ${s.time}` : ""}
+                        </p>
+                        {isWithinCutoff && !isPast && (
+                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-semibold rounded">
+                            {daysUntil === 0 ? "TODAY" : daysUntil === 1 ? "TOMORROW" : `${daysUntil}d`}
+                          </span>
+                        )}
+                        {isPast && (
+                          <span className="px-1.5 py-0.5 bg-slate-200 text-slate-500 text-[10px] font-semibold rounded">PAST</span>
+                        )}
+                      </div>
                       <p className="text-xs text-slate-400 mt-0.5">
                         {s.location || "No location"} &middot; {spotsLeft} spot{spotsLeft !== 1 ? "s" : ""} left
                       </p>

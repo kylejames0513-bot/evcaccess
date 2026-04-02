@@ -40,8 +40,9 @@ export default function SchedulePage() {
   if (!displayData) return null;
 
   const { sessions } = displayData;
-  const upcoming = sessions.filter((s) => s.status === "scheduled").sort((a, b) => a.date.localeCompare(b.date));
-  const past = sessions.filter((s) => s.status === "completed").sort((a, b) => b.date.localeCompare(a.date));
+  const parseDate = (d: string) => { const t = new Date(d).getTime(); return isNaN(t) ? 0 : t; };
+  const upcoming = sessions.filter((s) => s.status === "scheduled").sort((a, b) => parseDate(a.date) - parseDate(b.date));
+  const past = sessions.filter((s) => s.status === "completed").sort((a, b) => parseDate(b.date) - parseDate(a.date));
 
   function refresh() {
     setRefreshKey((k) => k + 1);
