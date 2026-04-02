@@ -1,26 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { Archive, Search, Calendar, Users as UsersIcon, CheckCircle } from "lucide-react";
+import { Archive, Search, Calendar, Users as UsersIcon, CheckCircle, AlertTriangle, Clock } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 
-interface ScheduleData {
-  sessions: Array<{
-    rowIndex: number;
-    training: string;
-    date: string;
-    time: string;
-    location: string;
-    enrolled: string[];
-    capacity: number;
-    status: "scheduled" | "completed";
-  }>;
+interface ArchivedSession {
+  training: string;
+  date: string;
+  time: string;
+  location: string;
+  enrolled: string[];
+  noShows: string[];
+  archivedOn: string;
+}
+
+interface ArchivedData {
+  sessions: ArchivedSession[];
 }
 
 export default function ArchivePage() {
-  const { data, loading, error } = useFetch<ScheduleData>("/api/schedule");
+  const { data, loading, error } = useFetch<ArchivedData>("/api/archived");
   const [search, setSearch] = useState("");
   const [trainingFilter, setTrainingFilter] = useState<string>("all");
 
@@ -28,17 +29,16 @@ export default function ArchivePage() {
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
 
-  const past = data.sessions
-    .filter((s) => s.status === "completed")
-    .sort((a, b) => b.date.localeCompare(a.date));
+  const sessions = data.sessions.sort((a, b) => b.date.localeCompare(a.date));
 
-  const trainings = [...new Set(past.map((s) => s.training))].sort();
+  const trainings = [...new Set(sessions.map((s) => s.training))].sort();
 
-  const filtered = past.filter((s) => {
+  const filtered = sessions.filter((s) => {
     const matchesTraining = trainingFilter === "all" || s.training === trainingFilter;
     const matchesSearch = !search ||
       s.training.toLowerCase().includes(search.toLowerCase()) ||
-      s.enrolled.some((n) => n.toLowerCase().includes(search.toLowerCase()));
+      s.enrolled.some((n) => n.toLowerCase().includes(search.toLowerCase())) ||
+      s.noShows.some((n) => n.toLowerCase().includes(search.toLowerCase()));
     return matchesTraining && matchesSearch;
   });
 
@@ -53,7 +53,8 @@ export default function ArchivePage() {
     grouped[key].push(session);
   }
 
-  const totalAttendees = past.reduce((sum, s) => sum + s.enrolled.length, 0);
+  const totalAttendees = sessions.reduce((sum, s) => sum + s.enrolled.length, 0);
+  const totalNoShows = sessions.reduce((sum, s) => sum + s.noShows.length, 0);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
@@ -61,7 +62,8 @@ export default function ArchivePage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Archive</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {past.length} completed session{past.length !== 1 ? "s" : ""} &middot; {totalAttendees} total attendees
+            {sessions.length} archived session{sessions.length !== 1 ? "s" : ""} &middot; {totalAttendees} total attendees
+            {totalNoShows > 0 && <> &middot; {totalNoShows} no-show{totalNoShows !== 1 ? "s" : ""}</>}
           </p>
         </div>
       </div>
@@ -86,7 +88,7 @@ export default function ArchivePage() {
       </div>
 
       {/* Sessions grouped by month */}
-      {past.length === 0 ? (
+      {sessions.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
           <Archive className="h-10 w-10 text-slate-300 mx-auto mb-3" />
           <h3 className="text-sm font-medium text-slate-900">No archived sessions yet</h3>
@@ -97,13 +99,13 @@ export default function ArchivePage() {
           <p className="text-sm text-slate-400">No sessions match your search.</p>
         </div>
       ) : (
-        Object.entries(grouped).map(([month, sessions]) => (
+        Object.entries(grouped).map(([month, monthSessions]) => (
           <div key={month}>
             <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3 px-1">{month}</h2>
             <div className="space-y-3">
-              {sessions.map((session) => (
+              {monthSessions.map((session, idx) => (
                 <div
-                  key={session.rowIndex}
+                  key={`${session.training}-${session.date}-${idx}`}
                   className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden card-hover"
                 >
                   <div className="px-5 py-4">
@@ -124,6 +126,18 @@ export default function ArchivePage() {
                               <UsersIcon className="h-3 w-3" />
                               {session.enrolled.length} attendee{session.enrolled.length !== 1 ? "s" : ""}
                             </span>
+                            {session.noShows.length > 0 && (
+                              <span className="flex items-center gap-1 text-amber-500">
+                                <AlertTriangle className="h-3 w-3" />
+                                {session.noShows.length} no-show{session.noShows.length !== 1 ? "s" : ""}
+                              </span>
+                            )}
+                            {session.archivedOn && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                Archived {session.archivedOn}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -139,6 +153,20 @@ export default function ArchivePage() {
                             className="px-2 py-0.5 bg-slate-50 text-slate-600 text-xs rounded-md border border-slate-100"
                           >
                             {name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* No-shows list */}
+                    {session.noShows.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {session.noShows.map((name) => (
+                          <span
+                            key={name}
+                            className="px-2 py-0.5 bg-amber-50 text-amber-700 text-xs rounded-md border border-amber-100"
+                          >
+                            {name} (no-show)
                           </span>
                         ))}
                       </div>

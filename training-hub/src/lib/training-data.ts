@@ -527,18 +527,17 @@ export async function recordCompletion(
   const lCol = headers.findIndex((h) => h.trim().toUpperCase() === "L NAME");
   const fCol = headers.findIndex((h) => h.trim().toUpperCase() === "F NAME");
 
-  // Find the employee row (case-insensitive, trimmed)
-  const nameLower = employeeName.trim().toLowerCase();
+  // Find the employee row (format-agnostic: handles "First Last" and "Last, First")
   const empRow = rows.findIndex((row, i) => {
     if (i === 0) return false;
     if (lCol >= 0 && fCol >= 0) {
       const last = (row[lCol] || "").trim();
       const first = (row[fCol] || "").trim();
-      const combined = first ? `${last}, ${first}`.toLowerCase() : last.toLowerCase();
-      return combined === nameLower;
+      const combined = first ? `${last}, ${first}` : last;
+      return namesMatch(combined, employeeName);
     }
     // Fallback: match first column
-    return (row[0] || "").trim().toLowerCase() === nameLower;
+    return namesMatch((row[0] || "").trim(), employeeName);
   });
   if (empRow === -1) {
     return { success: false, message: `Employee "${employeeName}" not found` };
@@ -839,6 +838,47 @@ export async function archiveSession(
 
   invalidateAll();
   return { success: true, message: `Archived ${training} on ${date}` };
+}
+
+/**
+ * Read all sessions from the Archive sheet.
+ */
+export async function getArchivedSessions(): Promise<
+  Array<{
+    training: string;
+    date: string;
+    time: string;
+    location: string;
+    enrolled: string[];
+    noShows: string[];
+    archivedOn: string;
+  }>
+> {
+  let rows: string[][];
+  try {
+    rows = await readRange(ARCHIVE_SHEET);
+  } catch {
+    // Archive sheet may not exist yet
+    return [];
+  }
+  if (rows.length < 2) return [];
+
+  // Skip header row
+  return rows.slice(1).filter((row) => (row[0] || "").trim()).map((row) => ({
+    training: (row[0] || "").trim(),
+    date: (row[1] || "").trim(),
+    time: (row[2] || "").trim(),
+    location: (row[3] || "").trim(),
+    enrolled: (row[4] || "")
+      .split(",")
+      .map((n) => n.trim())
+      .filter((n) => n && n !== "TBD"),
+    noShows: (row[5] || "")
+      .split(",")
+      .map((n) => n.trim())
+      .filter(Boolean),
+    archivedOn: (row[6] || "").trim(),
+  }));
 }
 
 /**

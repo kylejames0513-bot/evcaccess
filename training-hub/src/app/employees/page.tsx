@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Search, UserMinus, UserPlus, X, Loader2, Check, Clock, XCircle, AlertTriangle, CheckCircle, CalendarPlus, ShieldOff, ShieldCheck, RefreshCw } from "lucide-react";
+import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -322,10 +323,12 @@ function EmployeeDetailModal({ name, onClose, onEnrolled }: { name: string; onCl
     return <CheckCircle className="h-4 w-4 text-slate-400" />;
   };
 
-  const TRAINING_NAMES: Record<string, string> = {
-    CPR: "CPR/FA", Ukeru: "Ukeru", Mealtime: "Mealtime",
-    MED_TRAIN: "Med Training", "POST MED": "Post Med", VR: "Van/Lift",
-  };
+  const TRAINING_NAMES: Record<string, string> = Object.fromEntries(
+    TRAINING_DEFINITIONS.reduce((map, d) => {
+      if (!map.has(d.columnKey)) map.set(d.columnKey, d.name);
+      return map;
+    }, new Map<string, string>())
+  );
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

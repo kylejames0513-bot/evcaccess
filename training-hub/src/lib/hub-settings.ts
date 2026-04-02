@@ -1,6 +1,7 @@
 import { readRange, writeRange, appendRows, getSheetNames } from "./google-sheets";
 import { getSheets, getSpreadsheetId } from "./google-sheets";
 import { invalidateAll } from "@/lib/cache";
+import { TRAINING_DEFINITIONS } from "@/config/trainings";
 
 // ============================================================
 // Hub Settings — stored in a "Hub Settings" tab on the spreadsheet
@@ -155,7 +156,7 @@ function getCapacityOverridesSync(settings: Array<{ type: string; key: string; v
 // ────────────────────────────────────────────────────────────
 
 // Default tracks if none configured
-const DEFAULT_COMPLIANCE_KEYS = ["CPR", "Ukeru", "Mealtime", "MED_TRAIN", "POST MED", "VR"];
+const DEFAULT_COMPLIANCE_KEYS = [...new Set(TRAINING_DEFINITIONS.map(d => d.columnKey))];
 
 export async function getComplianceTracks(): Promise<string[]> {
   const settings = await readSettings();
