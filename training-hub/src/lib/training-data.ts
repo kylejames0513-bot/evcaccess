@@ -170,7 +170,8 @@ function parseDate(value: string): Date | null {
 // ────────────────────────────────────────────────────────────
 
 export interface EmployeeTrainingRow {
-  name: string;       // "Last, First" from column A
+  name: string;       // "Last, First" from column A+B
+  position: string;   // Column D — job title
   rowIndex: number;   // 1-based row in sheet
   trainings: Record<string, {
     value: string;        // raw cell value
@@ -223,6 +224,7 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     const row = rows[i];
     const lastName = (row[0] || "").trim();
     const firstName = (row[1] || "").trim();
+    const position = (row[3] || "").trim(); // Column D = job title
     if (!lastName) continue;
 
     // Combine to "Last, First"
@@ -270,7 +272,7 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
       trainings[def.columnKey] = { value, date, isExcused, status };
     }
 
-    employees.push({ name, rowIndex: i + 1, trainings });
+    employees.push({ name, position, rowIndex: i + 1, trainings });
   }
 
   return employees;

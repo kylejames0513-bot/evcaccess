@@ -9,6 +9,7 @@ import { useFetch } from "@/lib/use-fetch";
 interface EmployeesData {
   employees: Array<{
     name: string;
+    position: string;
     rowIndex: number;
     completedCount: number;
     totalRequired: number;
@@ -165,6 +166,7 @@ export default function EmployeesPage() {
             <thead>
               <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
                 <th className="px-5 py-3">Employee</th>
+                <th className="px-5 py-3">Position</th>
                 <th className="px-5 py-3 w-64">Compliance</th>
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3 w-20 text-right">Actions</th>
@@ -177,6 +179,7 @@ export default function EmployeesPage() {
                 return (
                   <tr key={i} className="hover:bg-blue-50/30 group cursor-pointer" onClick={() => setSelectedEmployee(emp.name)}>
                     <td className="px-5 py-3 text-sm font-medium text-blue-700 hover:text-blue-900">{emp.name}</td>
+                    <td className="px-5 py-3 text-sm text-slate-500">{emp.position || "—"}</td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <div className="flex-1 h-2 bg-slate-100 rounded-full">
