@@ -225,22 +225,30 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
 
   const employees: EmployeeTrainingRow[] = [];
 
-  // Find the Active column (column C / index 2 in your sheet)
-  // Employees with "Y" are active; skip everyone else
-  const activeColIndex = 2; // Column C = Active flag
+  // Resolve key columns by header name (not hardcoded index)
+  const hdr = (label: string) =>
+    headers.findIndex((h) => h.trim().toUpperCase() === label.toUpperCase());
+  const lNameCol = hdr("L NAME");
+  const fNameCol = hdr("F NAME");
+  const activeCol = hdr("ACTIVE");
+  const divisionCol = hdr("Division Description");
+
+  if (lNameCol < 0 || fNameCol < 0) return []; // can't proceed without name columns
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    const lastName = (row[0] || "").trim();
-    const firstName = (row[1] || "").trim();
-    const position = (row[3] || "").trim(); // Column D = Division Description
+    const lastName = (row[lNameCol] || "").trim();
+    const firstName = (row[fNameCol] || "").trim();
+    const position = divisionCol >= 0 ? (row[divisionCol] || "").trim() : "";
     if (!lastName) continue;
 
     // Combine to "Last, First"
     const name = firstName ? `${lastName}, ${firstName}` : lastName;
 
     // Only include active employees
-    const activeFlag = (row[activeColIndex] || "").toString().trim().toUpperCase();
+    const activeFlag = activeCol >= 0
+      ? (row[activeCol] || "").toString().trim().toUpperCase()
+      : "Y"; // default to active if no Active column
     if (activeFlag !== "Y") continue;
 
     // Skip excluded employees
@@ -515,10 +523,23 @@ export async function recordCompletion(
     return { success: false, message: `Column "${trainingColumnKey}" not found in Training sheet` };
   }
 
+  // Find name columns by header
+  const lCol = headers.findIndex((h) => h.trim().toUpperCase() === "L NAME");
+  const fCol = headers.findIndex((h) => h.trim().toUpperCase() === "F NAME");
+
   // Find the employee row (case-insensitive, trimmed)
-  const empRow = rows.findIndex(
-    (row, i) => i > 0 && row[0]?.trim().toLowerCase() === employeeName.trim().toLowerCase()
-  );
+  const nameLower = employeeName.trim().toLowerCase();
+  const empRow = rows.findIndex((row, i) => {
+    if (i === 0) return false;
+    if (lCol >= 0 && fCol >= 0) {
+      const last = (row[lCol] || "").trim();
+      const first = (row[fCol] || "").trim();
+      const combined = first ? `${last}, ${first}`.toLowerCase() : last.toLowerCase();
+      return combined === nameLower;
+    }
+    // Fallback: match first column
+    return (row[0] || "").trim().toLowerCase() === nameLower;
+  });
   if (empRow === -1) {
     return { success: false, message: `Employee "${employeeName}" not found` };
   }
@@ -549,12 +570,16 @@ export async function setExcusal(
     return { success: false, message: `Column "${trainingColumnKey}" not found` };
   }
 
-  // Find employee by "Last, First" matching against columns A + B
+  // Find name columns by header
+  const lCol = headers.findIndex((h) => h.trim().toUpperCase() === "L NAME");
+  const fCol = headers.findIndex((h) => h.trim().toUpperCase() === "F NAME");
+
+  // Find employee by "Last, First" matching
   const nameLower = employeeName.trim().toLowerCase();
   let empRow = -1;
   for (let i = 1; i < rows.length; i++) {
-    const last = (rows[i][0] || "").trim();
-    const first = (rows[i][1] || "").trim();
+    const last = (rows[i][lCol >= 0 ? lCol : 0] || "").trim();
+    const first = (rows[i][fCol >= 0 ? fCol : 1] || "").trim();
     const combined = first ? `${last}, ${first}`.toLowerCase() : last.toLowerCase();
     if (combined === nameLower) {
       empRow = i;
