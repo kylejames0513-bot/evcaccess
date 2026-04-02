@@ -7,6 +7,7 @@ import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 import { PRIMARY_TRAININGS } from "@/config/primary-trainings";
 import { namesMatch } from "@/lib/name-utils";
+import { trainingMatchesAny } from "@/lib/training-match";
 
 interface SessionData {
   rowIndex: number;
@@ -66,8 +67,18 @@ export default function SchedulePage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
+      // Collect all names already enrolled in ANY session of this training type
+      const alreadyEnrolled = new Set<string>();
+      for (const s of sessions) {
+        if (s.status === "scheduled" && trainingMatchesAny(s.training, session.training)) {
+          for (const name of s.enrolled) {
+            alreadyEnrolled.add(name.toLowerCase());
+          }
+        }
+      }
+
       const needs = (data.employees as NeedEmployee[]).filter(
-        (e) => !session.enrolled.some((n) => namesMatch(n, e.name))
+        (e) => !alreadyEnrolled.has(e.name.toLowerCase())
       );
 
       const spotsLeft = session.capacity - session.enrolled.length;
@@ -159,6 +170,7 @@ export default function SchedulePage() {
       {enrollingSession !== null && (
         <EnrollModal
           session={sessions.find((s) => s.rowIndex === enrollingSession)!}
+          allSessions={sessions}
           onClose={() => setEnrollingSession(null)}
           onEnrolled={() => { setEnrollingSession(null); refresh(); }}
         />
@@ -453,10 +465,12 @@ function CreateSessionForm({ onClose, onCreated }: { onClose: () => void; onCrea
 
 function EnrollModal({
   session,
+  allSessions,
   onClose,
   onEnrolled,
 }: {
   session: { rowIndex: number; training: string; enrolled: string[]; capacity: number };
+  allSessions: SessionData[];
   onClose: () => void;
   onEnrolled: () => void;
 }) {
@@ -475,9 +489,20 @@ function EnrollModal({
         const res = await fetch(`/api/needs-training?training=${encodeURIComponent(session.training)}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
-        // Filter out already enrolled
+
+        // Collect all names enrolled in ANY session of this training type
+        const alreadyEnrolled = new Set<string>();
+        for (const s of allSessions) {
+          if (s.status === "scheduled" && trainingMatchesAny(s.training, session.training)) {
+            for (const name of s.enrolled) {
+              alreadyEnrolled.add(name.toLowerCase());
+            }
+          }
+        }
+
+        // Filter out anyone already enrolled in any matching session
         const filtered = (data.employees as NeedEmployee[]).filter(
-          (e) => !session.enrolled.some((n) => namesMatch(n, e.name))
+          (e) => !alreadyEnrolled.has(e.name.toLowerCase())
         );
         setNeedsList(filtered);
       } catch {
@@ -487,7 +512,7 @@ function EnrollModal({
       }
     }
     load();
-  }, [session.training, session.enrolled]);
+  }, [session.training, session.enrolled, allSessions]);
 
   function toggleSelect(name: string) {
     const next = new Set(selected);
