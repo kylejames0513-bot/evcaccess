@@ -7,6 +7,7 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 import { namesMatch } from "@/lib/name-utils";
+import { trainingMatchesAny } from "@/lib/training-match";
 import type { ComplianceStatus } from "@/types/database";
 
 interface ComplianceData {
@@ -28,6 +29,7 @@ interface ScheduleData {
     location: string;
     enrolled: string[];
     capacity: number;
+    sortDateMs: number;
     status: "scheduled" | "completed";
   }>;
 }
@@ -67,10 +69,10 @@ export default function CompliancePage() {
     return schedSessions
       .filter(
         (s) => s.status === "scheduled" &&
-          s.training.toLowerCase() === trainingName.toLowerCase() &&
+          trainingMatchesAny(s.training, trainingName) &&
           s.enrolled.length < s.capacity
       )
-      .sort((a, b) => a.date.localeCompare(b.date));
+      .sort((a, b) => (a.sortDateMs || 0) - (b.sortDateMs || 0));
   }
 
   return (
@@ -144,7 +146,7 @@ export default function CompliancePage() {
                 // Check if employee is already enrolled in a session for this training
                 const enrolledSession = schedSessions.find(
                   (s) => s.status === "scheduled" &&
-                    s.training.toLowerCase() === item.training.toLowerCase() &&
+                    trainingMatchesAny(s.training, item.training) &&
                     s.enrolled.some((n) => namesMatch(n, item.employee))
                 );
 

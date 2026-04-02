@@ -129,7 +129,37 @@ function normalizeDateDisplay(value: string): string {
 
 function parseDate(value: string): Date | null {
   if (!value || isExcusal(value)) return null;
-  const d = new Date(value);
+  const s = value.trim();
+
+  // Try MM/DD/YYYY or M/D/YYYY or MM/DD/YY
+  const slashMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slashMatch) {
+    const month = parseInt(slashMatch[1]) - 1;
+    const day = parseInt(slashMatch[2]);
+    let year = parseInt(slashMatch[3]);
+    if (year < 100) year += 2000; // "24" -> 2024
+    const d = new Date(year, month, day);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // Try YYYY-MM-DD
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    const d = new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // Try "Month Day, Year" or "Month Day Year"
+  const textMatch = s.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s*(\d{4})$/);
+  if (textMatch) {
+    const monthNum = MONTH_NAMES[textMatch[1].toLowerCase()];
+    if (monthNum !== undefined) {
+      return new Date(parseInt(textMatch[3]), monthNum, parseInt(textMatch[2]));
+    }
+  }
+
+  // Fallback to native parsing
+  const d = new Date(s);
   return isNaN(d.getTime()) ? null : d;
 }
 
