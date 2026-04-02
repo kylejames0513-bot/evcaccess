@@ -150,6 +150,33 @@ function getCapacityOverridesSync(settings: Array<{ type: string; key: string; v
   return overrides;
 }
 
+// ────────────────────────────────────────────────────────────
+// Compliance tracks — which trainings to track on compliance page
+// ────────────────────────────────────────────────────────────
+
+// Default tracks if none configured
+const DEFAULT_COMPLIANCE_KEYS = ["CPR", "Ukeru", "Mealtime", "MED_TRAIN", "POST MED", "VR"];
+
+export async function getComplianceTracks(): Promise<string[]> {
+  const settings = await readSettings();
+  const tracks = settings
+    .filter((s) => s.type === "compliance")
+    .map((s) => s.key);
+  return tracks.length > 0 ? tracks : DEFAULT_COMPLIANCE_KEYS;
+}
+
+export async function setComplianceTracks(columnKeys: string[]): Promise<string[]> {
+  const settings = await readSettings();
+  // Remove old compliance entries
+  const filtered = settings.filter((s) => s.type !== "compliance");
+  // Add new ones
+  for (const key of columnKeys) {
+    filtered.push({ type: "compliance", key, value: "" });
+  }
+  await writeSettings(filtered);
+  return columnKeys;
+}
+
 /**
  * Get capacity for a training, checking overrides first.
  * Uses alias resolution to match "CPR" → "CPR/FA" etc.

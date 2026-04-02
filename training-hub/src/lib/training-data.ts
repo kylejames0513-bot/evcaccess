@@ -5,20 +5,6 @@ import { getExcludedEmployees, getCapacity } from "@/lib/hub-settings";
 import { cached, invalidateAll } from "@/lib/cache";
 import type { ComplianceStatus } from "@/types/database";
 
-// Primary trainings — the ones HR actively manages and tracks
-const PRIMARY_COLUMN_KEYS = new Set([
-  "CPR",        // CPR/FA
-  "Ukeru",      // Ukeru
-  "Mealtime",   // Mealtime
-  "MED_TRAIN",  // Med Recert + Initial Med Training
-  "POST MED",   // Post Med
-  "VR",         // Van/Lift Training
-]);
-
-const PRIMARY_TRAININGS = TRAINING_DEFINITIONS.filter(
-  (d) => PRIMARY_COLUMN_KEYS.has(d.columnKey)
-);
-
 // ============================================================
 // Training Data Layer — reads/writes your existing Google Sheet
 // ============================================================
@@ -210,9 +196,12 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
   const soonThreshold = new Date();
   soonThreshold.setDate(soonThreshold.getDate() + 60);
 
-  // Load excluded employees list from Hub Settings sheet
+  // Load excluded employees and compliance tracks from Hub Settings
   const excluded = await getExcludedEmployees();
   const excludedSet = new Set(excluded.map((n) => n.toLowerCase()));
+  const { getComplianceTracks } = await import("@/lib/hub-settings");
+  const trackedKeys = new Set(await getComplianceTracks());
+  const trackedDefs = TRAINING_DEFINITIONS.filter((d) => trackedKeys.has(d.columnKey));
 
   const employees: EmployeeTrainingRow[] = [];
 
@@ -239,7 +228,7 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
 
     const trainings: EmployeeTrainingRow["trainings"] = {};
 
-    for (const def of PRIMARY_TRAININGS) {
+    for (const def of trackedDefs) {
       const colIndex = headers.findIndex(
         (h) => h.trim().toUpperCase() === def.columnKey.toUpperCase()
       );
@@ -283,10 +272,13 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
  */
 export async function getComplianceIssues(): Promise<ComplianceIssue[]> {
   const data = await getTrainingData();
+  const { getComplianceTracks } = await import("@/lib/hub-settings");
+  const trackedKeys = new Set(await getComplianceTracks());
+  const trackedDefs = TRAINING_DEFINITIONS.filter((d) => trackedKeys.has(d.columnKey));
   const issues: ComplianceIssue[] = [];
 
   for (const emp of data) {
-    for (const def of PRIMARY_TRAININGS) {
+    for (const def of trackedDefs) {
       const t = emp.trainings[def.columnKey];
       if (!t) continue;
       if (t.status === "expired" || t.status === "expiring_soon" || t.status === "needed") {
