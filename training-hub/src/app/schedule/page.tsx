@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2 } from "lucide-react";
+import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -37,6 +37,7 @@ export default function SchedulePage() {
   const [finalizingSession, setFinalizingSession] = useState<number | null>(null);
   const [deletingSession, setDeletingSession] = useState<number | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [autoFilling, setAutoFilling] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Force re-fetch after changes
@@ -53,6 +54,41 @@ export default function SchedulePage() {
 
   function refresh() {
     setRefreshKey((k) => k + 1);
+  }
+
+  async function handleAutoFill(session: SessionData) {
+    setAutoFilling(session.rowIndex);
+    try {
+      // Get employees who need this training
+      const res = await fetch(`/api/needs-training?training=${encodeURIComponent(session.training)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      const needs = (data.employees as NeedEmployee[]).filter(
+        (e) => !session.enrolled.some((n) => namesMatch(n, e.name))
+      );
+
+      const spotsLeft = session.capacity - session.enrolled.length;
+      const toEnroll = needs.slice(0, spotsLeft).map((e) => e.name);
+
+      if (toEnroll.length === 0) {
+        alert("No employees need this training or class is already full.");
+        setAutoFilling(null);
+        return;
+      }
+
+      const enrollRes = await fetch("/api/enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionRowIndex: session.rowIndex, names: toEnroll }),
+      });
+      const enrollData = await enrollRes.json();
+      if (!enrollRes.ok) throw new Error(enrollData.error);
+      refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Auto-fill failed");
+    }
+    setAutoFilling(null);
   }
 
   async function handleDelete(rowIndex: number) {
@@ -165,6 +201,19 @@ export default function SchedulePage() {
                       >
                         <ClipboardCheck className="h-4 w-4" />
                         No-Shows
+                      </button>
+                      <button
+                        onClick={() => handleAutoFill(session)}
+                        disabled={isFull || autoFilling === session.rowIndex}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                          isFull
+                            ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                            : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                        }`}
+                        title="Auto-fill with employees who need this training"
+                      >
+                        {autoFilling === session.rowIndex ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                        Auto-Fill
                       </button>
                       <button
                         onClick={() => setEnrollingSession(session.rowIndex)}
