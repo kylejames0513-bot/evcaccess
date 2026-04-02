@@ -10,6 +10,7 @@ import {
   Archive,
   Settings,
   ClipboardCheck,
+  PenLine,
 } from "lucide-react";
 
 const mainNav = [
@@ -17,6 +18,7 @@ const mainNav = [
   { href: "/schedule", label: "Schedule", icon: CalendarPlus },
   { href: "/employees", label: "Employees", icon: Users },
   { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
+  { href: "/signin", label: "Sign In", icon: PenLine },
 ];
 
 const secondaryNav = [
