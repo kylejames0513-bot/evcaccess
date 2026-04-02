@@ -381,6 +381,28 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
   const rows = await readRange(SCHEDULED_SHEET);
   if (rows.length < 2) return [];
 
+  // Load all capacity overrides once
+  const { getCapacityOverrides } = await import("@/lib/hub-settings");
+  const overrides = await getCapacityOverrides();
+
+  // Build a lookup: any name/alias/columnKey → override capacity
+  function resolveCapacity(training: string, defaultCap: number): number {
+    // Direct match
+    if (overrides[training] !== undefined) return overrides[training];
+
+    // Find via training definitions
+    const def = TRAINING_DEFINITIONS.find(
+      (d) => d.name.toLowerCase() === training.toLowerCase() ||
+        d.columnKey.toLowerCase() === training.toLowerCase() ||
+        d.aliases?.some((a) => a.toLowerCase() === training.toLowerCase())
+    );
+    if (def) {
+      if (overrides[def.name] !== undefined) return overrides[def.name];
+      if (overrides[def.columnKey] !== undefined) return overrides[def.columnKey];
+    }
+    return defaultCap;
+  }
+
   const sessions: ScheduledSession[] = [];
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -430,7 +452,7 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
       time: colC,
       location: colD,
       enrolled,
-      capacity: await getCapacity(training, def?.classCapacity || 15),
+      capacity: resolveCapacity(training, def?.classCapacity || 15),
       status: sortDate && sortDate < now ? "completed" : "scheduled",
     });
   }
