@@ -1,4 +1,4 @@
-import { readRange, readSheetAsObjects, appendRows, findRow, updateCell, writeRange } from "./google-sheets";
+import { readRange, readSheetAsObjects, appendRows, findRow, updateCell, writeRange, clearCell } from "./google-sheets";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import { toFirstLast as toFirstLastUtil, namesMatch } from "@/lib/name-utils";
 import { getExcludedEmployees, getCapacity } from "@/lib/hub-settings";
@@ -538,8 +538,11 @@ export async function setExcusal(
     return { success: false, message: `Employee "${employeeName}" not found` };
   }
 
-  const newValue = excused ? (reason || "N/A") : "";
-  await updateCell(TRAINING_SHEET, empRow + 1, colIndex, newValue);
+  if (excused) {
+    await updateCell(TRAINING_SHEET, empRow + 1, colIndex, reason || "N/A");
+  } else {
+    await clearCell(TRAINING_SHEET, empRow + 1, colIndex);
+  }
   invalidateAll();
 
   const action = excused ? "Excused" : "Cleared excusal for";

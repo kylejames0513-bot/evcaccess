@@ -164,6 +164,20 @@ export async function updateCell(
   await writeRange(range, [[value]]);
 }
 
+export async function clearCell(
+  sheetName: string,
+  row: number,
+  col: number
+): Promise<void> {
+  const colLetter = String.fromCharCode(65 + col);
+  const range = `${sheetName}!${colLetter}${row}`;
+  const sheets = getSheets();
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: getSpreadsheetId(),
+    range,
+  });
+}
+
 /**
  * Get all sheet names in the spreadsheet.
  */
