@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, UserMinus, UserPlus, X, Loader2, Check, Clock, XCircle, AlertTriangle, CheckCircle, CalendarPlus } from "lucide-react";
+import { Search, UserMinus, UserPlus, X, Loader2, Check, Clock, XCircle, AlertTriangle, CheckCircle, CalendarPlus, ShieldOff, ShieldCheck } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -218,15 +218,18 @@ function EmployeeDetailModal({ name, onClose, onEnrolled }: { name: string; onCl
   const [detail, setDetail] = useState<EmployeeDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [enrolling, setEnrolling] = useState<string | null>(null);
+  const [togglingExcusal, setTogglingExcusal] = useState<string | null>(null);
   const [success, setSuccess] = useState("");
+  const [detailRefresh, setDetailRefresh] = useState(0);
 
   useEffect(() => {
-    fetch(`/api/employee-detail?name=${encodeURIComponent(name)}`)
+    setLoadingDetail(true);
+    fetch(`/api/employee-detail?name=${encodeURIComponent(name)}&r=${detailRefresh}`)
       .then((r) => r.json())
       .then((d) => { if (!d.error) setDetail(d); })
       .catch(() => {})
       .finally(() => setLoadingDetail(false));
-  }, [name]);
+  }, [name, detailRefresh]);
 
   async function handleEnroll(sessionRowIndex: number, trainingName: string) {
     setEnrolling(trainingName);
@@ -244,6 +247,23 @@ function EmployeeDetailModal({ name, onClose, onEnrolled }: { name: string; onCl
     } finally {
       setEnrolling(null);
     }
+  }
+
+  async function handleToggleExcusal(columnKey: string, currentlyExcused: boolean) {
+    setTogglingExcusal(columnKey);
+    try {
+      await fetch("/api/excusal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeName: name,
+          trainingColumnKey: columnKey,
+          excused: !currentlyExcused,
+        }),
+      });
+      setDetailRefresh((k) => k + 1);
+    } catch {}
+    setTogglingExcusal(null);
   }
 
   const statusIcon = (status: string) => {
@@ -302,7 +322,27 @@ function EmployeeDetailModal({ name, onClose, onEnrolled }: { name: string; onCl
                           </p>
                         </div>
                       </div>
-                      <StatusBadge status={t.status} />
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={t.status} />
+                        <button
+                          onClick={() => handleToggleExcusal(t.columnKey, t.isExcused)}
+                          disabled={togglingExcusal === t.columnKey}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                            t.isExcused
+                              ? "bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-600"
+                              : "bg-slate-50 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
+                          }`}
+                          title={t.isExcused ? "Remove excusal" : "Mark as excused (N/A)"}
+                        >
+                          {togglingExcusal === t.columnKey ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : t.isExcused ? (
+                            <><ShieldOff className="h-3 w-3" /> Unexcuse</>
+                          ) : (
+                            <><ShieldCheck className="h-3 w-3" /> Excuse</>
+                          )}
+                        </button>
+                      </div>
                     </div>
 
                     {/* Enrolled info */}

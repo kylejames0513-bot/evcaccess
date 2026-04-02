@@ -501,6 +501,51 @@ export async function recordCompletion(
 }
 
 /**
+ * Set or clear an excusal (N/A) for an employee's training.
+ * Finds their row on the Training sheet and writes "N/A" or clears the cell.
+ */
+export async function setExcusal(
+  employeeName: string,
+  trainingColumnKey: string,
+  excused: boolean
+): Promise<{ success: boolean; message: string }> {
+  const rows = await readRange(TRAINING_SHEET);
+  if (rows.length < 2) return { success: false, message: "Training sheet is empty" };
+
+  const headers = rows[0];
+  const colIndex = headers.findIndex(
+    (h) => h.trim().toUpperCase() === trainingColumnKey.toUpperCase()
+  );
+  if (colIndex === -1) {
+    return { success: false, message: `Column "${trainingColumnKey}" not found` };
+  }
+
+  // Find employee by "Last, First" matching against columns A + B
+  const nameLower = employeeName.trim().toLowerCase();
+  let empRow = -1;
+  for (let i = 1; i < rows.length; i++) {
+    const last = (rows[i][0] || "").trim();
+    const first = (rows[i][1] || "").trim();
+    const combined = first ? `${last}, ${first}`.toLowerCase() : last.toLowerCase();
+    if (combined === nameLower) {
+      empRow = i;
+      break;
+    }
+  }
+
+  if (empRow === -1) {
+    return { success: false, message: `Employee "${employeeName}" not found` };
+  }
+
+  const newValue = excused ? "N/A" : "";
+  await updateCell(TRAINING_SHEET, empRow + 1, colIndex, newValue);
+  invalidateAll();
+
+  const action = excused ? "Excused" : "Cleared excusal for";
+  return { success: true, message: `${action} ${employeeName} — ${trainingColumnKey}` };
+}
+
+/**
  * Get the list of active employees (names) from the Training sheet.
  */
 export async function getEmployeeList(): Promise<string[]> {
