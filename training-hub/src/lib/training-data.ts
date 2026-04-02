@@ -2,6 +2,20 @@ import { readRange, readSheetAsObjects, appendRows, findRow, updateCell } from "
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import type { ComplianceStatus } from "@/types/database";
 
+// Primary trainings — the ones HR actively manages and tracks
+const PRIMARY_COLUMN_KEYS = new Set([
+  "CPR",        // CPR/FA
+  "Ukeru",      // Ukeru
+  "Mealtime",   // Mealtime
+  "MED_TRAIN",  // Med Recert + Initial Med Training
+  "POST MED",   // Post Med
+  "VR",         // Van/Lift Training
+]);
+
+const PRIMARY_TRAININGS = TRAINING_DEFINITIONS.filter(
+  (d) => PRIMARY_COLUMN_KEYS.has(d.columnKey)
+);
+
 // ============================================================
 // Training Data Layer — reads/writes your existing Google Sheet
 // ============================================================
@@ -103,13 +117,9 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     const activeFlag = (row[activeColIndex] || "").toString().trim().toUpperCase();
     if (activeFlag !== "Y") continue;
 
-    // Skip board members (Column D / index 3)
-    const title = (row[3] || "").toString().trim().toUpperCase();
-    if (title.includes("BOARD")) continue;
-
     const trainings: EmployeeTrainingRow["trainings"] = {};
 
-    for (const def of TRAINING_DEFINITIONS) {
+    for (const def of PRIMARY_TRAININGS) {
       const colIndex = headers.findIndex(
         (h) => h.trim().toUpperCase() === def.columnKey.toUpperCase()
       );
@@ -155,7 +165,7 @@ export async function getComplianceIssues(): Promise<ComplianceIssue[]> {
   const issues: ComplianceIssue[] = [];
 
   for (const emp of data) {
-    for (const def of TRAINING_DEFINITIONS) {
+    for (const def of PRIMARY_TRAININGS) {
       const t = emp.trainings[def.columnKey];
       if (!t) continue;
       if (t.status === "expired" || t.status === "expiring_soon" || t.status === "needed") {

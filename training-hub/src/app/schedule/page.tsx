@@ -5,7 +5,7 @@ import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle } from
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
-import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { PRIMARY_TRAININGS } from "@/config/primary-trainings";
 
 interface ScheduleData {
   sessions: Array<{
@@ -233,7 +233,7 @@ function CreateSessionForm({ onClose, onCreated }: { onClose: () => void; onCrea
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Select training...</option>
-              {TRAINING_DEFINITIONS.map((t) => (
+              {PRIMARY_TRAININGS.map((t) => (
                 <option key={t.name} value={t.name}>{t.name} ({t.classCapacity} seats)</option>
               ))}
             </select>

@@ -2,14 +2,14 @@
 
 import { useState } from "react";
 import { Search, Plus, BookOpen, Clock, Users as UsersIcon } from "lucide-react";
-import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { PRIMARY_TRAININGS } from "@/config/primary-trainings";
 import StatusBadge from "@/components/ui/StatusBadge";
 
 export default function TrainingsPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "required" | "renewable">("all");
 
-  const filtered = TRAINING_DEFINITIONS.filter((t) => {
+  const filtered = PRIMARY_TRAININGS.filter((t) => {
     const matchesSearch = t.name.toLowerCase().includes(search.toLowerCase());
     const matchesFilter =
       filter === "all" ||
@@ -24,7 +24,7 @@ export default function TrainingsPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Training Catalog</h1>
           <p className="text-slate-500 mt-1">
-            {TRAINING_DEFINITIONS.length} training types configured
+            {PRIMARY_TRAININGS.length} training types configured
           </p>
         </div>
         <button className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
