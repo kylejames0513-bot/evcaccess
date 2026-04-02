@@ -86,9 +86,20 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-5 py-4 border-t border-white/10">
-        <p className="text-xs font-medium text-blue-200/80">HR Admin</p>
-        <p className="text-[11px] text-blue-300/50">Kyle Mahoney</p>
+      <div className="px-5 py-4 border-t border-white/10 flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium text-blue-200/80">HR Admin</p>
+          <p className="text-[11px] text-blue-300/50">Kyle Mahoney</p>
+        </div>
+        <button
+          onClick={async () => {
+            await fetch("/api/auth", { method: "DELETE" });
+            window.location.href = "/login";
+          }}
+          className="text-[11px] text-blue-300/50 hover:text-white transition-colors"
+        >
+          Logout
+        </button>
       </div>
     </aside>
   );
