@@ -1,20 +1,21 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, BookOpen, Clock, Users as UsersIcon, Pencil, Check, X } from "lucide-react";
+import { Search, BookOpen, Clock, Users as UsersIcon, Pencil, Check, X, Loader2 } from "lucide-react";
 import { PRIMARY_TRAININGS } from "@/config/primary-trainings";
 import StatusBadge from "@/components/ui/StatusBadge";
 
 export default function TrainingsPage() {
   const [search, setSearch] = useState("");
   const [overrides, setOverrides] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
 
-  // Load capacity overrides
   useEffect(() => {
     fetch("/api/capacities")
       .then((r) => r.json())
       .then((d) => setOverrides(d.overrides || {}))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const filtered = PRIMARY_TRAININGS.filter((t) =>
@@ -25,7 +26,7 @@ export default function TrainingsPage() {
     return overrides[name] ?? defaultCap;
   }
 
-  async function saveCapacity(name: string, capacity: number) {
+  async function saveCapacity(name: string, capacity: number): Promise<boolean> {
     try {
       const res = await fetch("/api/capacity", {
         method: "POST",
@@ -33,8 +34,12 @@ export default function TrainingsPage() {
         body: JSON.stringify({ trainingName: name, capacity }),
       });
       const data = await res.json();
-      if (res.ok) setOverrides(data.overrides || {});
-    } catch {}
+      if (!res.ok) return false;
+      setOverrides(data.overrides || {});
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   return (
@@ -42,11 +47,10 @@ export default function TrainingsPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Training Catalog</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          {PRIMARY_TRAININGS.length} primary trainings — click seats to edit capacity
+          {PRIMARY_TRAININGS.length} primary trainings — click the seat number to edit capacity
         </p>
       </div>
 
-      {/* Search */}
       <div className="bg-white rounded-xl border border-slate-200 px-4 py-3">
         <div className="relative w-64">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -60,7 +64,6 @@ export default function TrainingsPage() {
         </div>
       </div>
 
-      {/* Training cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filtered.map((training) => (
           <TrainingCard
@@ -86,17 +89,29 @@ function TrainingCard({
 }: {
   training: (typeof PRIMARY_TRAININGS)[number];
   capacity: number;
-  onSaveCapacity: (cap: number) => void;
+  onSaveCapacity: (cap: number) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(capacity.toString());
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
-  function handleSave() {
+  // Update editValue when capacity prop changes from parent
+  useEffect(() => {
+    if (!editing) setEditValue(capacity.toString());
+  }, [capacity, editing]);
+
+  async function handleSave() {
     const num = parseInt(editValue);
-    if (!isNaN(num) && num >= 1) {
-      onSaveCapacity(num);
+    if (isNaN(num) || num < 1) return;
+    setSaving(true);
+    const ok = await onSaveCapacity(num);
+    setSaving(false);
+    if (ok) {
+      setSaved(true);
+      setEditing(false);
+      setTimeout(() => setSaved(false), 2000);
     }
-    setEditing(false);
   }
 
   function handleCancel() {
@@ -131,7 +146,7 @@ function TrainingCard({
         </div>
 
         {/* Editable capacity */}
-        <div className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
+        <div className={`flex items-center justify-between rounded-lg px-3 py-2 ${saved ? "bg-emerald-50" : "bg-slate-50"}`}>
           <div className="flex items-center gap-1.5 text-xs text-slate-600">
             <UsersIcon className="h-3.5 w-3.5" />
             <span>Class seats</span>
@@ -147,18 +162,25 @@ function TrainingCard({
                 autoFocus
                 className="w-16 px-2 py-0.5 border border-blue-300 rounded text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <button onClick={handleSave} className="p-0.5 hover:bg-emerald-100 rounded text-emerald-600">
-                <Check className="h-3.5 w-3.5" />
-              </button>
-              <button onClick={handleCancel} className="p-0.5 hover:bg-red-100 rounded text-red-500">
-                <X className="h-3.5 w-3.5" />
-              </button>
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin text-blue-500 ml-1" />
+              ) : (
+                <>
+                  <button onClick={handleSave} className="p-0.5 hover:bg-emerald-100 rounded text-emerald-600">
+                    <Check className="h-3.5 w-3.5" />
+                  </button>
+                  <button onClick={handleCancel} className="p-0.5 hover:bg-red-100 rounded text-red-500">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <button
               onClick={() => { setEditValue(capacity.toString()); setEditing(true); }}
               className="flex items-center gap-1.5 text-sm font-semibold text-slate-900 hover:text-blue-600 transition-colors group"
             >
+              {saved && <Check className="h-3.5 w-3.5 text-emerald-500" />}
               {capacity}
               <Pencil className="h-3 w-3 text-slate-300 group-hover:text-blue-500" />
             </button>
