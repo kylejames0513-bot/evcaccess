@@ -48,6 +48,84 @@ function isExcusal(value: string): boolean {
   return EXCUSAL_CODES.has(value.trim().toUpperCase());
 }
 
+const MONTH_NAMES: Record<string, number> = {
+  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+  jan: 0, feb: 1, mar: 2, apr: 3, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+/**
+ * Parse dates in various formats:
+ *   "4/2/2026", "04/02/2026", "2026-04-02"
+ *   "April 6", "April 6 – April 9", "April 27 - 30"
+ * Returns the first/start date found.
+ */
+function parseFuzzyDate(value: string): Date | null {
+  if (!value) return null;
+  const s = value.trim();
+
+  // Try standard date parse first (handles "4/2/2026", "2026-04-02", etc.)
+  const direct = new Date(s);
+  if (!isNaN(direct.getTime()) && direct.getFullYear() > 2000) return direct;
+
+  // Try "Month Day" patterns: "April 6", "April 6 – April 9", "April 27 - 30"
+  const monthMatch = s.match(/([A-Za-z]+)\s+(\d{1,2})/);
+  if (monthMatch) {
+    const monthNum = MONTH_NAMES[monthMatch[1].toLowerCase()];
+    if (monthNum !== undefined) {
+      const day = parseInt(monthMatch[2]);
+      const year = new Date().getFullYear();
+      return new Date(year, monthNum, day);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Normalize any date string to MM/DD/YYYY format.
+ * Multi-day ranges like "April 6 – April 9" become "4/6 – 4/9/2026".
+ */
+function normalizeDateDisplay(value: string): string {
+  const s = value.trim();
+
+  // Already in numeric format? Keep it.
+  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const d = new Date(s);
+    return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+  }
+
+  // Range: "April 6 – April 9" or "April 27 - 30"
+  const rangeMatch = s.match(/([A-Za-z]+)\s+(\d{1,2})\s*[–\-]\s*(?:([A-Za-z]+)\s+)?(\d{1,2})/);
+  if (rangeMatch) {
+    const startMonth = MONTH_NAMES[rangeMatch[1].toLowerCase()];
+    const startDay = parseInt(rangeMatch[2]);
+    const endMonthName = rangeMatch[3];
+    const endDay = parseInt(rangeMatch[4]);
+    const endMonth = endMonthName ? MONTH_NAMES[endMonthName.toLowerCase()] : startMonth;
+
+    if (startMonth !== undefined && endMonth !== undefined) {
+      const year = new Date().getFullYear();
+      return `${startMonth + 1}/${startDay} – ${endMonth + 1}/${endDay}/${year}`;
+    }
+  }
+
+  // Single: "April 6"
+  const singleMatch = s.match(/([A-Za-z]+)\s+(\d{1,2})/);
+  if (singleMatch) {
+    const monthNum = MONTH_NAMES[singleMatch[1].toLowerCase()];
+    if (monthNum !== undefined) {
+      const day = parseInt(singleMatch[2]);
+      const year = new Date().getFullYear();
+      return `${monthNum + 1}/${day}/${year}`;
+    }
+  }
+
+  // Can't parse — return as-is
+  return s;
+}
+
 function parseDate(value: string): Date | null {
   if (!value || isExcusal(value)) return null;
   const d = new Date(value);
@@ -285,7 +363,9 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
     if (colA) lastType = colA;
     if (!colB) continue; // no date = skip
 
-    const date = parseDate(colB);
+    // Normalize the date display to MM/DD/YYYY format
+    const normalizedDate = normalizeDateDisplay(colB);
+    const sortDate = parseFuzzyDate(colB);
 
     // Enrollment is comma-separated names in column E
     const enrolled = colE
@@ -301,12 +381,12 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
     sessions.push({
       rowIndex: i + 1,
       training,
-      date: colB,
+      date: normalizedDate,
       time: colC,
       location: colD,
       enrolled,
       capacity: def?.classCapacity || 15,
-      status: date && date < now ? "completed" : "scheduled",
+      status: sortDate && sortDate < now ? "completed" : "scheduled",
     });
   }
 
