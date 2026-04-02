@@ -2,6 +2,7 @@ import { readRange, readSheetAsObjects, appendRows, findRow, updateCell } from "
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import { toFirstLast as toFirstLastUtil, namesMatch } from "@/lib/name-utils";
 import { getExcludedEmployees } from "@/lib/exclude-list";
+import { getCapacity } from "@/lib/capacity-overrides";
 import type { ComplianceStatus } from "@/types/database";
 
 // Primary trainings — the ones HR actively manages and tracks
@@ -427,7 +428,7 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
       time: colC,
       location: colD,
       enrolled,
-      capacity: def?.classCapacity || 15,
+      capacity: getCapacity(training, def?.classCapacity || 15),
       status: sortDate && sortDate < now ? "completed" : "scheduled",
     });
   }

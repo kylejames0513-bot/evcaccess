@@ -43,6 +43,7 @@ next-env.d.ts
 
 # local data
 excluded-employees.json
+capacity-overrides.json
 node_modules/
 .next/
 .env.local
