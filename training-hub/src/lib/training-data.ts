@@ -758,6 +758,15 @@ export async function recordNoShows(
     `${SCHEDULED_SHEET}!E${sessionRowIndex}:F${sessionRowIndex}`,
     [[enrollStr, allNoShows]]
   );
+
+  // Record no-show flags in Hub Settings for tracking
+  const { addNoShow } = await import("@/lib/hub-settings");
+  const training = (row[0] || "").trim();
+  const date = (row[1] || "").trim();
+  for (const name of noShowNames) {
+    await addNoShow(name, training, date);
+  }
+
   invalidateAll();
   return {
     success: true,

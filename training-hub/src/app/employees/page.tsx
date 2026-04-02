@@ -14,6 +14,7 @@ interface EmployeesData {
     completedCount: number;
     totalRequired: number;
     status: string;
+    noShowCount: number;
   }>;
 }
 
@@ -178,7 +179,14 @@ export default function EmployeesPage() {
                 const isExcluding = excluding === emp.name;
                 return (
                   <tr key={i} className="hover:bg-blue-50/30 group cursor-pointer" onClick={() => setSelectedEmployee(emp.name)}>
-                    <td className="px-5 py-3 text-sm font-medium text-blue-700 hover:text-blue-900">{emp.name}</td>
+                    <td className="px-5 py-3 text-sm font-medium text-blue-700 hover:text-blue-900">
+                      {emp.name}
+                      {emp.noShowCount > 0 && (
+                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-red-100 text-red-700 rounded-full" title={`${emp.noShowCount} no-show(s)`}>
+                          {emp.noShowCount} NS
+                        </span>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-sm text-slate-500">{emp.position || "—"}</td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">

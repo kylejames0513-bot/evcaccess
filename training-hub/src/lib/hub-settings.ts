@@ -178,6 +178,53 @@ export async function setComplianceTracks(columnKeys: string[]): Promise<string[
 }
 
 // ────────────────────────────────────────────────────────────
+// No-show tracking
+// ────────────────────────────────────────────────────────────
+
+// Type="no_show", Key=employee name (Last, First), Value=training|date,training|date,...
+
+export interface NoShowRecord {
+  name: string;
+  incidents: Array<{ training: string; date: string }>;
+}
+
+export async function getNoShows(): Promise<NoShowRecord[]> {
+  const settings = await readSettings();
+  return settings
+    .filter((s) => s.type === "no_show")
+    .map((s) => ({
+      name: s.key,
+      incidents: s.value.split(";").filter(Boolean).map((entry) => {
+        const [training, date] = entry.split("|");
+        return { training: training || "", date: date || "" };
+      }),
+    }));
+}
+
+export async function addNoShow(employeeName: string, training: string, date: string): Promise<void> {
+  const settings = await readSettings();
+  const entry = `${training}|${date}`;
+  const idx = settings.findIndex(
+    (s) => s.type === "no_show" && s.key.toLowerCase() === employeeName.toLowerCase()
+  );
+  if (idx >= 0) {
+    // Append to existing incidents
+    settings[idx].value = settings[idx].value ? settings[idx].value + ";" + entry : entry;
+  } else {
+    settings.push({ type: "no_show", key: employeeName, value: entry });
+  }
+  await writeSettings(settings);
+}
+
+export async function clearNoShows(employeeName: string): Promise<void> {
+  let settings = await readSettings();
+  settings = settings.filter(
+    (s) => !(s.type === "no_show" && s.key.toLowerCase() === employeeName.toLowerCase())
+  );
+  await writeSettings(settings);
+}
+
+// ────────────────────────────────────────────────────────────
 // Department training rules — which trainings each department needs
 // ────────────────────────────────────────────────────────────
 

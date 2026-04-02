@@ -165,6 +165,7 @@ export default function SettingsPage() {
 
 function DeptRulesSection({ trackedTrainings }: { trackedTrainings: Set<string> }) {
   const [rules, setRules] = useState<DeptRule[]>([]);
+  const [divisions, setDivisions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -174,9 +175,14 @@ function DeptRulesSection({ trackedTrainings }: { trackedTrainings: Set<string> 
   const [editAll, setEditAll] = useState(false);
 
   useEffect(() => {
-    fetch("/api/dept-rules")
-      .then((r) => r.json())
-      .then((d) => setRules(d.rules || []))
+    Promise.all([
+      fetch("/api/dept-rules").then((r) => r.json()),
+      fetch("/api/divisions").then((r) => r.json()),
+    ])
+      .then(([rulesData, divData]) => {
+        setRules(rulesData.rules || []);
+        setDivisions(divData.divisions || []);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -294,16 +300,20 @@ function DeptRulesSection({ trackedTrainings }: { trackedTrainings: Set<string> 
           {adding && (
             <div className="px-6 py-4 border-b border-slate-200 bg-blue-50/30">
               <div className="mb-3">
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Department Name</label>
-                <input
-                  type="text"
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Division</label>
+                <select
                   value={newDept}
                   onChange={(e) => setNewDept(e.target.value)}
-                  placeholder="e.g. 100-Residential"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   autoFocus
-                />
-                <p className="text-[11px] text-slate-400 mt-1">Must match the Department Description column on the Training sheet exactly.</p>
+                >
+                  <option value="">Select a division...</option>
+                  {divisions
+                    .filter((d) => !rules.some((r) => r.department.toLowerCase() === d.toLowerCase()))
+                    .map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                </select>
               </div>
               <TrainingCheckboxes
                 trackedList={trackedList}

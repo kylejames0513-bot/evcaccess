@@ -28,6 +28,7 @@ interface ScheduleData {
 interface NeedEmployee {
   name: string;
   status: "expired" | "expiring_soon" | "needed";
+  noShowCount?: number;
 }
 
 export default function SchedulePage() {
@@ -565,6 +566,11 @@ function EnrollModal({
                         {isSelected && <Check className="h-3.5 w-3.5 text-white" />}
                       </div>
                       <span className="text-sm font-medium text-slate-900">{emp.name}</span>
+                      {emp.noShowCount && emp.noShowCount > 0 ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-red-100 text-red-700 rounded-full">
+                          {emp.noShowCount} NS
+                        </span>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-1.5">
                       {statusIcon(emp.status)}

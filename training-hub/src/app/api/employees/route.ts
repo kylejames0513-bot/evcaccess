@@ -1,9 +1,19 @@
 import { getTrainingData } from "@/lib/training-data";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { getNoShows } from "@/lib/hub-settings";
 
 export async function GET() {
   try {
-    const data = await getTrainingData();
+    const [data, noShowRecords] = await Promise.all([
+      getTrainingData(),
+      getNoShows(),
+    ]);
+
+    // Build no-show count lookup
+    const noShowCounts = new Map<string, number>();
+    for (const rec of noShowRecords) {
+      noShowCounts.set(rec.name.toLowerCase(), rec.incidents.length);
+    }
 
     const employees = data.map((emp) => {
       const statuses = Object.values(emp.trainings);
@@ -27,6 +37,7 @@ export async function GET() {
         completedCount: completed,
         totalRequired: total,
         status: overallStatus,
+        noShowCount: noShowCounts.get(emp.name.toLowerCase()) || 0,
       };
     });
 
