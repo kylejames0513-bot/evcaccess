@@ -1,25 +1,28 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck } from "lucide-react";
+import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2 } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 import { PRIMARY_TRAININGS } from "@/config/primary-trainings";
 import { namesMatch } from "@/lib/name-utils";
 
+interface SessionData {
+  rowIndex: number;
+  training: string;
+  date: string;
+  sortDateMs: number;
+  time: string;
+  location: string;
+  enrolled: string[];
+  noShows: string[];
+  capacity: number;
+  status: "scheduled" | "completed";
+}
+
 interface ScheduleData {
-  sessions: Array<{
-    rowIndex: number;
-    training: string;
-    date: string;
-    sortDateMs: number;
-    time: string;
-    location: string;
-    enrolled: string[];
-    capacity: number;
-    status: "scheduled" | "completed";
-  }>;
+  sessions: SessionData[];
 }
 
 interface NeedEmployee {
@@ -32,6 +35,8 @@ export default function SchedulePage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [enrollingSession, setEnrollingSession] = useState<number | null>(null);
   const [finalizingSession, setFinalizingSession] = useState<number | null>(null);
+  const [deletingSession, setDeletingSession] = useState<number | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Force re-fetch after changes
@@ -48,6 +53,20 @@ export default function SchedulePage() {
 
   function refresh() {
     setRefreshKey((k) => k + 1);
+  }
+
+  async function handleDelete(rowIndex: number) {
+    setDeleteLoading(true);
+    try {
+      await fetch("/api/delete-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionRowIndex: rowIndex }),
+      });
+      refresh();
+    } catch {}
+    setDeleteLoading(false);
+    setDeletingSession(null);
   }
 
   return (
@@ -159,6 +178,31 @@ export default function SchedulePage() {
                         <UserPlus className="h-4 w-4" />
                         Enroll
                       </button>
+                      {deletingSession === session.rowIndex ? (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleDelete(session.rowIndex)}
+                            disabled={deleteLoading}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-red-600 text-white hover:bg-red-700"
+                          >
+                            {deleteLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Confirm"}
+                          </button>
+                          <button
+                            onClick={() => setDeletingSession(null)}
+                            className="px-2 py-1.5 text-xs text-slate-500 hover:text-slate-700"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeletingSession(session.rowIndex)}
+                          className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
+                          title="Delete session"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -172,6 +216,21 @@ export default function SchedulePage() {
                           sessionRowIndex={session.rowIndex}
                           onRemoved={refresh}
                         />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* No-shows */}
+                  {session.noShows.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      <span className="text-xs font-semibold text-red-500 uppercase self-center mr-1">No-Shows:</span>
+                      {session.noShows.map((name) => (
+                        <span
+                          key={name}
+                          className="inline-flex items-center px-2.5 py-1 text-xs font-medium bg-red-50 text-red-700 border border-red-200 rounded-full line-through"
+                        >
+                          {name}
+                        </span>
                       ))}
                     </div>
                   )}
@@ -545,7 +604,7 @@ function FinalizeModal({
   onClose,
   onFinalized,
 }: {
-  session: { rowIndex: number; training: string; date: string; time: string; enrolled: string[]; capacity: number };
+  session: SessionData;
   onClose: () => void;
   onFinalized: () => void;
 }) {
@@ -566,16 +625,16 @@ function FinalizeModal({
       return;
     }
     setSaving(true);
-    // Remove no-shows from enrollment one at a time
-    for (const name of noShows) {
-      try {
-        await fetch("/api/remove-enrollee", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionRowIndex: session.rowIndex, name }),
-        });
-      } catch {}
-    }
+    try {
+      await fetch("/api/no-shows", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionRowIndex: session.rowIndex,
+          names: Array.from(noShows),
+        }),
+      });
+    } catch {}
     setDone(true);
     setSaving(false);
     setTimeout(onFinalized, 1200);

@@ -1,4 +1,4 @@
-import { readRange, readSheetAsObjects, appendRows, findRow, updateCell } from "./google-sheets";
+import { readRange, readSheetAsObjects, appendRows, findRow, updateCell, writeRange } from "./google-sheets";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import { toFirstLast as toFirstLastUtil, namesMatch } from "@/lib/name-utils";
 import { getExcludedEmployees, getCapacity } from "@/lib/hub-settings";
@@ -364,6 +364,7 @@ export interface ScheduledSession {
   time: string;
   location: string;
   enrolled: string[];   // names of enrolled people
+  noShows: string[];    // names of people who didn't show
   capacity: number;
   status: "scheduled" | "completed";
 }
@@ -433,9 +434,16 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
     const normalizedDate = normalizeDateDisplay(colB);
     const sortDate = parseFuzzyDate(colB);
 
+    const colF = (row[5] || "").trim();
+
     // Enrollment is comma-separated names in column E
     const enrolled = colE
       ? colE.split(",").map((n) => n.trim()).filter((n) => n && n !== "TBD")
+      : [];
+
+    // No-shows are comma-separated names in column F
+    const noShows = colF
+      ? colF.split(",").map((n) => n.trim()).filter(Boolean)
       : [];
 
     // Find capacity from training config
@@ -452,6 +460,7 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
       time: colC,
       location: colD,
       enrolled,
+      noShows,
       capacity: resolveCapacity(training, def?.classCapacity || 15),
       status: sortDate && sortDate < now ? "completed" : "scheduled",
     });
@@ -632,4 +641,70 @@ export async function removeEnrollee(
   await updateCell(SCHEDULED_SHEET, sessionRowIndex, 4, newStr);
   invalidateAll();
   return { success: true, message: `Removed ${nameToRemove}` };
+}
+
+/**
+ * Delete a scheduled session by clearing its row on the Scheduled sheet.
+ */
+export async function deleteSession(
+  sessionRowIndex: number
+): Promise<{ success: boolean; message: string }> {
+  const rows = await readRange(SCHEDULED_SHEET);
+  const row = rows[sessionRowIndex - 1];
+  if (!row) return { success: false, message: "Session row not found" };
+
+  const training = (row[0] || "").trim();
+  const date = (row[1] || "").trim();
+
+  // Clear all columns in this row (A through F)
+  await writeRange(
+    `${SCHEDULED_SHEET}!A${sessionRowIndex}:F${sessionRowIndex}`,
+    [["", "", "", "", "", ""]]
+  );
+  invalidateAll();
+  return { success: true, message: `Deleted ${training} on ${date}` };
+}
+
+/**
+ * Record no-shows for a session. Writes names to column F and removes them from enrollment (column E).
+ */
+export async function recordNoShows(
+  sessionRowIndex: number,
+  noShowNames: string[]
+): Promise<{ success: boolean; message: string }> {
+  if (noShowNames.length === 0) {
+    return { success: false, message: "No names provided" };
+  }
+
+  const rows = await readRange(SCHEDULED_SHEET);
+  const row = rows[sessionRowIndex - 1];
+  if (!row) return { success: false, message: "Session row not found" };
+
+  // Remove no-shows from enrollment (column E)
+  const currentEnrollment = (row[4] || "").trim();
+  const enrolled = currentEnrollment
+    ? currentEnrollment.split(",").map((n) => n.trim()).filter(Boolean)
+    : [];
+
+  const updatedEnrolled = enrolled.filter(
+    (n) => !noShowNames.some((ns) => namesMatch(n, ns))
+  );
+  const enrollStr = updatedEnrolled.length > 0 ? updatedEnrolled.join(", ") : "TBD";
+
+  // Append to existing no-shows in column F
+  const existingNoShows = (row[5] || "").trim();
+  const allNoShows = existingNoShows
+    ? existingNoShows + ", " + noShowNames.join(", ")
+    : noShowNames.join(", ");
+
+  // Write both columns
+  await writeRange(
+    `${SCHEDULED_SHEET}!E${sessionRowIndex}:F${sessionRowIndex}`,
+    [[enrollStr, allNoShows]]
+  );
+  invalidateAll();
+  return {
+    success: true,
+    message: `Recorded ${noShowNames.length} no-show(s) for session`,
+  };
 }
