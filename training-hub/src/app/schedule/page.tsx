@@ -13,7 +13,6 @@ interface ScheduleData {
     date: string;
     time: string;
     location: string;
-    instructor: string;
     enrolled: string[];
     capacity: number;
     status: "scheduled" | "completed";
@@ -69,7 +68,6 @@ export default function SchedulePage() {
                       <th className="px-6 py-3">Training</th>
                       <th className="px-6 py-3">Date & Time</th>
                       <th className="px-6 py-3">Location</th>
-                      <th className="px-6 py-3">Instructor</th>
                       <th className="px-6 py-3">Enrollment</th>
                       <th className="px-6 py-3">Status</th>
                     </tr>
@@ -87,7 +85,6 @@ export default function SchedulePage() {
                             {session.time && <div className="text-xs text-slate-400">{session.time}</div>}
                           </td>
                           <td className="px-6 py-4 text-sm text-slate-600">{session.location || "—"}</td>
-                          <td className="px-6 py-4 text-sm text-slate-600">{session.instructor || "—"}</td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-2">
                               <div className="flex-1 h-2 bg-slate-100 rounded-full max-w-[80px]">

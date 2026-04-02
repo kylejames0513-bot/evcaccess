@@ -86,10 +86,18 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
 
   const employees: EmployeeTrainingRow[] = [];
 
+  // Find the Active column (column C / index 2 in your sheet)
+  // Employees with "Y" are active; skip everyone else
+  const activeColIndex = 2; // Column C = Active flag
+
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     const name = (row[0] || "").trim();
     if (!name) continue;
+
+    // Only include active employees
+    const activeFlag = (row[activeColIndex] || "").toString().trim().toUpperCase();
+    if (activeFlag !== "Y") continue;
 
     const trainings: EmployeeTrainingRow["trainings"] = {};
 
@@ -203,7 +211,6 @@ export interface ScheduledSession {
   date: string;
   time: string;
   location: string;
-  instructor: string;
   enrolled: string[];   // names of enrolled people
   capacity: number;
   status: "scheduled" | "completed";
@@ -211,7 +218,12 @@ export interface ScheduledSession {
 
 /**
  * Read the Scheduled sheet to get upcoming training sessions.
- * Expected columns: Training Type, Date, Time, Location, Instructor, then enrollee names
+ * Columns match Rosters.gs rewriteScheduledSheet_:
+ *   A: Type (training name)
+ *   B: Dates
+ *   C: Time
+ *   D: Location
+ *   E: Enrollment (comma-separated names)
  */
 export async function getScheduledSessions(): Promise<ScheduledSession[]> {
   const rows = await readRange(SCHEDULED_SHEET);
@@ -220,15 +232,35 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
   const sessions: ScheduledSession[] = [];
   const now = new Date();
   now.setHours(0, 0, 0, 0);
+  let lastType = "";
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
-    const training = (row[0] || "").trim();
-    const dateStr = (row[1] || "").trim();
-    if (!training || !dateStr) continue;
+    const colA = (row[0] || "").trim();
+    const colB = (row[1] || "").trim();
+    const colC = (row[2] || "").trim();
+    const colD = (row[3] || "").trim();
+    const colE = (row[4] || "").trim();
 
-    const date = parseDate(dateStr);
-    const enrolled = row.slice(5).filter((v) => v && v.trim() && v.trim() !== "\u2014 open \u2014");
+    // Skip header rows
+    if (colA === "Type" || colA === "a. Upcoming Training") continue;
+
+    // Type-only row (no date) = section header
+    if (colA && !colB && !colC && !colD && !colE) { lastType = colA; continue; }
+
+    // Blank row
+    if (!colA && !colB && !colC && !colD && !colE) continue;
+
+    const training = colA || lastType;
+    if (colA) lastType = colA;
+    if (!colB) continue; // no date = skip
+
+    const date = parseDate(colB);
+
+    // Enrollment is comma-separated names in column E
+    const enrolled = colE
+      ? colE.split(",").map((n) => n.trim()).filter((n) => n && n !== "TBD")
+      : [];
 
     // Find capacity from training config
     const def = TRAINING_DEFINITIONS.find(
@@ -239,10 +271,9 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
     sessions.push({
       rowIndex: i + 1,
       training,
-      date: dateStr,
-      time: (row[2] || "").trim(),
-      location: (row[3] || "").trim(),
-      instructor: (row[4] || "").trim(),
+      date: colB,
+      time: colC,
+      location: colD,
       enrolled,
       capacity: def?.classCapacity || 15,
       status: date && date < now ? "completed" : "scheduled",
