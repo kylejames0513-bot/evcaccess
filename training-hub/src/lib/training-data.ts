@@ -507,7 +507,8 @@ export async function recordCompletion(
 export async function setExcusal(
   employeeName: string,
   trainingColumnKey: string,
-  excused: boolean
+  excused: boolean,
+  reason?: string
 ): Promise<{ success: boolean; message: string }> {
   const rows = await readRange(TRAINING_SHEET);
   if (rows.length < 2) return { success: false, message: "Training sheet is empty" };
@@ -537,7 +538,7 @@ export async function setExcusal(
     return { success: false, message: `Employee "${employeeName}" not found` };
   }
 
-  const newValue = excused ? "N/A" : "";
+  const newValue = excused ? (reason || "N/A") : "";
   await updateCell(TRAINING_SHEET, empRow + 1, colIndex, newValue);
   invalidateAll();
 

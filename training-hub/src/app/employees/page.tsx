@@ -219,6 +219,7 @@ function EmployeeDetailModal({ name, onClose, onEnrolled }: { name: string; onCl
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [enrolling, setEnrolling] = useState<string | null>(null);
   const [togglingExcusal, setTogglingExcusal] = useState<string | null>(null);
+  const [excusingTraining, setExcusingTraining] = useState<string | null>(null);
   const [success, setSuccess] = useState("");
   const [detailRefresh, setDetailRefresh] = useState(0);
 
@@ -249,7 +250,26 @@ function EmployeeDetailModal({ name, onClose, onEnrolled }: { name: string; onCl
     }
   }
 
-  async function handleToggleExcusal(columnKey: string, currentlyExcused: boolean) {
+  async function handleExcuse(columnKey: string, reason: string) {
+    setTogglingExcusal(columnKey);
+    setExcusingTraining(null);
+    try {
+      await fetch("/api/excusal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeName: name,
+          trainingColumnKey: columnKey,
+          excused: true,
+          reason,
+        }),
+      });
+      setDetailRefresh((k) => k + 1);
+    } catch {}
+    setTogglingExcusal(null);
+  }
+
+  async function handleUnexcuse(columnKey: string) {
     setTogglingExcusal(columnKey);
     try {
       await fetch("/api/excusal", {
@@ -258,7 +278,7 @@ function EmployeeDetailModal({ name, onClose, onEnrolled }: { name: string; onCl
         body: JSON.stringify({
           employeeName: name,
           trainingColumnKey: columnKey,
-          excused: !currentlyExcused,
+          excused: false,
         }),
       });
       setDetailRefresh((k) => k + 1);
@@ -324,24 +344,30 @@ function EmployeeDetailModal({ name, onClose, onEnrolled }: { name: string; onCl
                       </div>
                       <div className="flex items-center gap-2">
                         <StatusBadge status={t.status} />
-                        <button
-                          onClick={() => handleToggleExcusal(t.columnKey, t.isExcused)}
-                          disabled={togglingExcusal === t.columnKey}
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                            t.isExcused
-                              ? "bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-600"
-                              : "bg-slate-50 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600"
-                          }`}
-                          title={t.isExcused ? "Remove excusal" : "Mark as excused (N/A)"}
-                        >
-                          {togglingExcusal === t.columnKey ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : t.isExcused ? (
-                            <><ShieldOff className="h-3 w-3" /> Unexcuse</>
-                          ) : (
-                            <><ShieldCheck className="h-3 w-3" /> Excuse</>
-                          )}
-                        </button>
+                        {togglingExcusal === t.columnKey ? (
+                          <Loader2 className="h-3 w-3 animate-spin text-slate-400" />
+                        ) : t.isExcused ? (
+                          <button
+                            onClick={() => handleUnexcuse(t.columnKey)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-600 transition-colors"
+                            title={`Remove excusal (currently: ${t.value})`}
+                          >
+                            <ShieldOff className="h-3 w-3" /> Unexcuse
+                          </button>
+                        ) : excusingTraining === t.columnKey ? (
+                          <ExcusalPicker
+                            onSelect={(reason) => handleExcuse(t.columnKey, reason)}
+                            onCancel={() => setExcusingTraining(null)}
+                          />
+                        ) : (
+                          <button
+                            onClick={() => setExcusingTraining(t.columnKey)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-slate-50 text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
+                            title="Mark as excused"
+                          >
+                            <ShieldCheck className="h-3 w-3" /> Excuse
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -404,6 +430,60 @@ function EmployeeDetailModal({ name, onClose, onEnrolled }: { name: string; onCl
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Excusal Reason Picker
+// ────────────────────────────────────────────────────────────
+
+const EXCUSAL_REASONS = [
+  { code: "N/A", label: "N/A (General)" },
+  { code: "Facilities", label: "Facilities" },
+  { code: "MAINT", label: "Maintenance" },
+  { code: "HR", label: "HR" },
+  { code: "ADMIN", label: "Admin" },
+  { code: "FINANCE", label: "Finance" },
+  { code: "IT", label: "IT" },
+  { code: "NURSE", label: "Nurse" },
+  { code: "LPN", label: "LPN" },
+  { code: "RN", label: "RN" },
+  { code: "DIR", label: "Director" },
+  { code: "MGR", label: "Manager" },
+  { code: "SUPERVISOR", label: "Supervisor" },
+  { code: "TRAINER", label: "Trainer" },
+  { code: "BH", label: "Behavioral Health" },
+  { code: "ELC", label: "ELC" },
+  { code: "EI", label: "EI" },
+];
+
+function ExcusalPicker({
+  onSelect,
+  onCancel,
+}: {
+  onSelect: (reason: string) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <select
+        autoFocus
+        defaultValue=""
+        onChange={(e) => { if (e.target.value) onSelect(e.target.value); }}
+        className="px-2 py-1 border border-slate-200 rounded-md text-[11px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+      >
+        <option value="" disabled>Reason...</option>
+        {EXCUSAL_REASONS.map((r) => (
+          <option key={r.code} value={r.code}>{r.label}</option>
+        ))}
+      </select>
+      <button
+        onClick={onCancel}
+        className="p-0.5 text-slate-400 hover:text-slate-600"
+      >
+        <X className="h-3 w-3" />
+      </button>
     </div>
   );
 }

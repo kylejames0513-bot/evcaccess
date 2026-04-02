@@ -3,7 +3,7 @@ import { setExcusal } from "@/lib/training-data";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { employeeName, trainingColumnKey, excused } = body;
+    const { employeeName, trainingColumnKey, excused, reason } = body;
 
     if (!employeeName || !trainingColumnKey || typeof excused !== "boolean") {
       return Response.json(
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await setExcusal(employeeName, trainingColumnKey, excused);
+    const result = await setExcusal(employeeName, trainingColumnKey, excused, reason);
     if (!result.success) {
       return Response.json({ error: result.message }, { status: 400 });
     }
