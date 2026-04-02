@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Clock, AlertTriangle, CheckCircle, Send, ArrowLeft, ChevronDown } from "lucide-react";
 
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzxZ8CQOcwuCSLrLwAP0MVsozi03uE6korbvfENrNgGRA_cs9Pgp-1tptRQGLz69GUXFA/exec";
@@ -33,7 +33,6 @@ export default function SignInPage() {
   const [error, setError] = useState("");
   const [submitTime, setSubmitTime] = useState("");
   const [reminderCountdown, setReminderCountdown] = useState(3);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Clock
   useEffect(() => {
@@ -71,7 +70,7 @@ export default function SignInPage() {
     setStep("confirm");
   }
 
-  function doSubmit() {
+  async function doSubmit() {
     setStep("submitting");
     const now = new Date();
     let h = now.getHours();
@@ -84,36 +83,28 @@ export default function SignInPage() {
     const d = now;
     const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, "0")}-${d.getDate().toString().padStart(2, "0")}`;
 
-    // Submit via hidden iframe to Apps Script
-    const form = document.createElement("form");
-    form.method = "POST";
-    form.action = APPS_SCRIPT_URL;
-    form.target = "signin_iframe";
-    form.style.display = "none";
-
-    const fields: Record<string, string> = {
+    // Submit via fetch (no-cors) to avoid blocking the main thread
+    const params = new URLSearchParams({
       session,
       attendee: attendee.trim(),
       date: dateStr,
       leftEarly: hasIssue ? "Yes" : "No",
       reason: hasIssue ? issueReason : "",
       notes: notes.trim(),
-    };
+    });
 
-    for (const [key, value] of Object.entries(fields)) {
-      const input = document.createElement("input");
-      input.type = "hidden";
-      input.name = key;
-      input.value = value;
-      form.appendChild(input);
+    try {
+      await fetch(APPS_SCRIPT_URL, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString(),
+      });
+    } catch {
+      // no-cors won't give us a readable response, but the request still goes through
     }
 
-    document.body.appendChild(form);
-    form.submit();
-    document.body.removeChild(form);
-
-    // Show success after timeout (Apps Script doesn't reliably message back)
-    setTimeout(() => setStep("success"), 3000);
+    setStep("success");
   }
 
   function resetForm() {
@@ -128,8 +119,6 @@ export default function SignInPage() {
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center">
-      <iframe name="signin_iframe" ref={iframeRef} className="hidden" />
-
       <div className="w-full max-w-md">
         {/* Back link — only for HR navigating */}
         <a href="/" className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 mb-4">

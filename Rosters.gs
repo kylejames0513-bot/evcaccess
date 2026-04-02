@@ -4134,7 +4134,7 @@ function uploadRosterResults() {
   var ui = SpreadsheetApp.getUi();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  var recordsSheet = ss.getSheets()[0];
+  var recordsSheet = ss.getSheetByName("Training Records");
   var trainingSheet = ss.getSheetByName(TRAINING_ACCESS_SHEET_NAME);
 
   if (!trainingSheet) {
@@ -4521,7 +4521,7 @@ function checkPersonTrainingStatus_(ss, personName, trainingType) {
 function checkTrainingRecordsForPass_(ss, firstName, lastName, trainingType) {
   var result = { found: false, session: "", dateFormatted: "", dateRaw: null, row: -1 };
 
-  var recordsSheet = ss.getSheets()[0]; // Training Records is Sheet 1
+  var recordsSheet = ss.getSheetByName("Training Records"); // Training Records is Sheet 1
   if (!recordsSheet || recordsSheet.getName() === TRAINING_ACCESS_SHEET_NAME) return result;
 
   var data = recordsSheet.getDataRange().getValues();

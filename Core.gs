@@ -129,7 +129,7 @@ function createMenu() {
 
 function doPost(e) {
   try {
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Training Records");
 
     var session   = e.parameter.session   || "";
     var attendee  = e.parameter.attendee  || "";
@@ -178,7 +178,7 @@ function doPost(e) {
     Logger.log("doPost error: " + error.toString());
     // Log to a cell so the error is visible to the admin
     try {
-      var errorSheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+      var errorSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Training Records");
       errorSheet.appendRow([
         new Date().toLocaleTimeString(), "SYSTEM ERROR", "",
         new Date().toLocaleDateString(), "", "", "doPost failed: " + error.toString(),
@@ -1001,7 +1001,7 @@ function testCheckName() {
 }
 
 function testWrite() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Training Records");
   sheet.appendRow([
     "9:05 AM", "TEST SESSION", "Test User", "2026-03-17",
     "No", "", "This is a test entry", "", "", "Pending", ""
@@ -1037,7 +1037,7 @@ function showConfig() {
 }
 
 function setupSheet() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Training Records");
   sheet.clear();
 
   var headers = [
@@ -1105,7 +1105,7 @@ function setupSheet() {
 function backfillTrainingAccess() {
   var ui = SpreadsheetApp.getUi();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var recordsSheet = ss.getSheets()[0];
+  var recordsSheet = ss.getSheetByName("Training Records");
   var trainingSheet = ss.getSheetByName(TRAINING_ACCESS_SHEET_NAME);
 
   if (!trainingSheet) {
@@ -1274,7 +1274,7 @@ function backfillTrainingAccess() {
 function batchPassFail() {
   var ui = SpreadsheetApp.getUi();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheets()[0];
+  var sheet = ss.getSheetByName("Training Records");
   var data = sheet.getDataRange().getValues();
 
   if (data.length <= 1) { ui.alert("No data rows found."); return; }
@@ -1379,7 +1379,7 @@ function batchPassFail() {
 
 function batchSetSessionInfo() {
   var ui = SpreadsheetApp.getUi();
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Training Records");
   var data = sheet.getDataRange().getValues();
 
   if (data.length <= 1) { ui.alert("No data rows found."); return; }
@@ -1449,7 +1449,7 @@ function batchSetSessionInfo() {
 
 function flagLateArrivals() {
   var ui = SpreadsheetApp.getUi();
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Training Records");
   var data = sheet.getDataRange().getValues();
 
   var threshold = ui.prompt(
@@ -1486,7 +1486,7 @@ function flagLateArrivals() {
 
 function flagEarlyDepartures() {
   var ui = SpreadsheetApp.getUi();
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheets()[0];
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Training Records");
   var data = sheet.getDataRange().getValues();
   var flagged = 0;
 
