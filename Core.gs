@@ -1273,6 +1273,7 @@ function importFromPaylocity() {
   // Find column indices in the import sheet
   var importHeaders = importData[0];
   var colLast = -1, colFirst = -1, colPreferred = -1, colSkill = -1, colDate = -1, colStatus = -1;
+  var colDivision = -1, colDepartment = -1, colPosition = -1;
   for (var c = 0; c < importHeaders.length; c++) {
     var h = importHeaders[c].toString().trim().toLowerCase();
     if (h === "last name") colLast = c;
@@ -1281,6 +1282,9 @@ function importFromPaylocity() {
     if (h === "skill") colSkill = c;
     if (h === "effective/issue date" || h === "effective date" || h === "issue date") colDate = c;
     if (h === "skill status") colStatus = c;
+    if (h === "division description") colDivision = c;
+    if (h === "department description") colDepartment = c;
+    if (h === "position title") colPosition = c;
   }
 
   if (colLast < 0 || colFirst < 0 || colSkill < 0 || colDate < 0) {
@@ -1315,6 +1319,15 @@ function importFromPaylocity() {
   };
 
   var noMatchNames = {};
+
+  // Find Division/Department/Position Title columns on the Training sheet
+  var tDivCol = -1, tDeptCol = -1, tPosCol = -1;
+  for (var c = 0; c < trainingHeaders.length; c++) {
+    var th = trainingHeaders[c].toString().trim();
+    if (th === "Division Description") tDivCol = c;
+    if (th === "Department Description") tDeptCol = c;
+    if (th === "Position Title") tPosCol = c;
+  }
 
   for (var i = 1; i < importData.length; i++) {
     stats.processed++;
@@ -1371,6 +1384,23 @@ function importFromPaylocity() {
         stats.skippedNoMatch++;
       }
       continue;
+    }
+
+    // Update Division, Department, Position Title (always overwrite with latest)
+    var divVal = colDivision >= 0 && importData[i][colDivision] ? importData[i][colDivision].toString().trim() : "";
+    var deptVal = colDepartment >= 0 && importData[i][colDepartment] ? importData[i][colDepartment].toString().trim() : "";
+    var posVal = colPosition >= 0 && importData[i][colPosition] ? importData[i][colPosition].toString().trim() : "";
+    if (tDivCol >= 0 && divVal) {
+      trainingSheet.getRange(matchRow + 1, tDivCol + 1).setValue(divVal);
+      trainingData[matchRow][tDivCol] = divVal;
+    }
+    if (tDeptCol >= 0 && deptVal) {
+      trainingSheet.getRange(matchRow + 1, tDeptCol + 1).setValue(deptVal);
+      trainingData[matchRow][tDeptCol] = deptVal;
+    }
+    if (tPosCol >= 0 && posVal) {
+      trainingSheet.getRange(matchRow + 1, tPosCol + 1).setValue(posVal);
+      trainingData[matchRow][tPosCol] = posVal;
     }
 
     // Check current value
