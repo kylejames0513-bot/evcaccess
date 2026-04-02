@@ -250,7 +250,8 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
       if (isExcused) {
         status = "excused";
       } else if (!date) {
-        status = "needed";
+        // CPR with no date = past due (everyone needs it)
+        status = def.isRequired ? "expired" : "needed";
       } else if (def.renewalYears === 0) {
         status = "current"; // one-and-done, has a date
       } else {
