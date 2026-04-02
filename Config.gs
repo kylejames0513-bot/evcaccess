@@ -19,13 +19,6 @@
 // ************************************************************
 
 var TRAINING_ACCESS_SHEET_NAME = "Training";
-var ROSTER_SHEET_NAME          = "Training Rosters";
-var SCHEDULED_SHEET_NAME       = "Scheduled";
-var OVERVIEW_SHEET_NAME        = "Scheduled Overview";
-var REMOVAL_LOG_SHEET          = "Removal Log";
-
-// Standard open seat marker — used when creating class tabs
-var OPEN_SEAT_MARKER = "\u2014 open \u2014";
 
 
 // ************************************************************
@@ -397,86 +390,6 @@ var TRAINING_CONFIG = [
 // Days before expiration to flag as "Expiring Soon"
 var EXPIRING_SOON_DAYS = 60;
 
-// Days in the past to use as sync cutoff (sessions before this are left alone)
-// Default: 30 days ago. Adjust if you want to sync further back.
-var SYNC_CUTOFF_DAYS_AGO = 30;
-
-/**
- * getSyncCutoffDate_ — returns a dynamic cutoff date for sync operations.
- * Sessions before this date are left alone during sync.
- */
-function getSyncCutoffDate_() {
-  var cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - SYNC_CUTOFF_DAYS_AGO);
-  cutoff.setHours(0, 0, 0, 0);
-  return cutoff;
-}
-
-
-// ************************************************************
-//
-//   AUTO-GENERATED: CLASS_ROSTER_CONFIG
-//
-//   Built from TRAINING_CONFIG — do NOT edit manually.
-//   Add classCapacity, schedule, and weeksOut to your
-//   TRAINING_CONFIG entry instead.
-//
-// ************************************************************
-
-var CLASS_ROSTER_CONFIG = (function() {
-  var result = [];
-  for (var i = 0; i < TRAINING_CONFIG.length; i++) {
-    var tc = TRAINING_CONFIG[i];
-    result.push({
-      name: tc.name,
-      classCapacity: tc.classCapacity || 15,
-      schedule: tc.schedule || { dates: [] },
-      weeksOut: tc.weeksOut || 4
-    });
-  }
-  return result;
-})();
-
-var SEAT_PRIORITY = [
-  { bucket: "expired",      priority: 1 },
-  { bucket: "needed",       priority: 2 },
-  { bucket: "expiringSoon", priority: 3 }
-];
-SEAT_PRIORITY.sort(function(a, b) { return a.priority - b.priority; });
-
-
-// ************************************************************
-//
-//   AUTO-GENERATED: SCHEDULED TYPE MAP
-//
-//   Built from TRAINING_CONFIG names + aliases.
-//   Also includes manual overrides for non-roster-managed types.
-//   Add aliases to your TRAINING_CONFIG entry to extend this.
-//
-// ************************************************************
-
-var SCHEDULED_TYPE_MAP = (function() {
-  var map = {};
-  // Auto-generate from TRAINING_CONFIG
-  for (var i = 0; i < TRAINING_CONFIG.length; i++) {
-    var tc = TRAINING_CONFIG[i];
-    map[tc.name.toLowerCase()] = tc.name;
-    // Add aliases
-    if (tc.aliases) {
-      for (var a = 0; a < tc.aliases.length; a++) {
-        map[tc.aliases[a].toLowerCase()] = tc.name;
-      }
-    }
-  }
-  // Manual overrides for non-roster-managed types (null = ignored by sync)
-  map["med training"] = null;
-  map["initial med training"] = null;
-  map["post med"] = null;
-  map["med cert"] = null;
-  map["rising leaders"] = null;
-  return map;
-})();
-
 
 // ************************************************************
 //
@@ -639,18 +552,3 @@ var NICKNAMES = {
 //   digits that isn't a valid date gets wiped.
 //
 // ************************************************************
-
-var KEEP_VALUES = [
-  "NEEDS", "NEEDDS", "SCHED", "SCHEDULE",
-  "FAILED", "FAIL", "COMPLETE", "COMPLETED",
-  "NO SHOW", "NCNS 2026", "NEED CERTIF",
-  "TERM", "HALF", "1 DAY ONLY", "1 DAY",
-  "NA", "N/A",
-  "ELC", "EI", "FACILITIES", "MAINT",
-  "HR", "FINANCE", "FIN", "IT", "ADMIN",
-  "NURSE", "LPN", "RN", "CNA",
-  "BH", "PA", "BA", "QA", "TAC",
-  "TRAINER", "LP",
-  "LLL", "MASS", "WAIN", "WADS",
-  "Y", "YES", "S", "R"
-];
