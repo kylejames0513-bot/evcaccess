@@ -15,6 +15,8 @@ import {
   ClipboardCheck,
   UserCheck,
   Bell,
+  FileText,
+  HeartPulse,
 } from "lucide-react";
 
 const navItems = [
@@ -23,8 +25,10 @@ const navItems = [
   { href: "/employees", label: "Employees", icon: Users },
   { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
   { href: "/attendance", label: "Attendance", icon: UserCheck },
+  { href: "/records", label: "Records", icon: FileText },
   { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/trainings", label: "Training Types", icon: GraduationCap },
+  { href: "/data-health", label: "Data Health", icon: HeartPulse },
   { href: "/archive", label: "Archive", icon: Archive },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

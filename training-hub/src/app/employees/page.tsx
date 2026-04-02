@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, UserMinus, UserPlus, X, Loader2, Check, Clock, XCircle, AlertTriangle, CheckCircle, CalendarPlus, ShieldOff, ShieldCheck, RefreshCw } from "lucide-react";
+import { Search, UserMinus, UserPlus, X, Loader2, Check, Clock, XCircle, AlertTriangle, CheckCircle, CalendarPlus, ShieldOff, ShieldCheck, RefreshCw, Ban } from "lucide-react";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
+import { formatDivision } from "@/lib/format-utils";
 
 interface EmployeesData {
   employees: Array<{
@@ -21,6 +22,7 @@ interface EmployeesData {
 
 interface EmployeeDetail {
   name: string;
+  noShowCount: number;
   trainings: Array<{
     columnKey: string;
     value: string;
@@ -208,7 +210,7 @@ export default function EmployeesPage() {
                         </span>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-sm text-slate-500">{emp.position || "—"}</td>
+                    <td className="px-5 py-3 text-sm text-slate-500">{emp.position ? formatDivision(emp.position) : "—"}</td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <div className="flex-1 h-2 bg-slate-100 rounded-full">
@@ -249,6 +251,7 @@ function EmployeeDetailModal({ name, onClose, onEnrolled }: { name: string; onCl
   const [enrolling, setEnrolling] = useState<string | null>(null);
   const [togglingExcusal, setTogglingExcusal] = useState<string | null>(null);
   const [excusingTraining, setExcusingTraining] = useState<string | null>(null);
+  const [clearingNoShows, setClearingNoShows] = useState(false);
   const [success, setSuccess] = useState("");
   const [detailRefresh, setDetailRefresh] = useState(0);
 
@@ -315,6 +318,20 @@ function EmployeeDetailModal({ name, onClose, onEnrolled }: { name: string; onCl
     setTogglingExcusal(null);
   }
 
+  async function handleClearNoShows() {
+    setClearingNoShows(true);
+    try {
+      await fetch("/api/no-show-flags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear", name }),
+      });
+      setDetailRefresh((k) => k + 1);
+      onEnrolled(); // refresh parent data too
+    } catch {}
+    setClearingNoShows(false);
+  }
+
   const statusIcon = (status: string) => {
     if (status === "expired") return <XCircle className="h-4 w-4 text-red-500" />;
     if (status === "expiring_soon") return <Clock className="h-4 w-4 text-amber-500" />;
@@ -338,9 +355,22 @@ function EmployeeDetailModal({ name, onClose, onEnrolled }: { name: string; onCl
             <h2 className="font-semibold text-slate-900 text-lg">{name}</h2>
             <p className="text-xs text-slate-400 mt-0.5">Training compliance detail</p>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg">
-            <X className="h-5 w-5 text-slate-400" />
-          </button>
+          <div className="flex items-center gap-2">
+            {detail && detail.noShowCount > 0 && (
+              <button
+                onClick={handleClearNoShows}
+                disabled={clearingNoShows}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 transition-colors"
+                title={`Clear ${detail.noShowCount} no-show flag(s)`}
+              >
+                {clearingNoShows ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3" />}
+                Clear {detail.noShowCount} NS
+              </button>
+            )}
+            <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg">
+              <X className="h-5 w-5 text-slate-400" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">

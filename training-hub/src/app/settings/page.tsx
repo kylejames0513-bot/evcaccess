@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ClipboardCheck, Loader2, Check, Save, Building2, Plus, Trash2, X } from "lucide-react";
+import { ClipboardCheck, Loader2, Check, Save, Building2, Plus, Trash2, X, ShieldCheck, Users } from "lucide-react";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { formatDivision } from "@/lib/format-utils";
 
 // Get unique column keys with display names
 const ALL_TRAININGS = (() => {
@@ -155,6 +156,9 @@ export default function SettingsPage() {
 
       {/* Department Training Rules */}
       <DeptRulesSection trackedTrainings={tracks} />
+
+      {/* Bulk Excuse */}
+      <BulkExcuseSection trackedTrainings={tracks} />
     </div>
   );
 }

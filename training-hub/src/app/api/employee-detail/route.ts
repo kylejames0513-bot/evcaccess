@@ -1,6 +1,7 @@
 import { getTrainingData, getScheduledSessions } from "@/lib/training-data";
 import { namesMatch } from "@/lib/name-utils";
 import { trainingMatchesAny } from "@/lib/training-match";
+import { getNoShows } from "@/lib/hub-settings";
 
 export async function GET(request: Request) {
   try {
@@ -10,7 +11,10 @@ export async function GET(request: Request) {
       return Response.json({ error: "Missing query param: name" }, { status: 400 });
     }
 
-    const data = await getTrainingData();
+    const [data, noShowRecords] = await Promise.all([
+      getTrainingData(),
+      getNoShows(),
+    ]);
     const employee = data.find((e) => e.name.toLowerCase() === name.toLowerCase());
     if (!employee) {
       return Response.json({ error: `Employee "${name}" not found` }, { status: 404 });
@@ -54,9 +58,17 @@ export async function GET(request: Request) {
       };
     });
 
+    // Build no-show count for this employee
+    const noShowCounts = new Map<string, number>();
+    for (const rec of noShowRecords) {
+      noShowCounts.set(rec.name.toLowerCase(), rec.incidents.length);
+    }
+    const noShowCount = noShowCounts.get(employee.name.toLowerCase()) || 0;
+
     return Response.json({
       name: employee.name,
       trainings,
+      noShowCount,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
