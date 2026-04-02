@@ -186,9 +186,21 @@ export async function getComplianceIssues(): Promise<ComplianceIssue[]> {
     }
   }
 
-  // Sort: expired first, then expiring_soon, then needed
+  // Sort: by status priority first, then by expiration date (soonest first)
   const priority: Record<string, number> = { expired: 0, expiring_soon: 1, needed: 2 };
-  issues.sort((a, b) => (priority[a.status] ?? 3) - (priority[b.status] ?? 3));
+  issues.sort((a, b) => {
+    const pa = priority[a.status] ?? 3;
+    const pb = priority[b.status] ?? 3;
+    if (pa !== pb) return pa - pb;
+    // Within same status, sort by date (earliest first, nulls last)
+    if (a.expirationDate && b.expirationDate) return a.expirationDate.localeCompare(b.expirationDate);
+    if (a.expirationDate) return -1;
+    if (b.expirationDate) return 1;
+    if (a.date && b.date) return a.date.localeCompare(b.date);
+    if (a.date) return -1;
+    if (b.date) return 1;
+    return a.employee.localeCompare(b.employee);
+  });
 
   return issues;
 }
