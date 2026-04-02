@@ -1,0 +1,323 @@
+// ============================================================
+// EVC Training Hub — Training Configuration
+// ============================================================
+// Migrated from Config.gs TRAINING_CONFIG
+// This is the seed data + reference for all training types.
+// ============================================================
+
+export interface TrainingDef {
+  name: string;
+  columnKey: string;
+  renewalYears: number;
+  isRequired: boolean;
+  classCapacity: number;
+  onlyExpired?: boolean;
+  onlyNeeded?: boolean;
+  prerequisite?: string; // column_key of prerequisite
+  aliases?: string[];
+  rulesName?: string;
+  schedule?: {
+    recurring: Array<{
+      weekday: string;
+      nthWeek?: number[];
+    }>;
+  };
+  weeksOut?: number;
+}
+
+// Direct migration from Config.gs TRAINING_CONFIG
+export const TRAINING_DEFINITIONS: TrainingDef[] = [
+  {
+    name: "CPR/FA",
+    columnKey: "CPR",
+    renewalYears: 2,
+    isRequired: true,
+    classCapacity: 10,
+    schedule: { recurring: [{ weekday: "Thursday" }] },
+    weeksOut: 4,
+    aliases: ["cpr"],
+  },
+  {
+    name: "Ukeru",
+    columnKey: "Ukeru",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 12,
+    schedule: {
+      recurring: [
+        { weekday: "Monday", nthWeek: [2] },
+        { weekday: "Friday", nthWeek: [4] },
+      ],
+    },
+    weeksOut: 6,
+  },
+  {
+    name: "Mealtime",
+    columnKey: "Mealtime",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+    schedule: { recurring: [{ weekday: "Wednesday", nthWeek: [3] }] },
+    weeksOut: 8,
+  },
+  {
+    name: "Med Recert",
+    columnKey: "MED_TRAIN",
+    rulesName: "Med Training",
+    renewalYears: 3,
+    isRequired: false,
+    onlyExpired: true,
+    classCapacity: 4,
+    aliases: ["med cert", "med test out"],
+  },
+  {
+    name: "Initial Med Training",
+    columnKey: "MED_TRAIN",
+    rulesName: "Med Training",
+    renewalYears: 0,
+    isRequired: false,
+    onlyNeeded: true,
+    classCapacity: 4,
+  },
+  {
+    name: "Post Med",
+    columnKey: "POST MED",
+    renewalYears: 0,
+    isRequired: false,
+    prerequisite: "MED_TRAIN",
+    classCapacity: 8,
+  },
+  {
+    name: "POMs",
+    columnKey: "POM",
+    rulesName: "POM",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+    aliases: ["poms training", "personal outcome measures"],
+  },
+  {
+    name: "Person Centered",
+    columnKey: "Pers Cent Thnk",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+    aliases: ["pct training", "person centered thinking"],
+  },
+  {
+    name: "Van/Lift Training",
+    columnKey: "VR",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 10,
+    aliases: ["van lyft"],
+  },
+  {
+    name: "Safety Care",
+    columnKey: "Safety Care",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "Meaningful Day",
+    columnKey: "Meaningful Day",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+    aliases: ["meaningful day training"],
+  },
+  {
+    name: "MD Refresh",
+    columnKey: "MD refresh",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+    aliases: ["md refresh training"],
+  },
+  {
+    name: "GERD",
+    columnKey: "GERD",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "HCO Training",
+    columnKey: "HCO Training",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+    aliases: ["hco"],
+  },
+  {
+    name: "Health Passport",
+    columnKey: "Health Passport",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "Diabetes",
+    columnKey: "Diabetes",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "Falls",
+    columnKey: "Falls",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "Dysphagia",
+    columnKey: "Dysphagia Oveview",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+    aliases: ["dysphagia overview", "dysphagia training"],
+  },
+  {
+    name: "Rights Training",
+    columnKey: "Rights Training",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "Title VI",
+    columnKey: "Title VI",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "Active Shooter",
+    columnKey: "Active Shooter",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "Skills System",
+    columnKey: "Skills System",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+    aliases: ["skills system training"],
+  },
+  {
+    name: "CPI",
+    columnKey: "CPI",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "CPM",
+    columnKey: "CPM",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "PFH/DIDD",
+    columnKey: "PFH/DIDD",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "Basic VCRM",
+    columnKey: "Basic VCRM",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+    aliases: ["basic vcrm training"],
+  },
+  {
+    name: "Advanced VCRM",
+    columnKey: "Advanced VCRM",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+    aliases: ["advanced vcrm training"],
+  },
+  {
+    name: "TRN",
+    columnKey: "TRN",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "ASL",
+    columnKey: "ASL",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "Skills Online",
+    columnKey: "Skills Online",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "ETIS",
+    columnKey: "ETIS",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+  {
+    name: "Shift",
+    columnKey: "SHIFT",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+    aliases: ["shift training"],
+  },
+  {
+    name: "Advanced Shift",
+    columnKey: "ADV SHIFT",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+    aliases: ["adv shift"],
+  },
+  {
+    name: "MC",
+    columnKey: "MC",
+    renewalYears: 0,
+    isRequired: false,
+    classCapacity: 15,
+  },
+];
+
+// Auto-fill rules (migrated from Config.gs AUTO_FILL_RULES)
+export const AUTO_FILL_RULES = [
+  { source: "CPR", target: "FIRSTAID", offsetDays: 0 },
+  { source: "FIRSTAID", target: "CPR", offsetDays: 0 },
+  { source: "MED_TRAIN", target: "POST MED", offsetDays: 1 },
+  { source: "POST MED", target: "MED_TRAIN", offsetDays: -1 },
+];
+
+// Excusal codes (migrated from Config.gs EXCUSAL_CODES)
+export const EXCUSAL_CODES = [
+  "NA", "N/A",
+  "VP", "DIR", "DIRECTOR", "CEO", "CFO", "COO", "CMO",
+  "AVP", "SVP", "EVP", "PRESIDENT",
+  "MGR", "MANAGER", "SUPERVISOR", "SUPV",
+  "ELC", "EI",
+  "FACILITIES", "MAINT",
+  "HR", "FINANCE", "FIN", "IT", "ADMIN",
+  "NURSE", "LPN", "RN", "CNA",
+  "BH", "PA", "BA", "QA", "TAC",
+  "TRAINER", "LP", "NS", "LLL",
+] as const;
+
+export const EXPIRING_SOON_DAYS = 60;
