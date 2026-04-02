@@ -721,6 +721,54 @@ export async function deleteSession(
   return { success: true, message: `Deleted ${training} on ${date}` };
 }
 
+const ARCHIVE_SHEET = "Archive";
+
+/**
+ * Archive a session: copy to Archive sheet, then clear from Scheduled.
+ */
+export async function archiveSession(
+  sessionRowIndex: number
+): Promise<{ success: boolean; message: string }> {
+  const rows = await readRange(SCHEDULED_SHEET);
+  const row = rows[sessionRowIndex - 1];
+  if (!row) return { success: false, message: "Session row not found" };
+
+  const training = (row[0] || "").trim();
+  const date = (row[1] || "").trim();
+  const time = (row[2] || "").trim();
+  const location = (row[3] || "").trim();
+  const enrolled = (row[4] || "").trim();
+  const noShows = (row[5] || "").trim();
+  const archivedDate = new Date().toLocaleDateString();
+
+  // Ensure Archive sheet exists
+  const { getSheetNames } = await import("./google-sheets");
+  const { getSheets, getSpreadsheetId } = await import("./google-sheets");
+  const sheetNames = await getSheetNames();
+  if (!sheetNames.includes(ARCHIVE_SHEET)) {
+    const sheets = getSheets();
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: getSpreadsheetId(),
+      requestBody: {
+        requests: [{ addSheet: { properties: { title: ARCHIVE_SHEET } } }],
+      },
+    });
+    await writeRange(`'${ARCHIVE_SHEET}'!A1:G1`, [["Training", "Date", "Time", "Location", "Enrolled", "No-Shows", "Archived On"]]);
+  }
+
+  // Append to Archive
+  await appendRows(ARCHIVE_SHEET, [[training, date, time, location, enrolled, noShows, archivedDate]]);
+
+  // Clear from Scheduled
+  await writeRange(
+    `${SCHEDULED_SHEET}!A${sessionRowIndex}:F${sessionRowIndex}`,
+    [["", "", "", "", "", ""]]
+  );
+
+  invalidateAll();
+  return { success: true, message: `Archived ${training} on ${date}` };
+}
+
 /**
  * Record no-shows for a session. Writes names to column F and removes them from enrollment (column E).
  */

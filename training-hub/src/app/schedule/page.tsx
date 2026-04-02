@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap } from "lucide-react";
+import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap, Archive } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -38,6 +38,7 @@ export default function SchedulePage() {
   const [finalizingSession, setFinalizingSession] = useState<number | null>(null);
   const [deletingSession, setDeletingSession] = useState<number | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [archiving, setArchiving] = useState<number | null>(null);
   const [autoFilling, setAutoFilling] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -104,6 +105,19 @@ export default function SchedulePage() {
     } catch {}
     setDeleteLoading(false);
     setDeletingSession(null);
+  }
+
+  async function handleArchive(rowIndex: number) {
+    setArchiving(rowIndex);
+    try {
+      await fetch("/api/archive-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionRowIndex: rowIndex }),
+      });
+      refresh();
+    } catch {}
+    setArchiving(null);
   }
 
   return (
@@ -299,7 +313,7 @@ export default function SchedulePage() {
           </div>
           <div className="divide-y divide-slate-100">
             {past.map((session) => (
-              <div key={session.rowIndex} className="px-6 py-3 flex items-center justify-between">
+              <div key={session.rowIndex} className="px-6 py-3 flex items-center justify-between group">
                 <div>
                   <span className="font-medium text-slate-900">{session.training}</span>
                   <span className="ml-3 text-sm text-slate-500">{session.date}</span>
@@ -307,6 +321,15 @@ export default function SchedulePage() {
                 <div className="flex items-center gap-3">
                   <span className="text-sm text-slate-500">{session.enrolled.length}/{session.capacity}</span>
                   <StatusBadge status="completed" type="session" />
+                  <button
+                    onClick={() => handleArchive(session.rowIndex)}
+                    disabled={archiving === session.rowIndex}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-slate-50 text-slate-600 hover:bg-blue-50 hover:text-blue-700 opacity-0 group-hover:opacity-100"
+                    title="Move to Archive sheet"
+                  >
+                    {archiving === session.rowIndex ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+                    Archive
+                  </button>
                 </div>
               </div>
             ))}
