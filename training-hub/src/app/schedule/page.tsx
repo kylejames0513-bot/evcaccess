@@ -6,12 +6,14 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 import { PRIMARY_TRAININGS } from "@/config/primary-trainings";
+import { namesMatch } from "@/lib/name-utils";
 
 interface ScheduleData {
   sessions: Array<{
     rowIndex: number;
     training: string;
     date: string;
+    sortDateMs: number;
     time: string;
     location: string;
     enrolled: string[];
@@ -40,9 +42,8 @@ export default function SchedulePage() {
   if (!displayData) return null;
 
   const { sessions } = displayData;
-  const parseDate = (d: string) => { const t = new Date(d).getTime(); return isNaN(t) ? 0 : t; };
-  const upcoming = sessions.filter((s) => s.status === "scheduled").sort((a, b) => parseDate(a.date) - parseDate(b.date));
-  const past = sessions.filter((s) => s.status === "completed").sort((a, b) => parseDate(b.date) - parseDate(a.date));
+  const upcoming = sessions.filter((s) => s.status === "scheduled").sort((a, b) => a.sortDateMs - b.sortDateMs);
+  const past = sessions.filter((s) => s.status === "completed").sort((a, b) => b.sortDateMs - a.sortDateMs);
 
   function refresh() {
     setRefreshKey((k) => k + 1);
@@ -318,7 +319,7 @@ function EnrollModal({
         if (!res.ok) throw new Error(data.error);
         // Filter out already enrolled
         const filtered = (data.employees as NeedEmployee[]).filter(
-          (e) => !session.enrolled.some((n) => n.toLowerCase() === e.name.toLowerCase())
+          (e) => !session.enrolled.some((n) => namesMatch(n, e.name))
         );
         setNeedsList(filtered);
       } catch {

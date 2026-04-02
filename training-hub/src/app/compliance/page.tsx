@@ -6,6 +6,7 @@ import StatCard from "@/components/ui/StatCard";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
+import { namesMatch } from "@/lib/name-utils";
 import type { ComplianceStatus } from "@/types/database";
 
 interface ComplianceData {
@@ -144,7 +145,7 @@ export default function CompliancePage() {
                 const enrolledSession = schedSessions.find(
                   (s) => s.status === "scheduled" &&
                     s.training.toLowerCase() === item.training.toLowerCase() &&
-                    s.enrolled.some((n) => n.toLowerCase() === item.employee.toLowerCase())
+                    s.enrolled.some((n) => namesMatch(n, item.employee))
                 );
 
                 return (
@@ -234,7 +235,7 @@ function QuickEnrollPopup({
 
   // Check if already enrolled in any session
   const alreadyIn = sessions.find((s) =>
-    s.enrolled.some((n) => n.toLowerCase() === employee.toLowerCase())
+    s.enrolled.some((n) => namesMatch(n, employee))
   );
 
   async function handleEnroll(sessionRowIndex: number) {

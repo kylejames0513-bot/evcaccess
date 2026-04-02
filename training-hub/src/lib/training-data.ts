@@ -1,5 +1,6 @@
 import { readRange, readSheetAsObjects, appendRows, findRow, updateCell } from "./google-sheets";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { toFirstLast as toFirstLastUtil, namesMatch } from "@/lib/name-utils";
 import type { ComplianceStatus } from "@/types/database";
 
 // Primary trainings — the ones HR actively manages and tracks
@@ -305,7 +306,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     expiringSoon: issues.filter((i) => i.status === "expiring_soon").length,
     expired: issues.filter((i) => i.status === "expired").length,
     needed: issues.filter((i) => i.status === "needed").length,
-    upcomingSessions: scheduled.filter((s) => new Date(s.date) >= new Date()).length,
+    upcomingSessions: scheduled.filter((s) => s.status === "scheduled").length,
   };
 }
 
@@ -317,6 +318,7 @@ export interface ScheduledSession {
   rowIndex: number;
   training: string;
   date: string;
+  sortDateMs: number;   // millisecond timestamp for reliable sorting
   time: string;
   location: string;
   enrolled: string[];   // names of enrolled people
@@ -382,6 +384,7 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
       rowIndex: i + 1,
       training,
       date: normalizedDate,
+      sortDateMs: sortDate ? sortDate.getTime() : 0,
       time: colC,
       location: colD,
       enrolled,
@@ -390,6 +393,8 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
     });
   }
 
+  // Sort by date — earliest first
+  sessions.sort((a, b) => a.sortDateMs - b.sortDateMs);
   return sessions;
 }
 
@@ -473,6 +478,9 @@ export async function getEmployeesNeedingTraining(
   return results;
 }
 
+// Use shared toFirstLast from name-utils
+const toFirstLast = toFirstLastUtil;
+
 /**
  * Create a new session on the Scheduled sheet.
  * Appends a row: [Type, Date, Time, Location, Enrollment]
@@ -484,7 +492,7 @@ export async function createSession(
   location: string,
   enrollees: string[]
 ): Promise<{ success: boolean; message: string }> {
-  const enrollStr = enrollees.length > 0 ? enrollees.join(", ") : "TBD";
+  const enrollStr = enrollees.length > 0 ? enrollees.map(toFirstLast).join(", ") : "TBD";
   await appendRows(SCHEDULED_SHEET, [[trainingType, date, time, location, enrollStr]]);
   return {
     success: true,
@@ -509,9 +517,12 @@ export async function addEnrollees(
     ? currentEnrollment.split(",").map((n) => n.trim()).filter(Boolean)
     : [];
 
-  // Don't add duplicates
-  const toAdd = newNames.filter(
-    (n) => !existing.some((e) => e.toLowerCase() === n.toLowerCase())
+  // Convert new names to "First Last" format for the sheet
+  const newNamesConverted = newNames.map(toFirstLast);
+
+  // Don't add duplicates (handles "First Last" vs "Last, First")
+  const toAdd = newNamesConverted.filter(
+    (n) => !existing.some((e) => namesMatch(e, n))
   );
 
   if (toAdd.length === 0) {
@@ -543,7 +554,7 @@ export async function removeEnrollee(
     : [];
 
   const updated = existing.filter(
-    (n) => n.toLowerCase() !== nameToRemove.toLowerCase()
+    (n) => !namesMatch(n, nameToRemove)
   );
 
   if (updated.length === existing.length) {
