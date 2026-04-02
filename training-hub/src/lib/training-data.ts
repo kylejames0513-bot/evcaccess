@@ -1,6 +1,7 @@
 import { readRange, readSheetAsObjects, appendRows, findRow, updateCell } from "./google-sheets";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import { toFirstLast as toFirstLastUtil, namesMatch } from "@/lib/name-utils";
+import { getExcludedEmployees } from "@/lib/exclude-list";
 import type { ComplianceStatus } from "@/types/database";
 
 // Primary trainings — the ones HR actively manages and tracks
@@ -207,6 +208,10 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
   const soonThreshold = new Date();
   soonThreshold.setDate(soonThreshold.getDate() + 60);
 
+  // Load excluded employees list
+  const excluded = getExcludedEmployees();
+  const excludedSet = new Set(excluded.map((n) => n.toLowerCase()));
+
   const employees: EmployeeTrainingRow[] = [];
 
   // Find the Active column (column C / index 2 in your sheet)
@@ -225,6 +230,9 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     // Only include active employees
     const activeFlag = (row[activeColIndex] || "").toString().trim().toUpperCase();
     if (activeFlag !== "Y") continue;
+
+    // Skip excluded employees
+    if (excludedSet.has(name.toLowerCase())) continue;
 
     const trainings: EmployeeTrainingRow["trainings"] = {};
 

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Search } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Search, UserMinus, UserPlus, X, Loader2 } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -17,11 +17,23 @@ interface EmployeesData {
 }
 
 export default function EmployeesPage() {
-  const { data, loading, error } = useFetch<EmployeesData>("/api/employees");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { data, loading, error } = useFetch<EmployeesData>(`/api/employees?r=${refreshKey}`);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [showExcluded, setShowExcluded] = useState(false);
+  const [excludedList, setExcludedList] = useState<string[]>([]);
+  const [excluding, setExcluding] = useState<string | null>(null);
 
-  if (loading) return <Loading />;
+  // Load excluded list
+  useEffect(() => {
+    fetch("/api/excluded-list")
+      .then((r) => r.json())
+      .then((d) => setExcludedList(d.excluded || []))
+      .catch(() => {});
+  }, [refreshKey]);
+
+  if (loading && !data) return <Loading />;
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
 
@@ -35,14 +47,72 @@ export default function EmployeesPage() {
   const compliant = employees.filter((e) => e.status === "current").length;
   const pctCompliant = employees.length > 0 ? Math.round((compliant / employees.length) * 100) : 0;
 
+  async function handleExclude(name: string) {
+    setExcluding(name);
+    try {
+      const res = await fetch("/api/exclude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add", name }),
+      });
+      const data = await res.json();
+      setExcludedList(data.excluded || []);
+      setRefreshKey((k) => k + 1);
+    } catch {}
+    setExcluding(null);
+  }
+
+  async function handleRestore(name: string) {
+    try {
+      const res = await fetch("/api/exclude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "remove", name }),
+      });
+      const data = await res.json();
+      setExcludedList(data.excluded || []);
+      setRefreshKey((k) => k + 1);
+    } catch {}
+  }
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Employees</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{employees.length} active &middot; {pctCompliant}% fully compliant</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            {employees.length} tracked &middot; {pctCompliant}% compliant
+            {excludedList.length > 0 && (
+              <> &middot; <button onClick={() => setShowExcluded(!showExcluded)} className="text-blue-600 hover:text-blue-800 font-medium">{excludedList.length} excluded</button></>
+            )}
+          </p>
         </div>
       </div>
+
+      {/* Excluded employees panel */}
+      {showExcluded && excludedList.length > 0 && (
+        <div className="bg-amber-50 rounded-xl border border-amber-200 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-amber-900">Excluded from Tracking</h3>
+            <button onClick={() => setShowExcluded(false)} className="p-1 hover:bg-amber-100 rounded">
+              <X className="h-4 w-4 text-amber-600" />
+            </button>
+          </div>
+          <p className="text-xs text-amber-700 mb-3">These employees are active on the spreadsheet but hidden from the Training Hub. Click to restore.</p>
+          <div className="flex flex-wrap gap-2">
+            {excludedList.map((name) => (
+              <button
+                key={name}
+                onClick={() => handleRestore(name)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-medium text-amber-800 hover:bg-amber-100 transition-colors"
+              >
+                <UserPlus className="h-3 w-3" />
+                {name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center bg-white rounded-xl border border-slate-200 px-4 py-3">
@@ -75,13 +145,15 @@ export default function EmployeesPage() {
                 <th className="px-5 py-3">Employee</th>
                 <th className="px-5 py-3 w-64">Compliance</th>
                 <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3 w-20 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filtered.map((emp, i) => {
                 const pct = emp.totalRequired > 0 ? Math.round((emp.completedCount / emp.totalRequired) * 100) : 0;
+                const isExcluding = excluding === emp.name;
                 return (
-                  <tr key={i} className="hover:bg-blue-50/30">
+                  <tr key={i} className="hover:bg-blue-50/30 group">
                     <td className="px-5 py-3 text-sm font-medium text-slate-900">{emp.name}</td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
@@ -97,6 +169,16 @@ export default function EmployeesPage() {
                       </div>
                     </td>
                     <td className="px-5 py-3"><StatusBadge status={emp.status} /></td>
+                    <td className="px-5 py-3 text-right">
+                      <button
+                        onClick={() => handleExclude(emp.name)}
+                        disabled={isExcluding}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                        title="Remove from tracking"
+                      >
+                        {isExcluding ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserMinus className="h-3 w-3" />}
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
