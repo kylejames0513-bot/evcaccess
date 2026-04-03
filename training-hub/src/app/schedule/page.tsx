@@ -81,17 +81,17 @@ export default function SchedulePage() {
       if (!res.ok) throw new Error(data.error);
 
       // Collect all names already enrolled in ANY session of this training type
-      const alreadyEnrolled = new Set<string>();
+      const alreadyEnrolled: string[] = [];
       for (const s of sessions) {
         if (s.status === "scheduled" && trainingMatchesAny(s.training, session.training)) {
           for (const name of s.enrolled) {
-            alreadyEnrolled.add(name.toLowerCase());
+            alreadyEnrolled.push(name);
           }
         }
       }
 
       const needs = (data.employees as NeedEmployee[]).filter(
-        (e) => !alreadyEnrolled.has(e.name.toLowerCase())
+        (e) => !alreadyEnrolled.some((enrolled) => namesMatch(enrolled, e.name))
       );
 
       const spotsLeft = session.capacity - session.enrolled.length;
@@ -512,18 +512,18 @@ function EnrollModal({
         if (!res.ok) throw new Error(data.error);
 
         // Collect all names enrolled in ANY session of this training type
-        const alreadyEnrolled = new Set<string>();
+        const alreadyEnrolled: string[] = [];
         for (const s of allSessions) {
           if (s.status === "scheduled" && trainingMatchesAny(s.training, session.training)) {
             for (const name of s.enrolled) {
-              alreadyEnrolled.add(name.toLowerCase());
+              alreadyEnrolled.push(name);
             }
           }
         }
 
         // Filter out anyone already enrolled in any matching session
         const filtered = (data.employees as NeedEmployee[]).filter(
-          (e) => !alreadyEnrolled.has(e.name.toLowerCase())
+          (e) => !alreadyEnrolled.some((enrolled) => namesMatch(enrolled, e.name))
         );
         setNeedsList(filtered);
       } catch {
