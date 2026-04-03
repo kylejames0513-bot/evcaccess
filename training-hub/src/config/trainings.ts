@@ -68,7 +68,7 @@ export const TRAINING_DEFINITIONS: TrainingDef[] = [
     isRequired: false,
     onlyExpired: true,
     classCapacity: 8,
-    aliases: ["med cert", "med test out", "med training"],
+    aliases: ["med cert", "med test out"],
   },
   {
     name: "Initial Med Training",
@@ -78,6 +78,7 @@ export const TRAINING_DEFINITIONS: TrainingDef[] = [
     isRequired: false,
     onlyNeeded: true,
     classCapacity: 4,
+    aliases: ["med training"],
   },
   {
     name: "Post Med",

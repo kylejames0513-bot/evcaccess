@@ -18,9 +18,11 @@ for (const def of TRAINING_DEFINITIONS) {
 }
 
 // Add common variations that might appear on the Scheduled sheet
-aliasMap.set("med training", "Med Recert");
-aliasMap.set("med train", "Med Recert");
+aliasMap.set("med training", "Initial Med Training");
+aliasMap.set("med train", "Initial Med Training");
 aliasMap.set("initial med", "Initial Med Training");
+aliasMap.set("med test out", "Med Recert");
+aliasMap.set("med recert", "Med Recert");
 aliasMap.set("van lyft training", "Van/Lift Training");
 aliasMap.set("van lyft", "Van/Lift Training");
 aliasMap.set("van/lift", "Van/Lift Training");
