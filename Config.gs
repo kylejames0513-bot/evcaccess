@@ -152,7 +152,7 @@ var TRAINING_CONFIG = [
     required: false,
     showOnRoster: true,
     onlyExpired: true,
-    classCapacity: 4,
+    classCapacity: 8,
     aliases: ["med cert", "med test out"]
   },
   {

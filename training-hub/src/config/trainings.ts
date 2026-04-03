@@ -67,7 +67,7 @@ export const TRAINING_DEFINITIONS: TrainingDef[] = [
     renewalYears: 3,
     isRequired: false,
     onlyExpired: true,
-    classCapacity: 4,
+    classCapacity: 8,
     aliases: ["med cert", "med test out", "med training"],
   },
   {
