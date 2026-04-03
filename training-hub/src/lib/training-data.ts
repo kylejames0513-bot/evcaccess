@@ -279,7 +279,6 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
       if (isExcused) {
         status = "excused";
       } else if (!date) {
-        // CPR with no date = past due (everyone needs it)
         status = def.isRequired ? "expired" : "needed";
       } else if (def.renewalYears === 0) {
         status = "current"; // one-and-done, has a date
@@ -294,6 +293,14 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
           status = "current";
         }
       }
+
+      // onlyExpired: skip if employee has no date or is current (they need Initial, not Recert)
+      if (def.onlyExpired && (!date || status === "needed" || status === "current")) continue;
+      // onlyNeeded: skip if employee already has a date (they need Recert, not Initial)
+      if (def.onlyNeeded && date) continue;
+
+      // Don't overwrite if this columnKey was already set by a more specific def
+      if (trainings[def.columnKey]) continue;
 
       trainings[def.columnKey] = { value, date, isExcused, status };
     }
@@ -318,6 +325,12 @@ export async function getComplianceIssues(): Promise<ComplianceIssue[]> {
     for (const def of trackedDefs) {
       const t = emp.trainings[def.columnKey];
       if (!t) continue;
+
+      // Respect onlyExpired/onlyNeeded so Med Recert and Initial Med Training
+      // don't double-report the same column
+      if (def.onlyExpired && t.status === "needed") continue;
+      if (def.onlyNeeded && (t.status === "expired" || t.status === "expiring_soon") && t.date) continue;
+
       if (t.status === "expired" || t.status === "expiring_soon" || t.status === "needed") {
         let expirationDate: string | null = null;
         if (t.date && def.renewalYears > 0) {
@@ -638,6 +651,12 @@ export async function getEmployeesNeedingTraining(
   for (const emp of data) {
     const t = emp.trainings[def.columnKey];
     if (!t) continue;
+
+    // Respect onlyExpired/onlyNeeded: Med Recert only shows expired/expiring,
+    // Initial Med Training only shows those with no date
+    if (def.onlyExpired && (t.status === "needed")) continue;
+    if (def.onlyNeeded && (t.status === "expired" || t.status === "expiring_soon") && t.date) continue;
+
     if (t.status === "expired" || t.status === "expiring_soon" || t.status === "needed") {
       let daysExpired = 0;
       let daysUntilExpiry = 0;
