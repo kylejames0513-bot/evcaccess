@@ -442,6 +442,9 @@ var EXCUSAL_CODES = [
   // Role codes
   "BH", "PA", "BA", "QA", "TAC",
 
+  // Board of Directors
+  "BOARD",
+
   // Facility/failure codes (tracked separately by data integrity)
   "FX1", "FX2", "FX3", "FS",
   "F X 2", "FX 1",

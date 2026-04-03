@@ -524,6 +524,7 @@ const EXCUSAL_REASONS = [
   { code: "BH", label: "Behavioral Health" },
   { code: "ELC", label: "ELC" },
   { code: "EI", label: "EI" },
+  { code: "BOARD", label: "Board of Directors" },
 ];
 
 function ExcusalPicker({
