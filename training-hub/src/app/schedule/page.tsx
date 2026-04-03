@@ -642,6 +642,16 @@ function EnrollModal({
                       ) : null}
                     </div>
                     <div className="flex items-center gap-1.5">
+                      {emp.status === "expired" && emp.daysExpired > 0 && (
+                        <span className="text-[10px] font-medium text-red-600">
+                          {emp.daysExpired === 9999 ? "no date" : `expired ${emp.daysExpired}d ago`}
+                        </span>
+                      )}
+                      {emp.status === "expiring_soon" && emp.daysUntilExpiry > 0 && (
+                        <span className="text-[10px] font-medium text-amber-600">
+                          expires in {emp.daysUntilExpiry}d
+                        </span>
+                      )}
                       {statusIcon(emp.status)}
                       <StatusBadge status={emp.status} />
                     </div>
