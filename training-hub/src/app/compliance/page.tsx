@@ -8,6 +8,7 @@ import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 import { namesMatch } from "@/lib/name-utils";
 import { trainingMatchesAny } from "@/lib/training-match";
+import { formatDivision } from "@/lib/format-utils";
 import type { ComplianceStatus } from "@/types/database";
 
 interface ComplianceData {
@@ -17,6 +18,7 @@ interface ComplianceData {
     status: ComplianceStatus;
     date: string | null;
     expirationDate: string | null;
+    division: string;
   }>;
 }
 
@@ -41,6 +43,7 @@ export default function CompliancePage() {
   const { data: scheduleData } = useFetch<ScheduleData>("/api/schedule");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [trainingFilter, setTrainingFilter] = useState<string>("all");
+  const [divisionFilter, setDivisionFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [enrollPopup, setEnrollPopup] = useState<{ employee: string; training: string } | null>(null);
 
@@ -57,12 +60,14 @@ export default function CompliancePage() {
   const expiring = issues.filter((c) => c.status === "expiring_soon");
   const needed = issues.filter((c) => c.status === "needed");
   const trainings = [...new Set(issues.map((c) => c.training))].sort();
+  const divisions = [...new Set(issues.map((c) => c.division).filter(Boolean))].sort();
 
   const filtered = issues.filter((c) => {
     const matchesStatus = statusFilter === "all" || c.status === statusFilter;
     const matchesTraining = trainingFilter === "all" || c.training === trainingFilter;
+    const matchesDivision = divisionFilter === "all" || c.division === divisionFilter;
     const matchesSearch = !search || c.employee.toLowerCase().includes(search.toLowerCase());
-    return matchesStatus && matchesTraining && matchesSearch;
+    return matchesStatus && matchesTraining && matchesDivision && matchesSearch;
   });
 
   // Check if there's an open session for a training
@@ -124,6 +129,10 @@ export default function CompliancePage() {
         <select value={trainingFilter} onChange={(e) => setTrainingFilter(e.target.value)} className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
           <option value="all">All trainings</option>
           {trainings.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={divisionFilter} onChange={(e) => setDivisionFilter(e.target.value)} className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="all">All divisions</option>
+          {divisions.map((d) => <option key={d} value={d}>{formatDivision(d)}</option>)}
         </select>
         <span className="ml-auto text-xs text-slate-400">{filtered.length} result{filtered.length !== 1 ? "s" : ""}</span>
       </div>

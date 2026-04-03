@@ -186,6 +186,7 @@ export interface ComplianceIssue {
   status: ComplianceStatus;
   date: string | null;
   expirationDate: string | null;
+  division: string;
 }
 
 export interface DashboardStats {
@@ -330,6 +331,7 @@ export async function getComplianceIssues(): Promise<ComplianceIssue[]> {
           status: t.status,
           date: t.date ? t.date.toISOString().split("T")[0] : null,
           expirationDate,
+          division: emp.position,
         });
       }
     }
@@ -623,7 +625,7 @@ export async function getEmployeeList(): Promise<string[]> {
  */
 export async function getEmployeesNeedingTraining(
   trainingName: string
-): Promise<Array<{ name: string; status: ComplianceStatus }>> {
+): Promise<Array<{ name: string; status: ComplianceStatus; daysExpired: number; daysUntilExpiry: number; division: string }>> {
   const data = await getTrainingData();
   const def = TRAINING_DEFINITIONS.find(
     (d) => d.name.toLowerCase() === trainingName.toLowerCase() ||
@@ -631,17 +633,46 @@ export async function getEmployeesNeedingTraining(
   );
   if (!def) return [];
 
-  const results: Array<{ name: string; status: ComplianceStatus }> = [];
+  const now = new Date();
+  const results: Array<{ name: string; status: ComplianceStatus; daysExpired: number; daysUntilExpiry: number; division: string }> = [];
   for (const emp of data) {
     const t = emp.trainings[def.columnKey];
     if (!t) continue;
     if (t.status === "expired" || t.status === "expiring_soon" || t.status === "needed") {
-      results.push({ name: emp.name, status: t.status });
+      let daysExpired = 0;
+      let daysUntilExpiry = 0;
+
+      if (t.date && def.renewalYears > 0) {
+        const expiry = new Date(t.date);
+        expiry.setFullYear(expiry.getFullYear() + def.renewalYears);
+        const diffMs = now.getTime() - expiry.getTime();
+        const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+        if (t.status === "expired") {
+          daysExpired = Math.max(diffDays, 0);
+        } else if (t.status === "expiring_soon") {
+          daysUntilExpiry = Math.max(-diffDays, 0);
+        }
+      } else if (t.status === "needed" || (t.status === "expired" && !t.date)) {
+        // No date on file — highest priority among expired/needed
+        daysExpired = 9999;
+      }
+
+      results.push({ name: emp.name, status: t.status, daysExpired, daysUntilExpiry, division: emp.position });
     }
   }
 
+  // Sort: expired by daysExpired DESC (longest expired first),
+  // then expiring_soon by daysUntilExpiry ASC (soonest first),
+  // then needed
   const priority: Record<string, number> = { expired: 0, expiring_soon: 1, needed: 2 };
-  results.sort((a, b) => (priority[a.status] ?? 3) - (priority[b.status] ?? 3));
+  results.sort((a, b) => {
+    const pa = priority[a.status] ?? 3;
+    const pb = priority[b.status] ?? 3;
+    if (pa !== pb) return pa - pb;
+    if (a.status === "expired") return b.daysExpired - a.daysExpired; // longest expired first
+    if (a.status === "expiring_soon") return a.daysUntilExpiry - b.daysUntilExpiry; // soonest first
+    return a.name.localeCompare(b.name);
+  });
   return results;
 }
 

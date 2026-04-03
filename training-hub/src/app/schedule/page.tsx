@@ -30,6 +30,9 @@ interface NeedEmployee {
   name: string;
   status: "expired" | "expiring_soon" | "needed";
   noShowCount?: number;
+  daysExpired: number;
+  daysUntilExpiry: number;
+  division: string;
 }
 
 export default function SchedulePage() {

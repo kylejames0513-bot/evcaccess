@@ -48,6 +48,7 @@ export default function EmployeesPage() {
   const { data, loading, error } = useFetch<EmployeesData>(`/api/employees?r=${refreshKey}`);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [divisionFilter, setDivisionFilter] = useState<string>("all");
   const [showExcluded, setShowExcluded] = useState(false);
   const [excludedList, setExcludedList] = useState<string[]>([]);
   const [excluding, setExcluding] = useState<string | null>(null);
@@ -66,10 +67,12 @@ export default function EmployeesPage() {
   if (!data) return null;
 
   const { employees } = data;
+  const divisions = [...new Set(employees.map((e) => e.position).filter(Boolean))].sort();
   const filtered = employees.filter((emp) => {
     const matchesSearch = emp.name.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === "all" || emp.status === statusFilter;
-    return matchesSearch && matchesStatus;
+    const matchesDivision = divisionFilter === "all" || emp.position === divisionFilter;
+    return matchesSearch && matchesStatus && matchesDivision;
   });
 
   const compliant = employees.filter((e) => e.status === "current").length;
@@ -179,6 +182,10 @@ export default function EmployeesPage() {
           <option value="expiring_soon">Expiring Soon</option>
           <option value="expired">Expired</option>
           <option value="needed">Needed</option>
+        </select>
+        <select value={divisionFilter} onChange={(e) => setDivisionFilter(e.target.value)} className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <option value="all">All divisions</option>
+          {divisions.map((d) => <option key={d} value={d}>{formatDivision(d)}</option>)}
         </select>
         <span className="ml-auto text-xs text-slate-400">{filtered.length} employee{filtered.length !== 1 ? "s" : ""}</span>
       </div>

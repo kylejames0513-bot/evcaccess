@@ -13,6 +13,8 @@ export async function GET(request: Request) {
       );
     }
 
+    const division = searchParams.get("division");
+
     const [employees, noShowRecords] = await Promise.all([
       getEmployeesNeedingTraining(training),
       getNoShows(),
@@ -24,10 +26,17 @@ export async function GET(request: Request) {
       noShowMap.set(rec.name.toLowerCase(), rec.incidents.length);
     }
 
-    const enriched = employees.map((e) => ({
+    let enriched = employees.map((e) => ({
       ...e,
       noShowCount: noShowMap.get(e.name.toLowerCase()) || 0,
     }));
+
+    // Optional division filter (case-insensitive)
+    if (division) {
+      enriched = enriched.filter(
+        (e) => e.division.toLowerCase() === division.toLowerCase()
+      );
+    }
 
     return Response.json({ employees: enriched });
   } catch (error) {
