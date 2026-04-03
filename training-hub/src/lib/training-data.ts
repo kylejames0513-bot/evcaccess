@@ -730,21 +730,36 @@ export async function addEnrollees(
   const row = rows[sessionRowIndex - 1];
   if (!row) return { success: false, message: "Session row not found" };
 
+  const sessionTraining = (row[0] || "").trim();
   const currentEnrollment = (row[4] || "").trim();
   const existing = currentEnrollment && currentEnrollment !== "TBD"
     ? currentEnrollment.split(",").map((n) => n.trim()).filter(Boolean)
     : [];
 
+  // Collect ALL names enrolled in any session of the same training type
+  const { trainingMatchesAny } = await import("@/lib/training-match");
+  const allEnrolledInTraining: string[] = [...existing];
+  for (let r = 1; r < rows.length; r++) {
+    if (r === sessionRowIndex - 1) continue; // skip current session
+    const otherTraining = (rows[r][0] || "").trim();
+    const otherEnrollment = (rows[r][4] || "").trim();
+    if (!otherTraining || !otherEnrollment) continue;
+    if (trainingMatchesAny(otherTraining, sessionTraining)) {
+      const otherNames = otherEnrollment.split(",").map((n) => n.trim()).filter((n) => n && n !== "TBD");
+      allEnrolledInTraining.push(...otherNames);
+    }
+  }
+
   // Convert new names to "First Last" format for the sheet
   const newNamesConverted = newNames.map(toFirstLast);
 
-  // Don't add duplicates (handles "First Last" vs "Last, First")
+  // Don't add if already enrolled in THIS session or ANY other session of same training
   const toAdd = newNamesConverted.filter(
-    (n) => !existing.some((e) => namesMatch(e, n))
+    (n) => !allEnrolledInTraining.some((e) => namesMatch(e, n))
   );
 
   if (toAdd.length === 0) {
-    return { success: false, message: "All selected employees are already enrolled" };
+    return { success: false, message: "All selected employees are already enrolled in a session for this training" };
   }
 
   const updated = [...existing, ...toAdd].join(", ");
