@@ -1681,7 +1681,7 @@ function importFromPaylocity() {
       lastNeedsFix = true;
     }
 
-    var sheetFirstClean = sheetFirst.replace(/["'()].*/g, "").trim();
+    var sheetFirstClean = sheetFirst.replace(/["()].*/g, "").trim();
     if (sheetFirstClean.toLowerCase() !== paylocityFirst.toLowerCase() &&
         sheetFirstClean.toLowerCase() !== paylocityFirst.toLowerCase().split(" ")[0]) {
       firstNeedsFix = true;
@@ -1804,7 +1804,7 @@ function importFromPaylocity() {
           }
           if (fix.fixFirst) {
             var existingFirst = trainingSheet.getRange(fix.row, 2).getValue().toString().trim();
-            var cleanExisting = existingFirst.replace(/["'()].*/g, "").trim();
+            var cleanExisting = existingFirst.replace(/["()].*/g, "").trim();
             var suffix = existingFirst.substring(cleanExisting.length).trim();
             var newFirst = suffix ? fix.paylocityFirst + " " + suffix : fix.paylocityFirst;
             trainingSheet.getRange(fix.row, 2).setValue(newFirst);
