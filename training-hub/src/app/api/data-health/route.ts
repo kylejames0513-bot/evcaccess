@@ -17,6 +17,10 @@ const EXCUSAL_CODES = new Set([
   "FX1*", "FX1/NS", "FX1 - S", "FX1 - R",
   "TRAINER", "LP", "NS", "LLL",
   "BOARD",
+  // Status codes
+  "ECF", "S", "R", "Y",
+  // Attempt/level numbers
+  "1", "2", "3", "4",
 ]);
 
 function isExcusal(value: string): boolean {
@@ -171,46 +175,83 @@ export async function GET() {
         // Categorize the issue
         let category = "other";
         let suggestion = "";
-        const upper = value.toUpperCase();
 
-        // Failed codes — standardize to "Failed X1", "Failed X2", etc.
+        // Failed codes — "Failed", "Failed X1", "FX1", etc.
         if (/fail/i.test(value) || /^f\s*x\s*\d/i.test(value) || /^fs$/i.test(value)) {
           category = "failed_code";
-          // Extract the number
           const numMatch = value.match(/(\d)/);
-          if (numMatch) {
-            suggestion = "FX" + numMatch[1];
-          } else if (/^fs$/i.test(value)) {
-            suggestion = "FS";
-          } else {
-            suggestion = "FX1";
-          }
+          suggestion = numMatch ? "FX" + numMatch[1] : (/^fs$/i.test(value) ? "FS" : "FX1");
+        }
+        // Date with asterisk — "10/26/11*", "1*" (date + failed marker)
+        else if (/^\d{1,2}\/\d{1,2}\/\d{2,4}\*$/.test(value)) {
+          category = "failed_code";
+          // Strip asterisk and format date
+          const clean = value.replace("*", "");
+          suggestion = tryParseDateSuggestion(clean) || clean;
+        }
+        // Just asterisk or number+asterisk — failed markers
+        else if (/^\d*\*+$/.test(value) || value === "*") {
+          category = "failed_code";
+          const numMatch = value.match(/^(\d)/);
+          suggestion = numMatch ? "FX" + numMatch[1] : "";
+        }
+        // "X1 R" type failed code
+        else if (/^X\d/i.test(value)) {
+          category = "failed_code";
+          const numMatch = value.match(/(\d)/);
+          suggestion = numMatch ? "FX" + numMatch[1] : "";
+        }
+        // Dates with dashes instead of slashes — "1-21-26", "3-28-24"
+        else if (/^\d{1,2}-\d{1,2}-\d{2,4}$/.test(value)) {
+          category = "date_format";
+          const fixed = value.replace(/-/g, "/");
+          suggestion = tryParseDateSuggestion(fixed) || fixed;
+        }
+        // Dates with leading chars — "H3/21/13"
+        else if (/^[A-Za-z]\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(value)) {
+          category = "date_format";
+          suggestion = tryParseDateSuggestion(value.substring(1));
         }
         // Date objects or long date strings (GMT, ISO, etc.)
         else if (/^[A-Z][a-z]{2}\s+[A-Z][a-z]{2}|GMT|T\d{2}:\d{2}|\d{4}-\d{2}-\d{2}/.test(value)) {
           category = "date_format";
           suggestion = tryParseDateSuggestion(rawValue);
         }
-        // Month/Year only (missing day) — like "9/2024" or "12/2025"
+        // Month/Year only (missing day) — "9/2024", "12/2025", "11/2010"
         else if (/^\d{1,2}\/\d{4}$/.test(value)) {
           category = "missing_day";
           const parts = value.split("/");
-          suggestion = parts[0] + "/1/" + parts[1]; // default to 1st of month
+          suggestion = parts[0] + "/1/" + parts[1];
         }
-        // Just a number (plain digits)
-        else if (/^\d+$/.test(value) && value.length <= 4) {
+        // Garbled month/year — "5/1712"
+        else if (/^\d{1,2}\/\d{3,4}$/.test(value) && parseInt(value.split("/")[1]) > 2100) {
+          category = "date_format";
+          suggestion = "";
+        }
+        // Partial dates — "1/", "//", just slashes
+        else if (/^[\d\/]+$/.test(value) && value.length <= 3) {
           category = "random";
           suggestion = "";
         }
-        // Single letter or very short random text (y, n, x, etc.)
-        else if (value.length <= 3 && !/^\d{1,2}\/\d{1,2}$/.test(value)) {
+        // Just punctuation — "---", ".", "?", "/", etc.
+        else if (/^[.\-\?\*\/\#\@\!]+$/.test(value)) {
           category = "random";
           suggestion = "";
         }
-        // Has asterisk or special chars that aren't dates
-        else if (/[*#@!&]/.test(value)) {
+        // Plain number > 4 digits that isn't a date
+        else if (/^\d+$/.test(value)) {
           category = "random";
           suggestion = "";
+        }
+        // Short random text (3 chars or less)
+        else if (value.length <= 3) {
+          category = "random";
+          suggestion = "";
+        }
+        // "N/A 'T ." type garbled excusals
+        else if (/^N\/A/i.test(value) && value.length > 3) {
+          category = "random";
+          suggestion = "N/A";
         }
         // "Month Day, Year" or other text dates
         else if (/^[A-Za-z]/.test(value)) {

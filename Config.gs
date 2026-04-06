@@ -453,7 +453,13 @@ var EXCUSAL_CODES = [
   // Other
   "TRAINER",
   "LP", "NS",
-  "LLL"
+  "LLL",
+
+  // Status codes
+  "ECF", "S", "R", "Y",
+
+  // Attempt/level numbers
+  "1", "2", "3", "4"
 ];
 
 // Lookup map for fast excusal checking (built once at load)
