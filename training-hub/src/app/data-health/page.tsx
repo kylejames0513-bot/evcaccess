@@ -20,7 +20,7 @@ import StatCard from "@/components/ui/StatCard";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 
-interface GarbledDate { row: number; name: string; column: string; value: string; suggestion: string; }
+interface GarbledDate { row: number; name: string; column: string; value: string; suggestion: string; category: string; }
 interface DuplicateEmployee { name: string; rows: number[]; }
 interface CprFaMismatch { row: number; name: string; cprDate: string; faDate: string; }
 
@@ -66,7 +66,8 @@ export default function DataHealthPage() {
   const [selectedGarbled, setSelectedGarbled] = useState<Set<string>>(new Set());
   const [garbledEdits, setGarbledEdits] = useState<Record<string, string>>({});
   const [clearingGarbled, setClearingGarbled] = useState(false);
-  const [garbledFilter, setGarbledFilter] = useState<string>("all");
+  const [garbledColFilter, setGarbledColFilter] = useState<string>("all");
+  const [garbledCatFilter, setGarbledCatFilter] = useState<string>("all");
   const [garbledBulkValue, setGarbledBulkValue] = useState("");
 
   // Duplicate state — which row to keep per group
@@ -209,42 +210,92 @@ export default function DataHealthPage() {
           {issues.garbledDates.length === 0 ? (
             <p className="text-sm text-slate-500">All date values are in M/D/YYYY format.</p>
           ) : (() => {
-            // Group by column for filter tabs
-            const columns = [...new Set(issues.garbledDates.map((d) => d.column))].sort();
-            const filtered = garbledFilter === "all"
-              ? issues.garbledDates
-              : issues.garbledDates.filter((d) => d.column === garbledFilter);
+            const CATEGORY_LABELS: Record<string, string> = {
+              failed_code: "Failed Codes",
+              date_format: "Date Format",
+              missing_day: "Missing Day",
+              random: "Random/Invalid",
+              other: "Other",
+            };
+            const CATEGORY_COLORS: Record<string, string> = {
+              failed_code: "bg-orange-100 text-orange-800",
+              date_format: "bg-blue-100 text-blue-800",
+              missing_day: "bg-amber-100 text-amber-800",
+              random: "bg-red-100 text-red-800",
+              other: "bg-slate-100 text-slate-800",
+            };
 
-            // Group filtered items by value pattern for bulk actions
+            // Filters
+            const columns = [...new Set(issues.garbledDates.map((d) => d.column))].sort();
+            const categories = [...new Set(issues.garbledDates.map((d) => d.category))];
+            let filtered = issues.garbledDates;
+            if (garbledColFilter !== "all") filtered = filtered.filter((d) => d.column === garbledColFilter);
+            if (garbledCatFilter !== "all") filtered = filtered.filter((d) => d.category === garbledCatFilter);
+
+            // Group filtered items by value for bulk actions
             const valueGroups: Record<string, GarbledDate[]> = {};
             for (const d of filtered) {
-              const short = d.value.length > 30 ? d.value.substring(0, 30) + "..." : d.value;
+              const short = d.value.length > 25 ? d.value.substring(0, 25) + "..." : d.value;
               if (!valueGroups[short]) valueGroups[short] = [];
               valueGroups[short].push(d);
             }
 
             return (
               <div className="space-y-3">
-                {/* Column filter tabs */}
-                <div className="flex flex-wrap gap-1.5 items-center">
-                  <button
-                    onClick={() => setGarbledFilter("all")}
-                    className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${garbledFilter === "all" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-                  >
-                    All ({issues.garbledDates.length})
-                  </button>
-                  {columns.map((col) => {
-                    const count = issues.garbledDates.filter((d) => d.column === col).length;
-                    return (
-                      <button
-                        key={col}
-                        onClick={() => setGarbledFilter(col)}
-                        className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${garbledFilter === col ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-                      >
-                        {col} ({count})
-                      </button>
-                    );
-                  })}
+                {/* Category filter */}
+                <div>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-1">Category</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      onClick={() => setGarbledCatFilter("all")}
+                      className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${garbledCatFilter === "all" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                    >
+                      All ({garbledColFilter === "all" ? issues.garbledDates.length : issues.garbledDates.filter((d) => d.column === garbledColFilter).length})
+                    </button>
+                    {categories.map((cat) => {
+                      const catItems = garbledColFilter === "all"
+                        ? issues.garbledDates.filter((d) => d.category === cat)
+                        : issues.garbledDates.filter((d) => d.category === cat && d.column === garbledColFilter);
+                      if (catItems.length === 0) return null;
+                      return (
+                        <button
+                          key={cat}
+                          onClick={() => setGarbledCatFilter(cat)}
+                          className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${garbledCatFilter === cat ? CATEGORY_COLORS[cat] || "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                        >
+                          {CATEGORY_LABELS[cat] || cat} ({catItems.length})
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Column filter */}
+                <div>
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-1">Column</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      onClick={() => setGarbledColFilter("all")}
+                      className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${garbledColFilter === "all" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                    >
+                      All
+                    </button>
+                    {columns.map((col) => {
+                      const count = garbledCatFilter === "all"
+                        ? issues.garbledDates.filter((d) => d.column === col).length
+                        : issues.garbledDates.filter((d) => d.column === col && d.category === garbledCatFilter).length;
+                      if (count === 0) return null;
+                      return (
+                        <button
+                          key={col}
+                          onClick={() => setGarbledColFilter(col)}
+                          className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${garbledColFilter === col ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                        >
+                          {col} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Bulk value setter */}
@@ -271,7 +322,7 @@ export default function DataHealthPage() {
                     }}
                     className="px-3 py-1 text-xs font-medium rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 shrink-0"
                   >
-                    Apply to All {garbledFilter === "all" ? "" : garbledFilter + " "}({filtered.length})
+                    Apply to All Filtered ({filtered.length})
                   </button>
                 </div>
 
@@ -313,7 +364,8 @@ export default function DataHealthPage() {
                         </th>
                         <th className="pb-2 pr-4">Row</th>
                         <th className="pb-2 pr-4">Employee</th>
-                        {garbledFilter === "all" && <th className="pb-2 pr-4">Column</th>}
+                        {garbledColFilter === "all" && <th className="pb-2 pr-4">Column</th>}
+                        {garbledCatFilter === "all" && <th className="pb-2 pr-4">Type</th>}
                         <th className="pb-2 pr-4">Current Value</th>
                         <th className="pb-2">Fix To</th>
                       </tr>
@@ -328,7 +380,8 @@ export default function DataHealthPage() {
                             <td className="py-2 pr-2"><input type="checkbox" checked={checked} onChange={() => toggleGarbled(key)} className="rounded border-slate-300" /></td>
                             <td className="py-2 pr-4 text-slate-500 font-mono text-xs">{d.row}</td>
                             <td className="py-2 pr-4 text-slate-800 text-xs">{d.name}</td>
-                            {garbledFilter === "all" && <td className="py-2 pr-4 text-slate-600 font-mono text-xs">{d.column}</td>}
+                            {garbledColFilter === "all" && <td className="py-2 pr-4 text-slate-600 font-mono text-xs">{d.column}</td>}
+                            {garbledCatFilter === "all" && <td className="py-2 pr-4"><span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${CATEGORY_COLORS[d.category] || "bg-slate-100 text-slate-600"}`}>{CATEGORY_LABELS[d.category] || d.category}</span></td>}
                             <td className="py-2 pr-4"><span className="bg-red-50 text-red-700 px-2 py-0.5 rounded text-xs font-mono">{d.value.substring(0, 35)}</span></td>
                             <td className="py-2">
                               <input

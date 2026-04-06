@@ -114,7 +114,7 @@ export async function GET() {
       if (idx >= 0) trainingCols.push({ key, index: idx });
     }
 
-    const garbledDates: Array<{ row: number; name: string; column: string; value: string; suggestion: string }> = [];
+    const garbledDates: Array<{ row: number; name: string; column: string; value: string; suggestion: string; category: string }> = [];
     const cprFaMismatch: Array<{ row: number; name: string; cprDate: string; faDate: string }> = [];
     const emptyRows: number[] = [];
     const missingNames: number[] = [];
@@ -157,16 +157,70 @@ export async function GET() {
         }
       }
 
-      // Garbled dates: flag anything not in clean M/D/YYYY format
+      // Categorize bad values in training columns
       for (const col of trainingCols) {
         const rawValue = row[col.index];
         const value = (rawValue || "").toString().trim();
         if (!value) continue;
         if (isExcusal(value)) continue;
         if (isCleanDate(value)) continue;
-        // Not clean — flag it with a suggestion
-        const suggestion = tryParseDateSuggestion(rawValue);
-        garbledDates.push({ row: rowNum, name, column: col.key, value: value.substring(0, 60), suggestion });
+
+        // Categorize the issue
+        let category = "other";
+        let suggestion = "";
+        const upper = value.toUpperCase();
+
+        // Failed codes — standardize to "Failed X1", "Failed X2", etc.
+        if (/fail/i.test(value) || /^f\s*x\s*\d/i.test(value) || /^fs$/i.test(value)) {
+          category = "failed_code";
+          // Extract the number
+          const numMatch = value.match(/(\d)/);
+          if (numMatch) {
+            suggestion = "FX" + numMatch[1];
+          } else if (/^fs$/i.test(value)) {
+            suggestion = "FS";
+          } else {
+            suggestion = "FX1";
+          }
+        }
+        // Date objects or long date strings (GMT, ISO, etc.)
+        else if (/^[A-Z][a-z]{2}\s+[A-Z][a-z]{2}|GMT|T\d{2}:\d{2}|\d{4}-\d{2}-\d{2}/.test(value)) {
+          category = "date_format";
+          suggestion = tryParseDateSuggestion(rawValue);
+        }
+        // Month/Year only (missing day) — like "9/2024" or "12/2025"
+        else if (/^\d{1,2}\/\d{4}$/.test(value)) {
+          category = "missing_day";
+          const parts = value.split("/");
+          suggestion = parts[0] + "/1/" + parts[1]; // default to 1st of month
+        }
+        // Just a number (plain digits)
+        else if (/^\d+$/.test(value) && value.length <= 4) {
+          category = "random";
+          suggestion = "";
+        }
+        // Single letter or very short random text (y, n, x, etc.)
+        else if (value.length <= 3 && !/^\d{1,2}\/\d{1,2}$/.test(value)) {
+          category = "random";
+          suggestion = "";
+        }
+        // Has asterisk or special chars that aren't dates
+        else if (/[*#@!&]/.test(value)) {
+          category = "random";
+          suggestion = "";
+        }
+        // "Month Day, Year" or other text dates
+        else if (/^[A-Za-z]/.test(value)) {
+          category = "date_format";
+          suggestion = tryParseDateSuggestion(rawValue);
+        }
+        // Everything else — try to parse
+        else {
+          suggestion = tryParseDateSuggestion(rawValue);
+          category = suggestion ? "date_format" : "other";
+        }
+
+        garbledDates.push({ row: rowNum, name, column: col.key, value: value.substring(0, 60), suggestion, category });
       }
 
       // CPR/FA mismatch — flag if CPR and FA don't match (including empty FA)
