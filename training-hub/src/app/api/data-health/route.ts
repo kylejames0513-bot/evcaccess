@@ -1,4 +1,4 @@
-import { readRange } from "@/lib/google-sheets";
+import { readRangeFresh } from "@/lib/google-sheets";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 
 // Excusal codes — mirrors the set in training-data.ts
@@ -79,7 +79,7 @@ function tryParseDateSuggestion(value: unknown): string {
 
 export async function GET() {
   try {
-    const rows = await readRange("Training");
+    const rows = await readRangeFresh("Training");
     if (rows.length < 2) {
       return Response.json({
         issues: {

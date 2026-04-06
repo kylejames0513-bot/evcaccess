@@ -1,5 +1,6 @@
 import {
   readRange,
+  readRangeFresh,
   getSheets,
   getSpreadsheetId,
   updateCell,
@@ -61,7 +62,7 @@ async function handleClearGarbled(payload: ClearGarbledPayload) {
     return Response.json({ error: "No items provided" }, { status: 400 });
   }
 
-  const rows = await readRange("Training");
+  const rows = await readRangeFresh("Training");
   const headers = rows[0];
 
   let fixed = 0;
@@ -94,7 +95,7 @@ async function handleRemoveDuplicates(payload: RemoveDuplicatesPayload) {
     );
   }
 
-  const rows = await readRange("Training");
+  const rows = await readRangeFresh("Training");
   const headers = rows[0];
   const totalCols = headers.length;
 
@@ -174,7 +175,7 @@ async function handleFixCprFa(payload: FixCprFaPayload) {
     return Response.json({ error: "No items provided" }, { status: 400 });
   }
 
-  const rows = await readRange("Training");
+  const rows = await readRangeFresh("Training");
   const headers = rows[0];
 
   const cprCol = headers.findIndex(
@@ -192,15 +193,17 @@ async function handleFixCprFa(payload: FixCprFaPayload) {
   }
 
   let fixed = 0;
+  const skipped: string[] = [];
   for (const item of payload.items) {
     const rowData = rows[item.row - 1];
-    if (!rowData) continue;
+    if (!rowData) { skipped.push(`Row ${item.row}: not found`); continue; }
     const cprRaw = rowData[cprCol];
-    // Normalize to M/D/YYYY
     let cprVal = (cprRaw || "").toString().trim();
+
+    if (!cprVal) { skipped.push(`Row ${item.row}: CPR is empty`); continue; }
+
     // Normalize any date format to M/D/YYYY
-    if (cprVal && !/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(cprVal)) {
-      // Handle 2-digit year: 1/5/24 → 1/5/2024
+    if (!/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(cprVal)) {
       const shortYr = cprVal.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
       if (shortYr) {
         let yr = parseInt(shortYr[3]);
@@ -215,17 +218,18 @@ async function handleFixCprFa(payload: FixCprFaPayload) {
         } catch {}
       }
     }
-    if (cprVal) {
-      // Write clean CPR to both columns, also read and write FA if it exists but differs
-      await updateCell("Training", item.row, cprCol, cprVal);
-      await updateCell("Training", item.row, faCol, cprVal);
-      fixed++;
-    }
+
+    // Write to both CPR and FIRSTAID
+    await updateCell("Training", item.row, cprCol, cprVal);
+    await updateCell("Training", item.row, faCol, cprVal);
+    fixed++;
   }
 
   invalidateAll();
   return Response.json({
     success: true,
-    message: `Synced First Aid date to CPR date for ${fixed} row(s)`,
+    message: `Synced ${fixed} row(s)${skipped.length > 0 ? ". Skipped: " + skipped.slice(0, 5).join("; ") : ""}`,
+    fixed,
+    skipped: skipped.length,
   });
 }

@@ -147,12 +147,19 @@ export default function DataHealthPage() {
   }
 
   // ── CPR/FA actions ──
+  const [cprFixResult, setCprFixResult] = useState("");
+
   async function handleFixAllCpr() {
     setFixingCpr(true);
+    setCprFixResult("");
     try {
-      await fetch("/api/data-health-fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "fix_cpr_fa", items: issues.cprFaMismatch.map((d) => ({ row: d.row })) }) });
-      doRefresh();
-    } catch {}
+      const res = await fetch("/api/data-health-fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "fix_cpr_fa", items: issues.cprFaMismatch.map((d) => ({ row: d.row })) }) });
+      const data = await res.json();
+      setCprFixResult(data.message || `Fixed ${data.fixed}, skipped ${data.skipped}`);
+      await doRefresh();
+    } catch (err) {
+      setCprFixResult("Error: " + (err instanceof Error ? err.message : "unknown"));
+    }
     setFixingCpr(false);
   }
 
@@ -160,7 +167,7 @@ export default function DataHealthPage() {
     setFixingCprRow(row);
     try {
       await fetch("/api/data-health-fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "fix_cpr_fa", items: [{ row }] }) });
-      doRefresh();
+      await doRefresh();
     } catch {}
     setFixingCprRow(null);
   }
@@ -447,6 +454,11 @@ export default function DataHealthPage() {
             </button>
           ) : null}
         >
+          {cprFixResult && (
+            <div className={`mb-3 p-3 rounded-lg text-xs font-medium ${cprFixResult.startsWith("Error") ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>
+              {cprFixResult}
+            </div>
+          )}
           {issues.cprFaMismatch.length === 0 ? (
             <p className="text-sm text-slate-500">All CPR and First Aid dates match.</p>
           ) : (
