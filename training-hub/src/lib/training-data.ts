@@ -258,13 +258,13 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     if (excludedSet.has(name.toLowerCase())) continue;
 
     // Determine which trainings this employee needs based on department rules
-    // No rule = no trainings assigned (must be manually configured per division)
+    // No rule = gets all tracked trainings (configure rules in Settings to narrow down)
     const empDeptRule = position ? deptRuleMap.get(position.toLowerCase()) : undefined;
     const employeeDefs = empDeptRule
       ? empDeptRule.has("ALL")
         ? trackedDefs
         : trackedDefs.filter((d) => empDeptRule.has(d.columnKey))
-      : []; // no rule = no trainings tracked
+      : trackedDefs; // no rule = all tracked trainings
 
     const trainings: EmployeeTrainingRow["trainings"] = {};
 
