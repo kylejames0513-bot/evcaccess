@@ -1292,15 +1292,26 @@ function fixTrainingRecordNames() {
   );
   if (startConfirm !== ui.Button.OK) return;
 
-  var fixed = 0, skipped = 0;
+  // Load ignored name pairs
+  var ignoredPairs = getIgnoredNamePairs_();
+
+  var fixed = 0, skipped = 0, ignored = 0;
 
   for (var ni = 0; ni < nameKeys.length; ni++) {
     var entry = seenNames[nameKeys[ni]];
+
+    // Skip if this pair was previously marked as "different people"
+    if (isIgnoredPair_(ignoredPairs, nameKeys[ni], entry.correct)) {
+      ignored++;
+      continue;
+    }
+
     var msg = "Name mismatch " + (ni + 1) + " of " + nameKeys.length + "\n\n";
     msg += "Training Records:  " + nameKeys[ni] + "\n";
-    msg += "Paylocity:         " + entry.correct + "\n";
+    msg += "Paylocity match:   " + entry.correct + "\n";
     msg += "Appears on " + entry.rows.length + " row(s)\n\n";
-    msg += "Fix all occurrences to \"" + entry.correct + "\"?";
+    msg += "YES = Fix to Paylocity spelling\n";
+    msg += "NO = Different people (never ask again)";
 
     var choice = ui.alert("Fix Name?", msg, ui.ButtonSet.YES_NO);
     if (choice === ui.Button.YES) {
@@ -1308,8 +1319,10 @@ function fixTrainingRecordNames() {
         recordsSheet.getRange(entry.rows[ri], attendeeCol + 1).setValue(entry.correct);
       }
       fixed++;
-      Logger.log("Fixed Training Record name: '" + nameKeys[ni] + "' → '" + entry.correct + "' (" + entry.rows.length + " rows)");
+      Logger.log("Fixed: '" + nameKeys[ni] + "' → '" + entry.correct + "' (" + entry.rows.length + " rows)");
     } else {
+      // Mark as different people — never ask again
+      addIgnoredNamePair_(nameKeys[ni], entry.correct);
       skipped++;
     }
   }
@@ -1317,9 +1330,47 @@ function fixTrainingRecordNames() {
   ui.alert(
     "Training Records Name Fix Complete!\n\n" +
     "Names fixed: " + fixed + "\n" +
-    "Names skipped: " + skipped + "\n\n" +
-    "Run 1e. Backfill to sync any corrected records to the Training sheet."
+    "Marked as different people: " + skipped + "\n" +
+    "Previously ignored: " + ignored + "\n\n" +
+    "Run 1e. Backfill to sync corrected records to the Training sheet."
   );
+}
+
+/**
+ * Ignored name pairs — stored on Hub Settings sheet as Type="name_ignore"
+ * Key = "name1|||name2" (sorted lowercase), Value = ""
+ */
+function getIgnoredNamePairs_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Hub Settings");
+  if (!sheet) return {};
+  var data = sheet.getDataRange().getValues();
+  var pairs = {};
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0] && data[i][0].toString().trim() === "name_ignore") {
+      pairs[data[i][1].toString().trim().toLowerCase()] = true;
+    }
+  }
+  return pairs;
+}
+
+function isIgnoredPair_(ignoredPairs, name1, name2) {
+  var key = makeIgnoreKey_(name1, name2);
+  return ignoredPairs[key] === true;
+}
+
+function makeIgnoreKey_(name1, name2) {
+  var a = name1.toLowerCase().trim();
+  var b = name2.toLowerCase().trim();
+  return a < b ? a + "|||" + b : b + "|||" + a;
+}
+
+function addIgnoredNamePair_(name1, name2) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Hub Settings");
+  if (!sheet) return;
+  var key = makeIgnoreKey_(name1, name2);
+  sheet.appendRow(["name_ignore", key, ""]);
 }
 
 
@@ -2048,65 +2099,73 @@ function importFromPaylocity() {
   }
 
   // ── Name fix confirmation ──
-  // Walk through each mismatched name and ask if it should be corrected
   var nameFixQueue = stats.nameFixQueue || [];
   stats.namesFixed = 0;
   stats.namesSkipped = 0;
+  var importIgnoredPairs = getIgnoredNamePairs_();
 
   if (nameFixQueue.length > 0) {
-    var fixConfirm = ui.alert(
-      "Name Mismatches Found",
-      "Found " + nameFixQueue.length + " name(s) that differ between Paylocity and the Training sheet.\n\n" +
-      "Click OK to review each one and approve/skip the correction.\n" +
-      "Paylocity is treated as the correct spelling.",
-      ui.ButtonSet.OK_CANCEL
-    );
-
-    if (fixConfirm === ui.Button.OK) {
-      // Deduplicate by row (same person may appear multiple times for different skills)
-      var seenRows = {};
-      var uniqueFixes = [];
-      for (var nf = 0; nf < nameFixQueue.length; nf++) {
-        if (!seenRows[nameFixQueue[nf].row]) {
-          seenRows[nameFixQueue[nf].row] = true;
-          uniqueFixes.push(nameFixQueue[nf]);
-        }
+    // Deduplicate by row
+    var seenRows = {};
+    var uniqueFixes = [];
+    for (var nf = 0; nf < nameFixQueue.length; nf++) {
+      if (!seenRows[nameFixQueue[nf].row]) {
+        seenRows[nameFixQueue[nf].row] = true;
+        uniqueFixes.push(nameFixQueue[nf]);
       }
+    }
 
-      for (var nf = 0; nf < uniqueFixes.length; nf++) {
-        var fix = uniqueFixes[nf];
-        var fixMsg = "Name mismatch " + (nf + 1) + " of " + uniqueFixes.length + "  (Row " + fix.row + ")\n\n";
-        fixMsg += "Training sheet:  " + fix.sheetFirst + " " + fix.sheetLast + "\n";
-        fixMsg += "Paylocity:       " + fix.paylocityFirst + " " + fix.paylocityLast + "\n\n";
+    // Filter out ignored pairs
+    var toReview = [];
+    for (var nf = 0; nf < uniqueFixes.length; nf++) {
+      var sheetFull = uniqueFixes[nf].sheetFirst + " " + uniqueFixes[nf].sheetLast;
+      var payFull = uniqueFixes[nf].paylocityFirst + " " + uniqueFixes[nf].paylocityLast;
+      if (!isIgnoredPair_(importIgnoredPairs, sheetFull, payFull)) {
+        toReview.push(uniqueFixes[nf]);
+      }
+    }
 
-        if (fix.fixLast && fix.fixFirst) {
-          fixMsg += "Both first and last name differ.\n";
-        } else if (fix.fixLast) {
-          fixMsg += "Last name differs: \"" + fix.sheetLast + "\" → \"" + fix.paylocityLast + "\"\n";
-        } else {
-          fixMsg += "First name differs: \"" + fix.sheetFirst + "\" → \"" + fix.paylocityFirst + "\"\n";
-        }
+    if (toReview.length > 0) {
+      var fixConfirm = ui.alert(
+        "Name Mismatches Found",
+        "Found " + toReview.length + " name(s) that differ.\n\n" +
+        "YES = Fix to Paylocity spelling\n" +
+        "NO = Different people (never ask again)",
+        ui.ButtonSet.OK_CANCEL
+      );
 
-        fixMsg += "\nUpdate to Paylocity spelling?";
+      if (fixConfirm === ui.Button.OK) {
+        for (var nf = 0; nf < toReview.length; nf++) {
+          var fix = toReview[nf];
+          var fixMsg = "Name mismatch " + (nf + 1) + " of " + toReview.length + "  (Row " + fix.row + ")\n\n";
+          fixMsg += "Training sheet:  " + fix.sheetFirst + " " + fix.sheetLast + "\n";
+          fixMsg += "Paylocity:       " + fix.paylocityFirst + " " + fix.paylocityLast + "\n\n";
+          fixMsg += "YES = Fix to Paylocity spelling\n";
+          fixMsg += "NO = Different people (never ask again)";
 
-        var fixChoice = ui.alert("Fix Name?", fixMsg, ui.ButtonSet.YES_NO);
+          var fixChoice = ui.alert("Fix Name?", fixMsg, ui.ButtonSet.YES_NO);
 
-        if (fixChoice === ui.Button.YES) {
-          if (fix.fixLast) {
-            trainingSheet.getRange(fix.row, 1).setValue(fix.paylocityLast);
-            Logger.log("Name fix (last): '" + fix.sheetLast + "' → '" + fix.paylocityLast + "' (row " + fix.row + ")");
+          if (fixChoice === ui.Button.YES) {
+            if (fix.fixLast) {
+              trainingSheet.getRange(fix.row, 1).setValue(fix.paylocityLast);
+              Logger.log("Name fix (last): '" + fix.sheetLast + "' → '" + fix.paylocityLast + "' (row " + fix.row + ")");
+            }
+            if (fix.fixFirst) {
+              var existingFirst = trainingSheet.getRange(fix.row, 2).getValue().toString().trim();
+              var cleanExisting = existingFirst.replace(/["()].*/g, "").trim();
+              var suffix = existingFirst.substring(cleanExisting.length).trim();
+              var newFirst = suffix ? fix.paylocityFirst + " " + suffix : fix.paylocityFirst;
+              trainingSheet.getRange(fix.row, 2).setValue(newFirst);
+              Logger.log("Name fix (first): '" + existingFirst + "' → '" + newFirst + "' (row " + fix.row + ")");
+            }
+            stats.namesFixed++;
+          } else {
+            addIgnoredNamePair_(
+              fix.sheetFirst + " " + fix.sheetLast,
+              fix.paylocityFirst + " " + fix.paylocityLast
+            );
+            stats.namesSkipped++;
           }
-          if (fix.fixFirst) {
-            var existingFirst = trainingSheet.getRange(fix.row, 2).getValue().toString().trim();
-            var cleanExisting = existingFirst.replace(/["()].*/g, "").trim();
-            var suffix = existingFirst.substring(cleanExisting.length).trim();
-            var newFirst = suffix ? fix.paylocityFirst + " " + suffix : fix.paylocityFirst;
-            trainingSheet.getRange(fix.row, 2).setValue(newFirst);
-            Logger.log("Name fix (first): '" + existingFirst + "' → '" + newFirst + "' (row " + fix.row + ")");
-          }
-          stats.namesFixed++;
-        } else {
-          stats.namesSkipped++;
         }
       }
     }
@@ -2239,6 +2298,7 @@ function syncEmployeesSheet() {
   if (confirm !== ui.Button.YES) return;
 
   var stats = { piFixed: 0, tUpdated: 0, tAdded: 0, tDeactivated: 0, tNamesFix: 0 };
+  var syncIgnoredPairs_ = getIgnoredNamePairs_();
 
   // ═══════════════════════════════════════════════════════════
   //  STEP 1: Update Paylocity Import tab
@@ -2378,15 +2438,20 @@ function syncEmployeesSheet() {
       var tLast = trainingData[matchRow][tLNameCol] ? trainingData[matchRow][tLNameCol].toString().trim() : "";
       var tFirst = trainingData[matchRow][tFNameCol] ? trainingData[matchRow][tFNameCol].toString().trim() : "";
 
+      // Check if this pair was marked as "different people" — don't fix names
+      var sheetFullName = tFirst + " " + tLast;
+      var empFullName = displayFirst + " " + lastName;
+      var isIgnored = isIgnoredPair_(syncIgnoredPairs_, sheetFullName, empFullName);
+
       // Fix last name
-      if (tLast !== lastName) {
+      if (!isIgnored && tLast !== lastName) {
         trainingSheet.getRange(matchRow + 1, tLNameCol + 1).setValue(lastName);
         trainingData[matchRow][tLNameCol] = lastName;
         changed = true; stats.tNamesFix++;
       }
       // Fix first name (preserve nickname annotations)
       var tFirstBase = tFirst.replace(/["()].*/g, "").trim();
-      if (tFirstBase.toLowerCase() !== displayFirst.toLowerCase()) {
+      if (!isIgnored && tFirstBase.toLowerCase() !== displayFirst.toLowerCase()) {
         var suffix = tFirst.substring(tFirstBase.length).trim();
         var newFirst = suffix ? displayFirst + " " + suffix : displayFirst;
         trainingSheet.getRange(matchRow + 1, tFNameCol + 1).setValue(newFirst);
