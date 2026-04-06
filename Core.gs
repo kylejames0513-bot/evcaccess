@@ -372,11 +372,15 @@ function findTrainingRow(trainingData, firstName, lastName) {
       }
     }
 
-    // Fuzzy matching — catches misspellings like Katlynn/Katelyn, Micheal/Michael
+    // Fuzzy matching — catches misspellings like Katlynn/Katelyn, Chole/Chloe
+    // Uses both bigram similarity AND Levenshtein distance (best of both)
     var sim = stringSimilarity(firstLower, cleanFirst);
-    if (sim > 0.75 && sim > bestFuzzyScore) {
+    var levDist = levenshteinDistance_(firstLower, cleanFirst);
+    var levScore = 1 - (levDist / Math.max(firstLower.length, cleanFirst.length, 1));
+    var bestSim = Math.max(sim, levScore);
+    if (bestSim > 0.6 && bestSim > bestFuzzyScore) {
       bestFuzzyRow = r;
-      bestFuzzyScore = sim;
+      bestFuzzyScore = bestSim;
     }
   }
 
@@ -1644,35 +1648,42 @@ function importFromPaylocity() {
     }
 
     // Fix misspelled names — Paylocity is the authoritative source
+    // Collects mismatches and asks for confirmation after import
     var sheetLast = trainingData[matchRow][0] ? trainingData[matchRow][0].toString().trim() : "";
     var sheetFirst = trainingData[matchRow][1] ? trainingData[matchRow][1].toString().trim() : "";
     var paylocityLast = lastName;
     var paylocityFirst = preferred || firstName;
 
+    var lastNeedsFix = false;
+    var firstNeedsFix = false;
+
+    // Case difference — auto-fix silently
     if (sheetLast !== paylocityLast && sheetLast.toLowerCase() === paylocityLast.toLowerCase()) {
-      // Case difference only — update to Paylocity's casing
       trainingSheet.getRange(matchRow + 1, 1).setValue(paylocityLast);
       trainingData[matchRow][0] = paylocityLast;
     } else if (sheetLast.toLowerCase() !== paylocityLast.toLowerCase()) {
-      // Actual spelling difference — update to Paylocity
-      trainingSheet.getRange(matchRow + 1, 1).setValue(paylocityLast);
-      trainingData[matchRow][0] = paylocityLast;
-      if (!stats.namesFixed) stats.namesFixed = 0;
-      stats.namesFixed++;
-      Logger.log("Name fix (last): '" + sheetLast + "' → '" + paylocityLast + "' (row " + (matchRow + 1) + ")");
+      lastNeedsFix = true;
     }
 
-    // Fix first name — but preserve parenthetical nicknames like 'Michael "Mike"'
     var sheetFirstClean = sheetFirst.replace(/["'()].*/g, "").trim();
-    if (sheetFirstClean.toLowerCase() !== paylocityFirst.toLowerCase()) {
-      // Check if the existing name has extra info (nickname in parens/quotes)
-      var suffix = sheetFirst.substring(sheetFirstClean.length).trim();
-      var newFirst = suffix ? paylocityFirst + " " + suffix : paylocityFirst;
-      trainingSheet.getRange(matchRow + 1, 2).setValue(newFirst);
-      trainingData[matchRow][1] = newFirst;
-      if (!stats.namesFixed) stats.namesFixed = 0;
-      stats.namesFixed++;
-      Logger.log("Name fix (first): '" + sheetFirst + "' → '" + newFirst + "' (row " + (matchRow + 1) + ")");
+    if (sheetFirstClean.toLowerCase() !== paylocityFirst.toLowerCase() &&
+        sheetFirstClean.toLowerCase() !== paylocityFirst.toLowerCase().split(" ")[0]) {
+      firstNeedsFix = true;
+    }
+
+    // Queue name fixes for confirmation
+    if (lastNeedsFix || firstNeedsFix) {
+      if (!stats.nameFixQueue) stats.nameFixQueue = [];
+      stats.nameFixQueue.push({
+        row: matchRow + 1,
+        rowIdx: matchRow,
+        sheetLast: sheetLast,
+        sheetFirst: sheetFirst,
+        paylocityLast: paylocityLast,
+        paylocityFirst: paylocityFirst,
+        fixLast: lastNeedsFix,
+        fixFirst: firstNeedsFix
+      });
     }
 
     // Update Division, Department, Position Title (always overwrite with latest)
@@ -1726,12 +1737,78 @@ function importFromPaylocity() {
     applyAutoFillRules(trainingSheet, matchRow + 1, trainingHeaders, targetColumn, formattedDate);
   }
 
+  // ── Name fix confirmation ──
+  // Walk through each mismatched name and ask if it should be corrected
+  var nameFixQueue = stats.nameFixQueue || [];
+  stats.namesFixed = 0;
+  stats.namesSkipped = 0;
+
+  if (nameFixQueue.length > 0) {
+    var fixConfirm = ui.alert(
+      "Name Mismatches Found",
+      "Found " + nameFixQueue.length + " name(s) that differ between Paylocity and the Training sheet.\n\n" +
+      "Click OK to review each one and approve/skip the correction.\n" +
+      "Paylocity is treated as the correct spelling.",
+      ui.ButtonSet.OK_CANCEL
+    );
+
+    if (fixConfirm === ui.Button.OK) {
+      // Deduplicate by row (same person may appear multiple times for different skills)
+      var seenRows = {};
+      var uniqueFixes = [];
+      for (var nf = 0; nf < nameFixQueue.length; nf++) {
+        if (!seenRows[nameFixQueue[nf].row]) {
+          seenRows[nameFixQueue[nf].row] = true;
+          uniqueFixes.push(nameFixQueue[nf]);
+        }
+      }
+
+      for (var nf = 0; nf < uniqueFixes.length; nf++) {
+        var fix = uniqueFixes[nf];
+        var fixMsg = "Name mismatch " + (nf + 1) + " of " + uniqueFixes.length + "  (Row " + fix.row + ")\n\n";
+        fixMsg += "Training sheet:  " + fix.sheetFirst + " " + fix.sheetLast + "\n";
+        fixMsg += "Paylocity:       " + fix.paylocityFirst + " " + fix.paylocityLast + "\n\n";
+
+        if (fix.fixLast && fix.fixFirst) {
+          fixMsg += "Both first and last name differ.\n";
+        } else if (fix.fixLast) {
+          fixMsg += "Last name differs: \"" + fix.sheetLast + "\" → \"" + fix.paylocityLast + "\"\n";
+        } else {
+          fixMsg += "First name differs: \"" + fix.sheetFirst + "\" → \"" + fix.paylocityFirst + "\"\n";
+        }
+
+        fixMsg += "\nUpdate to Paylocity spelling?";
+
+        var fixChoice = ui.alert("Fix Name?", fixMsg, ui.ButtonSet.YES_NO);
+
+        if (fixChoice === ui.Button.YES) {
+          if (fix.fixLast) {
+            trainingSheet.getRange(fix.row, 1).setValue(fix.paylocityLast);
+            Logger.log("Name fix (last): '" + fix.sheetLast + "' → '" + fix.paylocityLast + "' (row " + fix.row + ")");
+          }
+          if (fix.fixFirst) {
+            var existingFirst = trainingSheet.getRange(fix.row, 2).getValue().toString().trim();
+            var cleanExisting = existingFirst.replace(/["'()].*/g, "").trim();
+            var suffix = existingFirst.substring(cleanExisting.length).trim();
+            var newFirst = suffix ? fix.paylocityFirst + " " + suffix : fix.paylocityFirst;
+            trainingSheet.getRange(fix.row, 2).setValue(newFirst);
+            Logger.log("Name fix (first): '" + existingFirst + "' → '" + newFirst + "' (row " + fix.row + ")");
+          }
+          stats.namesFixed++;
+        } else {
+          stats.namesSkipped++;
+        }
+      }
+    }
+  }
+
   // Build summary
   var summary = "Paylocity Import Complete!\n\n";
   summary += "Rows processed: " + stats.processed + "\n";
   summary += "Dates written: " + stats.written + "\n";
-  if (stats.namesFixed) {
-    summary += "Names corrected: " + stats.namesFixed + "\n";
+  if (stats.namesFixed || stats.namesSkipped) {
+    summary += "Names corrected: " + (stats.namesFixed || 0) + "\n";
+    summary += "Names skipped: " + (stats.namesSkipped || 0) + "\n";
   }
   summary += "\n";
   summary += "Skipped (not a tracked training): " + stats.skippedSkill + "\n";
