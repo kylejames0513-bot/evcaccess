@@ -70,30 +70,27 @@ async function handleClearGarbled(payload: ClearGarbledPayload) {
   const rows = await readRangeFresh("Training");
   const headers = rows[0];
 
-  // Write each fix using the same writeRange that works for all other operations
-  let fixed = 0;
-  const errors: string[] = [];
+  // Build writes
+  const data: Array<{ range: string; values: (string | number)[][] }> = [];
   for (const item of payload.items) {
     const colIndex = headers.findIndex(
       (h) => h.trim().toUpperCase() === item.column.toUpperCase()
     );
-    if (colIndex < 0) { errors.push(`Column "${item.column}" not found`); continue; }
-    try {
-      const col = colToLetter(colIndex);
-      await writeRange(`Training!${col}${item.row}`, [[item.newValue || ""]]);
-      fixed++;
-    } catch (err) {
-      errors.push(`Row ${item.row} ${item.column}: ${err instanceof Error ? err.message : "unknown"}`);
-    }
+    if (colIndex < 0) continue;
+    const col = colToLetter(colIndex);
+    data.push({ range: `Training!${col}${item.row}`, values: [[item.newValue || ""]] });
+  }
+
+  if (data.length > 0) {
+    const sheets = getSheets();
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: getSpreadsheetId(),
+      requestBody: { valueInputOption: "USER_ENTERED", data },
+    });
   }
 
   invalidateAll();
-  return Response.json({
-    success: true,
-    message: `Fixed ${fixed} cell(s)${errors.length > 0 ? ". Errors: " + errors.slice(0, 3).join("; ") : ""}`,
-    fixed,
-    errors: errors.length,
-  });
+  return Response.json({ success: true, message: `Fixed ${data.length} cell(s)` });
 }
 
 // ----------------------------------------------------------------
@@ -231,24 +228,23 @@ async function handleFixCprFa(payload: FixCprFaPayload) {
     writes.push({ range: `Training!${faLetter}${item.row}`, value: cprVal });
   }
 
-  // Write using individual writeRange calls to ensure each one goes through
-  let writeErrors: string[] = [];
-  for (const w of writes) {
-    try {
-      await writeRange(w.range, [[w.value]]);
-    } catch (err) {
-      writeErrors.push(`${w.range}: ${err instanceof Error ? err.message : "unknown"}`);
-    }
+  // Batch write all at once
+  if (writes.length > 0) {
+    const sheets = getSheets();
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: getSpreadsheetId(),
+      requestBody: {
+        valueInputOption: "USER_ENTERED",
+        data: writes.map((w) => ({ range: w.range, values: [[w.value]] })),
+      },
+    });
   }
 
   const fixed = Math.floor(writes.length / 2);
   invalidateAll();
   return Response.json({
     success: true,
-    message: `Synced ${fixed} row(s)${skipped.length > 0 ? ". Skipped: " + skipped.slice(0, 5).join("; ") : ""}${writeErrors.length > 0 ? ". Write errors: " + writeErrors.slice(0, 3).join("; ") : ""}`,
+    message: `Synced ${fixed} row(s)${skipped.length > 0 ? ". Skipped: " + skipped.slice(0, 3).join("; ") : ""}`,
     fixed,
-    skipped: skipped.length,
-    writeErrors: writeErrors.length,
-    debug: writes.length > 0 ? { sampleRange: writes[0].range, sampleValue: writes[0].value, cprCol, faCol, cprLetter, faLetter } : null,
   });
 }
