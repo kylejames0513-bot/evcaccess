@@ -2544,12 +2544,95 @@ function syncEmployeesSheet() {
     }
   }
 
+  // ═══════════════════════════════════════════════════════════
+  //  STEP 4: Auto-excuse based on department training rules
+  //  Reads Hub Settings for dept_rule entries. For each employee,
+  //  if their division has a rule, write "NA" to training columns
+  //  that are NOT in their rule (only if cell is empty).
+  // ═══════════════════════════════════════════════════════════
+  stats.autoExcused = 0;
+  var hubSheet = ss.getSheetByName("Hub Settings");
+  if (hubSheet && tDivCol >= 0) {
+    var hubData = hubSheet.getDataRange().getValues();
+    var deptRules = {}; // lowercase division → set of training column keys (or "ALL")
+    for (var h = 1; h < hubData.length; h++) {
+      if (hubData[h][0] && hubData[h][0].toString().trim() === "dept_rule") {
+        var ruleDept = hubData[h][1].toString().trim().toLowerCase();
+        var ruleVal = hubData[h][2].toString().trim();
+        if (ruleVal === "ALL") {
+          deptRules[ruleDept] = "ALL";
+        } else {
+          var ruleKeys = {};
+          var parts = ruleVal.split(",");
+          for (var p = 0; p < parts.length; p++) {
+            var k = parts[p].trim();
+            if (k) ruleKeys[k] = true;
+          }
+          deptRules[ruleDept] = ruleKeys;
+        }
+      }
+    }
+
+    // Build list of all training column indices
+    var allTrainingCols = [];
+    var seenCols = {};
+    for (var t = 0; t < TRAINING_CONFIG.length; t++) {
+      var colName = TRAINING_CONFIG[t].column;
+      if (seenCols[colName]) continue;
+      seenCols[colName] = true;
+      for (var c = 0; c < trainingHeaders.length; c++) {
+        if (trainingHeaders[c].toString().trim() === colName) {
+          allTrainingCols.push({ key: colName, index: c });
+          break;
+        }
+      }
+    }
+    // Also include FIRSTAID
+    for (var c = 0; c < trainingHeaders.length; c++) {
+      if (trainingHeaders[c].toString().trim() === "FIRSTAID" && !seenCols["FIRSTAID"]) {
+        allTrainingCols.push({ key: "FIRSTAID", index: c });
+        seenCols["FIRSTAID"] = true;
+      }
+    }
+
+    // Re-read training data since we may have added/modified rows
+    trainingData = trainingSheet.getDataRange().getValues();
+
+    for (var r = 1; r < trainingData.length; r++) {
+      var empActive = tActiveCol >= 0 ? (trainingData[r][tActiveCol] || "").toString().trim().toUpperCase() : "Y";
+      if (empActive !== "Y") continue;
+
+      var empDiv = (trainingData[r][tDivCol] || "").toString().trim().toLowerCase();
+      if (!empDiv) continue;
+
+      var rule = deptRules[empDiv];
+      if (!rule) continue; // no rule = don't auto-excuse (gets all trainings)
+      if (rule === "ALL") continue; // needs everything
+
+      // For each training column NOT in the rule, write NA if cell is empty
+      for (var tc = 0; tc < allTrainingCols.length; tc++) {
+        var colKey = allTrainingCols[tc].key;
+        var colIdx = allTrainingCols[tc].index;
+        if (rule[colKey]) continue; // this training IS required — skip
+
+        var cellVal = (trainingData[r][colIdx] || "").toString().trim();
+        if (cellVal) continue; // already has a value — don't overwrite
+
+        trainingSheet.getRange(r + 1, colIdx + 1).setValue("NA");
+        stats.autoExcused++;
+      }
+    }
+  }
+
   var summary = "Employee Sync Complete!\n\n";
   if (piSheet) summary += "Paylocity Import rows fixed: " + stats.piFixed + "\n";
   summary += "Training sheet updated: " + stats.tUpdated + "\n";
   summary += "Names corrected: " + stats.tNamesFix + "\n";
   summary += "New employees added: " + stats.tAdded + "\n";
   summary += "Deactivated (not in Paylocity): " + stats.tDeactivated + "\n";
+  if (stats.autoExcused > 0) {
+    summary += "Auto-excused (based on dept rules): " + stats.autoExcused + " cell(s)\n";
+  }
 
   ui.alert(summary);
 }
