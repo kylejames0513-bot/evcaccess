@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap, Archive, RefreshCw } from "lucide-react";
+import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap, Archive, RefreshCw, Pencil } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -40,6 +40,7 @@ export default function SchedulePage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [enrollingSession, setEnrollingSession] = useState<number | null>(null);
   const [finalizingSession, setFinalizingSession] = useState<number | null>(null);
+  const [editingSession, setEditingSession] = useState<SessionData | null>(null);
   const [deletingSession, setDeletingSession] = useState<number | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [archiving, setArchiving] = useState<number | null>(null);
@@ -187,6 +188,15 @@ export default function SchedulePage() {
         />
       )}
 
+      {/* Edit Session Modal */}
+      {editingSession && (
+        <EditSessionModal
+          session={editingSession}
+          onClose={() => setEditingSession(null)}
+          onSaved={() => { setEditingSession(null); refresh(); }}
+        />
+      )}
+
       {/* Enroll Modal */}
       {enrollingSession !== null && (
         <EnrollModal
@@ -243,6 +253,13 @@ export default function SchedulePage() {
                           {isFull ? "FULL" : `${spotsLeft} left`}
                         </span>
                       </div>
+                      <button
+                        onClick={() => setEditingSession(session)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-slate-50 text-slate-600 hover:bg-slate-100"
+                      >
+                        <Pencil className="h-4 w-4" />
+                        Edit
+                      </button>
                       <button
                         onClick={() => setFinalizingSession(session.rowIndex)}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-amber-50 text-amber-700 hover:bg-amber-100"
@@ -858,6 +875,130 @@ function FinalizeModal({
             )}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Edit Session Modal
+// ────────────────────────────────────────────────────────────
+
+function EditSessionModal({
+  session,
+  onClose,
+  onSaved,
+}: {
+  session: SessionData;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [training, setTraining] = useState(session.training);
+  const [date, setDate] = useState(session.date);
+  const [time, setTime] = useState(session.time);
+  const [location, setLocation] = useState(session.location);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setEditError("");
+    try {
+      const res = await fetch("/api/edit-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionRowIndex: session.rowIndex,
+          training,
+          date,
+          time,
+          location,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      onSaved();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+          <h2 className="text-lg font-semibold text-slate-900">Edit Session</h2>
+          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg">
+            <X className="h-5 w-5 text-slate-500" />
+          </button>
+        </div>
+        <form onSubmit={handleSave} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Training Type</label>
+            <select
+              value={training}
+              onChange={(e) => setTraining(e.target.value)}
+              required
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Select training...</option>
+              {PRIMARY_TRAININGS.map((t) => (
+                <option key={t.name} value={t.name}>{t.name}</option>
+              ))}
+              {!PRIMARY_TRAININGS.some((t) => t.name === training) && training && (
+                <option value={training}>{training}</option>
+              )}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>
+            <input
+              type="text"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              placeholder="e.g., 4/16/2026 or April 16"
+              required
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Time</label>
+            <input
+              type="text"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              placeholder="e.g., 9am to 1pm"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Location</label>
+            <input
+              type="text"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="e.g., Training Room A"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          {editError && <p className="text-sm text-red-600">{editError}</p>}
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !training || !date}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              {saving ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
