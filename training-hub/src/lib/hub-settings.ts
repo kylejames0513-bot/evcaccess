@@ -301,7 +301,7 @@ function getDeptRulesSync(settings: Array<{ type: string; key: string; value: st
     .map((s) => {
       const parsed = parseDeptRuleValue(s.value);
       return { department: s.key, ...parsed };
-    }));
+    });
 }
 
 /**
