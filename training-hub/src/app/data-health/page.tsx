@@ -225,6 +225,7 @@ export default function DataHealthPage() {
             <p className="text-sm text-slate-500">All date values are in M/D/YYYY format.</p>
           ) : (() => {
             const CATEGORY_LABELS: Record<string, string> = {
+              short_year: "2-Digit Year",
               failed_code: "Failed Codes",
               date_format: "Date Format",
               missing_day: "Missing Day",
@@ -233,6 +234,7 @@ export default function DataHealthPage() {
               other: "Other",
             };
             const CATEGORY_COLORS: Record<string, string> = {
+              short_year: "bg-cyan-100 text-cyan-800",
               failed_code: "bg-orange-100 text-orange-800",
               date_format: "bg-blue-100 text-blue-800",
               missing_day: "bg-amber-100 text-amber-800",

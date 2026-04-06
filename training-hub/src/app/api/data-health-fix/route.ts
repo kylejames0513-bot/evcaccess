@@ -70,31 +70,30 @@ async function handleClearGarbled(payload: ClearGarbledPayload) {
   const rows = await readRangeFresh("Training");
   const headers = rows[0];
 
-  // Build batch of writes
-  const writes: Array<{ range: string; value: string }> = [];
+  // Write each fix using the same writeRange that works for all other operations
+  let fixed = 0;
+  const errors: string[] = [];
   for (const item of payload.items) {
     const colIndex = headers.findIndex(
       (h) => h.trim().toUpperCase() === item.column.toUpperCase()
     );
-    if (colIndex < 0) continue;
-    const col = colToLetter(colIndex);
-    writes.push({ range: `Training!${col}${item.row}`, value: item.newValue || "" });
-  }
-
-  // Batch write all at once
-  if (writes.length > 0) {
-    const sheets = getSheets();
-    await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId: getSpreadsheetId(),
-      requestBody: {
-        valueInputOption: "USER_ENTERED",
-        data: writes.map((w) => ({ range: w.range, values: [[w.value]] })),
-      },
-    });
+    if (colIndex < 0) { errors.push(`Column "${item.column}" not found`); continue; }
+    try {
+      const col = colToLetter(colIndex);
+      await writeRange(`Training!${col}${item.row}`, [[item.newValue || ""]]);
+      fixed++;
+    } catch (err) {
+      errors.push(`Row ${item.row} ${item.column}: ${err instanceof Error ? err.message : "unknown"}`);
+    }
   }
 
   invalidateAll();
-  return Response.json({ success: true, message: `Fixed ${writes.length} cell(s)` });
+  return Response.json({
+    success: true,
+    message: `Fixed ${fixed} cell(s)${errors.length > 0 ? ". Errors: " + errors.slice(0, 3).join("; ") : ""}`,
+    fixed,
+    errors: errors.length,
+  });
 }
 
 // ----------------------------------------------------------------
