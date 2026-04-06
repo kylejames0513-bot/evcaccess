@@ -651,17 +651,35 @@ export async function getEmployeesNeedingTraining(
   if (!def) return [];
 
   const now = new Date();
+
+  // For quarterly look-ahead (Med Recert): find end of next quarter
+  let quarterLookAhead: Date | null = null;
+  if (def.lookAheadQuarterly && def.renewalYears > 0) {
+    const currentQuarter = Math.floor(now.getMonth() / 3); // 0-3
+    const nextQuarterEnd = new Date(now.getFullYear(), (currentQuarter + 2) * 3, 0); // end of next quarter
+    quarterLookAhead = nextQuarterEnd;
+  }
+
   const results: Array<{ name: string; status: ComplianceStatus; daysExpired: number; daysUntilExpiry: number; division: string }> = [];
   for (const emp of data) {
     const t = emp.trainings[def.columnKey];
     if (!t) continue;
 
-    // Respect onlyExpired/onlyNeeded: Med Recert only shows expired/expiring,
-    // Initial Med Training only shows those with no date
+    // Respect onlyExpired/onlyNeeded
     if (def.onlyExpired && (t.status === "needed")) continue;
     if (def.onlyNeeded && (t.status === "expired" || t.status === "expiring_soon") && t.date) continue;
 
-    if (t.status === "expired" || t.status === "expiring_soon" || t.status === "needed") {
+    // For quarterly look-ahead: also include "current" employees expiring before end of next quarter
+    let includeForQuarter = false;
+    if (quarterLookAhead && t.status === "current" && t.date && def.renewalYears > 0) {
+      const expiry = new Date(t.date);
+      expiry.setFullYear(expiry.getFullYear() + def.renewalYears);
+      if (expiry <= quarterLookAhead) {
+        includeForQuarter = true;
+      }
+    }
+
+    if (t.status === "expired" || t.status === "expiring_soon" || t.status === "needed" || includeForQuarter) {
       let daysExpired = 0;
       let daysUntilExpiry = 0;
 
@@ -670,17 +688,17 @@ export async function getEmployeesNeedingTraining(
         expiry.setFullYear(expiry.getFullYear() + def.renewalYears);
         const diffMs = now.getTime() - expiry.getTime();
         const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-        if (t.status === "expired") {
+        if (diffMs > 0) {
           daysExpired = Math.max(diffDays, 0);
-        } else if (t.status === "expiring_soon") {
+        } else {
           daysUntilExpiry = Math.max(-diffDays, 0);
         }
       } else if (t.status === "needed" || (t.status === "expired" && !t.date)) {
-        // No date on file — highest priority among expired/needed
         daysExpired = 9999;
       }
 
-      results.push({ name: emp.name, status: t.status, daysExpired, daysUntilExpiry, division: emp.position });
+      const effectiveStatus = includeForQuarter && t.status === "current" ? "expiring_soon" as ComplianceStatus : t.status;
+      results.push({ name: emp.name, status: effectiveStatus, daysExpired, daysUntilExpiry, division: emp.position });
     }
   }
 

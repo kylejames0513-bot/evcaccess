@@ -13,6 +13,7 @@ export interface TrainingDef {
   classCapacity: number;
   onlyExpired?: boolean;
   onlyNeeded?: boolean;
+  lookAheadQuarterly?: boolean; // include people expiring through end of next quarter
   prerequisite?: string; // column_key of prerequisite
   aliases?: string[];
   rulesName?: string;
@@ -67,6 +68,7 @@ export const TRAINING_DEFINITIONS: TrainingDef[] = [
     renewalYears: 3,
     isRequired: false,
     onlyExpired: true,
+    lookAheadQuarterly: true,
     classCapacity: 8,
     aliases: ["med cert", "med test out"],
   },
