@@ -17,6 +17,7 @@ import {
   Bell,
   FileText,
   HeartPulse,
+  GitCompare,
 } from "lucide-react";
 
 const navItems = [
@@ -29,6 +30,7 @@ const navItems = [
   { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/trainings", label: "Training Types", icon: GraduationCap },
   { href: "/data-health", label: "Data Health", icon: HeartPulse },
+  { href: "/paylocity-audit", label: "Paylocity Audit", icon: GitCompare },
   { href: "/archive", label: "Archive", icon: Archive },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
