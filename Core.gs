@@ -342,6 +342,9 @@ function findTrainingRow(trainingData, firstName, lastName) {
     namesToTry = namesToTry.concat(NICKNAMES[firstLower]);
   }
 
+  var bestFuzzyRow = -1;
+  var bestFuzzyScore = 0;
+
   for (var r = 1; r < trainingData.length; r++) {
     var rowLast = trainingData[r][0] ? trainingData[r][0].toString().trim().toLowerCase() : "";
     var rowFirst = trainingData[r][1] ? trainingData[r][1].toString().trim().toLowerCase() : "";
@@ -351,6 +354,7 @@ function findTrainingRow(trainingData, firstName, lastName) {
     var cleanFirst = rowFirst.replace(/["'()]/g, " ").replace(/\s+/g, " ").trim();
     var rowNameParts = cleanFirst.split(" ");
 
+    // Exact, partial, and nickname matching
     for (var n = 0; n < namesToTry.length; n++) {
       var tryName = namesToTry[n];
 
@@ -366,7 +370,17 @@ function findTrainingRow(trainingData, firstName, lastName) {
         if (rowNicks.indexOf(tryName) > -1) return r;
       }
     }
+
+    // Fuzzy matching — catches misspellings like Katlynn/Katelyn, Micheal/Michael
+    var sim = stringSimilarity(firstLower, cleanFirst);
+    if (sim > 0.75 && sim > bestFuzzyScore) {
+      bestFuzzyRow = r;
+      bestFuzzyScore = sim;
+    }
   }
+
+  // Return fuzzy match if found (spelling variants with same last name)
+  if (bestFuzzyRow > -1) return bestFuzzyRow;
 
   return -1;
 }
