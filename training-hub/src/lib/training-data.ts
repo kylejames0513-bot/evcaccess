@@ -671,12 +671,10 @@ export async function getEmployeesNeedingTraining(
 
   const now = new Date();
 
-  // For quarterly look-ahead (Med Recert): find end of next quarter
+  // For look-ahead (Med Recert): 3 months from today
   let quarterLookAhead: Date | null = null;
   if (def.lookAheadQuarterly && def.renewalYears > 0) {
-    const currentQuarter = Math.floor(now.getMonth() / 3); // 0-3
-    const nextQuarterEnd = new Date(now.getFullYear(), (currentQuarter + 2) * 3, 0); // end of next quarter
-    quarterLookAhead = nextQuarterEnd;
+    quarterLookAhead = new Date(now.getFullYear(), now.getMonth() + 3, now.getDate());
   }
 
   const results: Array<{ name: string; status: ComplianceStatus; daysExpired: number; daysUntilExpiry: number; division: string }> = [];
