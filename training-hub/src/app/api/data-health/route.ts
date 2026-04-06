@@ -1,27 +1,37 @@
 import { readRangeFresh } from "@/lib/google-sheets";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 
-// Excusal codes — mirrors the set in training-data.ts
+// Only these are recognized as valid excusals in the data health scan.
+// Everything else gets flagged for review.
+// As Kyle sets excusals through the hub, they get written to cells directly.
 const EXCUSAL_CODES = new Set([
-  "NA", "N/A", "N/",
-  "VP", "DIR", "DIRECTOR", "CEO", "CFO", "COO", "CMO",
-  "AVP", "SVP", "EVP", "PRESIDENT",
-  "MGR", "MANAGER", "SUPERVISOR", "SUPV",
-  "ELC", "EI",
-  "FACILITIES", "MAINT",
-  "HR", "FINANCE", "FIN", "IT", "ADMIN",
-  "NURSE", "LPN", "RN", "CNA",
-  "BH", "PA", "BA", "QA", "TAC",
-  "FX1", "FX2", "FX3", "FS",
-  "F X 2", "FX 1",
-  "FX1*", "FX1/NS", "FX1 - S", "FX1 - R",
-  "TRAINER", "LP", "NS", "LLL",
+  // Standard not-applicable (set by hub bulk excuse)
+  "NA", "N/A",
+  // Board (set by hub)
   "BOARD",
+  // Failure codes (standardized)
+  "FX1", "FX2", "FX3", "FS",
 ]);
 
 function isExcusal(value: string): boolean {
   return EXCUSAL_CODES.has(value.trim().toUpperCase());
 }
+
+// Legacy excusal codes found on the sheet — flagged for review
+// so Kyle can decide to keep, clear, or re-set through the hub
+const LEGACY_EXCUSAL_CODES = new Set([
+  "N/", "VP", "DIR", "DIRECTOR", "CEO", "CFO", "COO", "CMO",
+  "AVP", "SVP", "EVP", "PRESIDENT",
+  "MGR", "MANAGER", "SUPERVISOR", "SUPV",
+  "ELC", "EI", "ECF",
+  "FACILITIES", "MAINT",
+  "HR", "FINANCE", "FIN", "IT", "ADMIN",
+  "NURSE", "LPN", "RN", "CNA",
+  "BH", "PA", "BA", "QA", "TAC",
+  "TRAINER", "LP", "NS", "LLL",
+  "F X 2", "FX 1",
+  "FX1*", "FX1/NS", "FX1 - S", "FX1 - R",
+]);
 
 function isCleanDate(value: string): boolean {
   // ONLY M/D/YYYY with 4-digit year is clean — everything else needs review
@@ -253,8 +263,13 @@ export async function GET() {
           category = "random";
           suggestion = "";
         }
-        // Short text codes that need review — ECF, S, R, Y, etc.
-        else if (value.length <= 3 && /^[A-Za-z]+$/.test(value)) {
+        // Known legacy excusal codes — need your approval via hub
+        else if (LEGACY_EXCUSAL_CODES.has(value.toUpperCase())) {
+          category = "legacy_excusal";
+          suggestion = "";
+        }
+        // Other short text codes that need review
+        else if (value.length <= 5 && /^[A-Za-z\/]+$/.test(value)) {
           category = "status_code";
           suggestion = "";
         }
