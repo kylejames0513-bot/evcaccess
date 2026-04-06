@@ -1,17 +1,10 @@
 import {
-  readRange,
   readRangeFresh,
   getSheets,
   getSpreadsheetId,
-  updateCell,
   writeRange,
 } from "@/lib/google-sheets";
 import { invalidateAll } from "@/lib/cache";
-
-// ----------------------------------------------------------------
-// POST /api/data-health-fix
-// Handles three action types: clear_garbled, remove_duplicates, fix_cpr_fa
-// ----------------------------------------------------------------
 
 interface ClearGarbledPayload {
   action: "clear_garbled";
@@ -54,8 +47,19 @@ export async function POST(request: Request) {
   }
 }
 
+/** Convert 0-based column index to A1 notation (A, B, ... Z, AA, AB, ...) */
+function colToLetter(col: number): string {
+  let letter = "";
+  let c = col;
+  while (c >= 0) {
+    letter = String.fromCharCode(65 + (c % 26)) + letter;
+    c = Math.floor(c / 26) - 1;
+  }
+  return letter;
+}
+
 // ----------------------------------------------------------------
-// Clear garbled date cells
+// Clear/fix garbled date cells — batch write
 // ----------------------------------------------------------------
 async function handleClearGarbled(payload: ClearGarbledPayload) {
   if (!payload.items?.length) {
@@ -65,67 +69,79 @@ async function handleClearGarbled(payload: ClearGarbledPayload) {
   const rows = await readRangeFresh("Training");
   const headers = rows[0];
 
-  let fixed = 0;
+  // Build batch of writes
+  const writes: Array<{ range: string; value: string }> = [];
   for (const item of payload.items) {
     const colIndex = headers.findIndex(
       (h) => h.trim().toUpperCase() === item.column.toUpperCase()
     );
     if (colIndex < 0) continue;
-    // Write newValue if provided (user correction), otherwise clear
-    await updateCell("Training", item.row, colIndex, item.newValue || "");
-    fixed++;
+    const col = colToLetter(colIndex);
+    writes.push({ range: `Training!${col}${item.row}`, value: item.newValue || "" });
+  }
+
+  // Batch write all at once
+  if (writes.length > 0) {
+    const sheets = getSheets();
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: getSpreadsheetId(),
+      requestBody: {
+        valueInputOption: "USER_ENTERED",
+        data: writes.map((w) => ({ range: w.range, values: [[w.value]] })),
+      },
+    });
   }
 
   invalidateAll();
-  return Response.json({
-    success: true,
-    message: `Fixed ${fixed} cell(s)`,
-  });
+  return Response.json({ success: true, message: `Fixed ${writes.length} cell(s)` });
 }
 
 // ----------------------------------------------------------------
-// Remove duplicate rows (merge non-empty training cells into kept row)
+// Remove duplicate rows
 // ----------------------------------------------------------------
 async function handleRemoveDuplicates(payload: RemoveDuplicatesPayload) {
   const { keepRow, deleteRows } = payload;
   if (!keepRow || !deleteRows?.length) {
-    return Response.json(
-      { error: "Missing keepRow or deleteRows" },
-      { status: 400 }
-    );
+    return Response.json({ error: "Missing keepRow or deleteRows" }, { status: 400 });
   }
 
   const rows = await readRangeFresh("Training");
   const headers = rows[0];
   const totalCols = headers.length;
-
-  // 0-based index for the kept row data
   const keepData = rows[keepRow - 1];
   if (!keepData) {
     return Response.json({ error: `Row ${keepRow} not found` }, { status: 400 });
   }
 
-  // Merge: copy non-empty cells from deleted rows into the kept row
-  // (only where the kept row's cell is empty)
+  // Merge: collect all cells to update
+  const mergeWrites: Array<{ range: string; value: string }> = [];
   for (const delRow of deleteRows) {
     const delData = rows[delRow - 1];
     if (!delData) continue;
-
     for (let col = 0; col < totalCols; col++) {
       const keptVal = (keepData[col] || "").trim();
       const delVal = (delData[col] || "").trim();
       if (!keptVal && delVal) {
-        // Copy from deleted row to kept row
-        await updateCell("Training", keepRow, col, delVal);
+        mergeWrites.push({ range: `Training!${colToLetter(col)}${keepRow}`, value: delVal });
       }
     }
   }
 
-  // Delete the duplicate rows using batchUpdate (from bottom up to avoid shift issues)
+  // Batch merge writes
+  if (mergeWrites.length > 0) {
+    const sheets = getSheets();
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: getSpreadsheetId(),
+      requestBody: {
+        valueInputOption: "USER_ENTERED",
+        data: mergeWrites.map((w) => ({ range: w.range, values: [[w.value]] })),
+      },
+    });
+  }
+
+  // Delete rows
   const sheets = getSheets();
   const spreadsheetId = getSpreadsheetId();
-
-  // We need the sheetId (numeric) for the Training sheet
   const spreadsheet = await sheets.spreadsheets.get({
     spreadsheetId,
     fields: "sheets.properties",
@@ -134,23 +150,18 @@ async function handleRemoveDuplicates(payload: RemoveDuplicatesPayload) {
     (s) => s.properties?.title === "Training"
   );
   if (!trainingSheet?.properties?.sheetId && trainingSheet?.properties?.sheetId !== 0) {
-    return Response.json(
-      { error: "Could not find Training sheet" },
-      { status: 500 }
-    );
+    return Response.json({ error: "Could not find Training sheet" }, { status: 500 });
   }
   const sheetId = trainingSheet.properties.sheetId!;
 
-  // Sort deleteRows descending so we delete from bottom up
   const sortedDeleteRows = [...deleteRows].sort((a, b) => b - a);
-
   const requests = sortedDeleteRows.map((rowNum) => ({
     deleteDimension: {
       range: {
         sheetId,
         dimension: "ROWS" as const,
-        startIndex: rowNum - 1, // 0-based
-        endIndex: rowNum, // exclusive
+        startIndex: rowNum - 1,
+        endIndex: rowNum,
       },
     },
   }));
@@ -168,7 +179,7 @@ async function handleRemoveDuplicates(payload: RemoveDuplicatesPayload) {
 }
 
 // ----------------------------------------------------------------
-// Fix CPR/FA mismatches: sync FA date to match CPR date
+// Fix CPR/FA mismatches — batch write
 // ----------------------------------------------------------------
 async function handleFixCprFa(payload: FixCprFaPayload) {
   if (!payload.items?.length) {
@@ -178,31 +189,27 @@ async function handleFixCprFa(payload: FixCprFaPayload) {
   const rows = await readRangeFresh("Training");
   const headers = rows[0];
 
-  const cprCol = headers.findIndex(
-    (h) => h.trim().toUpperCase() === "CPR"
-  );
-  const faCol = headers.findIndex(
-    (h) => h.trim().toUpperCase() === "FIRSTAID"
-  );
+  const cprCol = headers.findIndex((h) => h.trim().toUpperCase() === "CPR");
+  const faCol = headers.findIndex((h) => h.trim().toUpperCase() === "FIRSTAID");
 
   if (cprCol < 0 || faCol < 0) {
-    return Response.json(
-      { error: "CPR or FIRSTAID column not found" },
-      { status: 500 }
-    );
+    return Response.json({ error: `CPR (col ${cprCol}) or FIRSTAID (col ${faCol}) not found` }, { status: 500 });
   }
 
-  let fixed = 0;
+  const cprLetter = colToLetter(cprCol);
+  const faLetter = colToLetter(faCol);
+
+  const writes: Array<{ range: string; value: string }> = [];
   const skipped: string[] = [];
+
   for (const item of payload.items) {
     const rowData = rows[item.row - 1];
     if (!rowData) { skipped.push(`Row ${item.row}: not found`); continue; }
-    const cprRaw = rowData[cprCol];
-    let cprVal = (cprRaw || "").toString().trim();
 
+    let cprVal = (rowData[cprCol] || "").toString().trim();
     if (!cprVal) { skipped.push(`Row ${item.row}: CPR is empty`); continue; }
 
-    // Normalize any date format to M/D/YYYY
+    // Normalize to M/D/YYYY if needed
     if (!/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(cprVal)) {
       const shortYr = cprVal.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
       if (shortYr) {
@@ -219,12 +226,24 @@ async function handleFixCprFa(payload: FixCprFaPayload) {
       }
     }
 
-    // Write to both CPR and FIRSTAID
-    await updateCell("Training", item.row, cprCol, cprVal);
-    await updateCell("Training", item.row, faCol, cprVal);
-    fixed++;
+    // Write normalized CPR to both CPR and FIRSTAID columns
+    writes.push({ range: `Training!${cprLetter}${item.row}`, value: cprVal });
+    writes.push({ range: `Training!${faLetter}${item.row}`, value: cprVal });
   }
 
+  // Batch write all at once (1 API call instead of N*2)
+  if (writes.length > 0) {
+    const sheets = getSheets();
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId: getSpreadsheetId(),
+      requestBody: {
+        valueInputOption: "USER_ENTERED",
+        data: writes.map((w) => ({ range: w.range, values: [[w.value]] })),
+      },
+    });
+  }
+
+  const fixed = (writes.length / 2);
   invalidateAll();
   return Response.json({
     success: true,
