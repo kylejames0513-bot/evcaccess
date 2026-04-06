@@ -334,10 +334,34 @@ function checkNameInTraining(lastName, firstName) {
 }
 
 /**
- * findTrainingRow — shared name-matching helper.
+ * findTrainingRow — shared matching helper.
  * Returns 1-based row index into trainingData, or -1 if not found.
+ *
+ * @param {Array[]} trainingData  Full sheet data (row 0 = headers).
+ * @param {string}  firstName     First name to search for.
+ * @param {string}  lastName      Last name to search for.
+ * @param {Object}  [opts]        Optional settings.
+ * @param {number}  [opts.idCol]  0-based column index of ID in trainingData.
+ * @param {string}  [opts.id]     Employee ID to match (exact). If provided
+ *                                with idCol, ID match is tried first and
+ *                                returns immediately on hit (no fuzzy needed).
+ * @param {number}  [opts.lNameCol] 0-based column index of L NAME (default 0).
+ * @param {number}  [opts.fNameCol] 0-based column index of F NAME (default 1).
  */
-function findTrainingRow(trainingData, firstName, lastName) {
+function findTrainingRow(trainingData, firstName, lastName, opts) {
+  opts = opts || {};
+  var idCol   = typeof opts.idCol === "number" ? opts.idCol : -1;
+  var searchId = opts.id ? opts.id.toString().trim() : "";
+  var lnCol   = typeof opts.lNameCol === "number" ? opts.lNameCol : 0;
+  var fnCol   = typeof opts.fNameCol === "number" ? opts.fNameCol : 1;
+
+  // ── ID-based lookup (instant, no fuzzy) ──
+  if (idCol >= 0 && searchId) {
+    for (var ri = 1; ri < trainingData.length; ri++) {
+      var rowId = trainingData[ri][idCol] ? trainingData[ri][idCol].toString().trim() : "";
+      if (rowId && rowId === searchId) return ri;
+    }
+  }
   var firstLower = firstName.toLowerCase().trim();
   var lastLower = lastName.toLowerCase().trim();
   // Strip special chars for comparison but keep originals for exact match
@@ -356,8 +380,8 @@ function findTrainingRow(trainingData, firstName, lastName) {
   var bestFuzzyScore = 0;
 
   for (var r = 1; r < trainingData.length; r++) {
-    var rowLast = trainingData[r][0] ? trainingData[r][0].toString().trim().toLowerCase() : "";
-    var rowFirst = trainingData[r][1] ? trainingData[r][1].toString().trim().toLowerCase() : "";
+    var rowLast = trainingData[r][lnCol] ? trainingData[r][lnCol].toString().trim().toLowerCase() : "";
+    var rowFirst = trainingData[r][fnCol] ? trainingData[r][fnCol].toString().trim().toLowerCase() : "";
 
     // Last name must match (also try stripped version for hyphenated last names)
     var rowLastStripped = rowLast.replace(/['\-\u2019]/g, "");
@@ -548,6 +572,19 @@ function updateTrainingAccess(session, attendeeName, dateStr) {
   var data = sheet.getDataRange().getValues();
   var headers = data[0];
 
+  // Find key columns by header
+  var tIdCol = -1, tLNameCol = -1, tFNameCol = -1;
+  for (var c = 0; c < headers.length; c++) {
+    var hdr = headers[c].toString().trim().toUpperCase();
+    if (hdr === "ID") tIdCol = c;
+    if (hdr === "L NAME") tLNameCol = c;
+    if (hdr === "F NAME") tFNameCol = c;
+  }
+  if (tLNameCol < 0 || tFNameCol < 0) {
+    Logger.log("Training Access: L NAME / F NAME columns not found.");
+    return;
+  }
+
   var targetCols = [];
   for (var ch = 0; ch < columnHeaders.length; ch++) {
     for (var c = 0; c < headers.length; c++) {
@@ -585,7 +622,9 @@ function updateTrainingAccess(session, attendeeName, dateStr) {
     return;
   }
 
-  var matchRow = findTrainingRow(data, firstName, lastName);
+  var matchRow = findTrainingRow(data, firstName, lastName, {
+    idCol: tIdCol, lNameCol: tLNameCol, fNameCol: tFNameCol
+  });
 
   if (matchRow === -1) {
     Logger.log("Training Access: no match for '" + lastName + ", " + firstName + "'");
@@ -1439,6 +1478,15 @@ function backfillTrainingAccess() {
   var trainingData = trainingSheet.getDataRange().getValues();
   var trainingHeaders = trainingData[0];
 
+  // Find key columns by header for ID-aware matching
+  var tIdCol = -1, tLNameCol = -1, tFNameCol = -1;
+  for (var c = 0; c < trainingHeaders.length; c++) {
+    var hdr = trainingHeaders[c].toString().trim().toUpperCase();
+    if (hdr === "ID") tIdCol = c;
+    if (hdr === "L NAME") tLNameCol = c;
+    if (hdr === "F NAME") tFNameCol = c;
+  }
+
   var processed = 0, matched = 0;
   var skippedNoMap = 0, skippedNoMatch = 0, skippedNewer = 0;
   var writtenEmpty = 0, writtenOverWord = 0, writtenOverOlder = 0;
@@ -1497,7 +1545,9 @@ function backfillTrainingAccess() {
       continue;
     }
 
-    var matchRow = findTrainingRow(trainingData, firstName, lastName);
+    var matchRow = findTrainingRow(trainingData, firstName, lastName, {
+      idCol: tIdCol, lNameCol: tLNameCol >= 0 ? tLNameCol : 0, fNameCol: tFNameCol >= 0 ? tFNameCol : 1
+    });
     if (matchRow === -1) {
       skippedNoMatch++;
       Logger.log("Backfill: No match for '" + attendeeName + "' (row " + (i+1) + ")");
@@ -1902,12 +1952,13 @@ function importFromPaylocity() {
   // Find column indices in the import sheet
   var importHeaders = importData[0];
   var colLast = -1, colFirst = -1, colPreferred = -1, colSkill = -1, colDate = -1, colStatus = -1;
-  var colDivision = -1, colDepartment = -1, colPosition = -1;
+  var colDivision = -1, colDepartment = -1, colPosition = -1, colEmpId = -1;
   for (var c = 0; c < importHeaders.length; c++) {
     var h = importHeaders[c].toString().trim().toLowerCase();
     if (h === "last name") colLast = c;
     if (h === "first name") colFirst = c;
     if (h === "preferred/first name" || h === "preferred name") colPreferred = c;
+    if (h === "employee id") colEmpId = c;
     if (h === "skill") colSkill = c;
     if (h === "effective/issue date" || h === "effective date" || h === "issue date") colDate = c;
     if (h === "skill status") colStatus = c;
@@ -1920,6 +1971,19 @@ function importFromPaylocity() {
     ui.alert("Could not find required columns.\n\n" +
       "Expected: Last Name, First Name, Skill, Effective/Issue Date\n\n" +
       "Found: " + importHeaders.join(", "));
+    return;
+  }
+
+  // Find key columns on Training sheet by header (ID, L NAME, F NAME)
+  var tIdCol = -1, tLNameCol = -1, tFNameCol = -1;
+  for (var c = 0; c < trainingHeaders.length; c++) {
+    var th = trainingHeaders[c].toString().trim().toUpperCase();
+    if (th === "ID") tIdCol = c;
+    if (th === "L NAME") tLNameCol = c;
+    if (th === "F NAME") tFNameCol = c;
+  }
+  if (tLNameCol < 0 || tFNameCol < 0) {
+    ui.alert("L NAME / F NAME columns not found on Training sheet.");
     return;
   }
 
@@ -1999,11 +2063,25 @@ function importFromPaylocity() {
       continue;
     }
 
-    // Match employee — try preferred name first, then first name
+    // Match employee — try ID first, then preferred name, then first name
+    var empId = colEmpId >= 0 && importData[i][colEmpId] ? importData[i][colEmpId].toString().trim() : "";
     var nameToTry = preferred || firstName;
-    var matchRow = findTrainingRow(trainingData, nameToTry, lastName);
+    var matchRow = findTrainingRow(trainingData, nameToTry, lastName, {
+      idCol: tIdCol, id: empId, lNameCol: tLNameCol, fNameCol: tFNameCol
+    });
     if (matchRow < 0 && preferred && preferred !== firstName) {
-      matchRow = findTrainingRow(trainingData, firstName, lastName);
+      matchRow = findTrainingRow(trainingData, firstName, lastName, {
+        idCol: tIdCol, id: empId, lNameCol: tLNameCol, fNameCol: tFNameCol
+      });
+    }
+
+    // If matched by name but row has no ID yet, backfill the ID
+    if (matchRow >= 0 && tIdCol >= 0 && empId) {
+      var existingId = trainingData[matchRow][tIdCol] ? trainingData[matchRow][tIdCol].toString().trim() : "";
+      if (!existingId) {
+        trainingSheet.getRange(matchRow + 1, tIdCol + 1).setValue(empId);
+        trainingData[matchRow][tIdCol] = empId;
+      }
     }
 
     if (matchRow < 0) {
@@ -2017,8 +2095,8 @@ function importFromPaylocity() {
 
     // Fix misspelled names — Paylocity is the authoritative source
     // Collects mismatches and asks for confirmation after import
-    var sheetLast = trainingData[matchRow][0] ? trainingData[matchRow][0].toString().trim() : "";
-    var sheetFirst = trainingData[matchRow][1] ? trainingData[matchRow][1].toString().trim() : "";
+    var sheetLast = trainingData[matchRow][tLNameCol] ? trainingData[matchRow][tLNameCol].toString().trim() : "";
+    var sheetFirst = trainingData[matchRow][tFNameCol] ? trainingData[matchRow][tFNameCol].toString().trim() : "";
     var paylocityLast = lastName;
     var paylocityFirst = preferred || firstName;
 
@@ -2027,8 +2105,8 @@ function importFromPaylocity() {
 
     // Case difference — auto-fix silently
     if (sheetLast !== paylocityLast && sheetLast.toLowerCase() === paylocityLast.toLowerCase()) {
-      trainingSheet.getRange(matchRow + 1, 1).setValue(paylocityLast);
-      trainingData[matchRow][0] = paylocityLast;
+      trainingSheet.getRange(matchRow + 1, tLNameCol + 1).setValue(paylocityLast);
+      trainingData[matchRow][tLNameCol] = paylocityLast;
     } else if (sheetLast.toLowerCase() !== paylocityLast.toLowerCase()) {
       lastNeedsFix = true;
     }
@@ -2050,7 +2128,9 @@ function importFromPaylocity() {
         paylocityLast: paylocityLast,
         paylocityFirst: paylocityFirst,
         fixLast: lastNeedsFix,
-        fixFirst: firstNeedsFix
+        fixFirst: firstNeedsFix,
+        lNameCol1: tLNameCol + 1,
+        fNameCol1: tFNameCol + 1
       });
     }
 
@@ -2163,15 +2243,15 @@ function importFromPaylocity() {
 
           if (fixChoice === ui.Button.YES) {
             if (fix.fixLast) {
-              trainingSheet.getRange(fix.row, 1).setValue(fix.paylocityLast);
+              trainingSheet.getRange(fix.row, fix.lNameCol1).setValue(fix.paylocityLast);
               Logger.log("Name fix (last): '" + fix.sheetLast + "' → '" + fix.paylocityLast + "' (row " + fix.row + ")");
             }
             if (fix.fixFirst) {
-              var existingFirst = trainingSheet.getRange(fix.row, 2).getValue().toString().trim();
+              var existingFirst = trainingSheet.getRange(fix.row, fix.fNameCol1).getValue().toString().trim();
               var cleanExisting = existingFirst.replace(/["()].*/g, "").trim();
               var suffix = existingFirst.substring(cleanExisting.length).trim();
               var newFirst = suffix ? fix.paylocityFirst + " " + suffix : fix.paylocityFirst;
-              trainingSheet.getRange(fix.row, 2).setValue(newFirst);
+              trainingSheet.getRange(fix.row, fix.fNameCol1).setValue(newFirst);
               Logger.log("Name fix (first): '" + existingFirst + "' → '" + newFirst + "' (row " + fix.row + ")");
             }
             stats.namesFixed++;
@@ -2223,13 +2303,20 @@ function importFromPaylocity() {
 //   Step 1: Updates Paylocity Import tab with correct names/info
 //           from the Employees sheet
 //   Step 2: Updates Training sheet with names, status, division,
-//           department, position from Employees sheet
+//           department, position from Employees sheet.
+//           Matches by ID first, falls back to name matching.
+//           On first run, inserts ID column if missing and
+//           populates IDs for all existing employees by name.
 //   Step 3: Adds new employees, deactivates missing ones
 //
 //   Employees sheet columns:
 //     A: Last Name, B: Suffix, C: First Name, D: Preferred Name,
 //     E: ID, F: Position / Job Title, G: Hire Date,
 //     H: Division, I: Department, J: Status
+//
+//   Training sheet layout (after sync):
+//     ID, L NAME, F NAME, ACTIVE, Division Description,
+//     Department Description, Position Title, CPR, FIRSTAID, ...
 //
 // ************************************************************
 
@@ -2249,12 +2336,13 @@ function syncEmployeesSheet() {
   // ── Parse Employees sheet headers ──
   var empHeaders = empData[0];
   var eLastCol = -1, eFirstCol = -1, ePrefCol = -1, ePositionCol = -1;
-  var eDivCol = -1, eDeptCol = -1, eStatusCol = -1;
+  var eDivCol = -1, eDeptCol = -1, eStatusCol = -1, eIdCol = -1;
   for (var c = 0; c < empHeaders.length; c++) {
     var h = empHeaders[c].toString().trim().toLowerCase();
     if (h === "last name") eLastCol = c;
     if (h === "first name") eFirstCol = c;
     if (h === "preferred name") ePrefCol = c;
+    if (h === "id") eIdCol = c;
     if (h === "position / job title" || h === "position" || h === "job title" || h === "position title") ePositionCol = c;
     if (h === "division") eDivCol = c;
     if (h === "department") eDeptCol = c;
@@ -2266,11 +2354,14 @@ function syncEmployeesSheet() {
   }
 
   // Build employee lookup: lowercase "last|first" → employee data
+  // Also build ID lookup: id string → employee data
   var empLookup = {};
+  var empById = {};
   for (var i = 1; i < empData.length; i++) {
     var eLast = empData[i][eLastCol] ? empData[i][eLastCol].toString().trim() : "";
     var eFirst = empData[i][eFirstCol] ? empData[i][eFirstCol].toString().trim() : "";
     var ePref = ePrefCol >= 0 && empData[i][ePrefCol] ? empData[i][ePrefCol].toString().trim() : "";
+    var eId = eIdCol >= 0 && empData[i][eIdCol] ? empData[i][eIdCol].toString().trim() : "";
     if (!eLast || !eFirst) continue;
 
     var eDiv = eDivCol >= 0 ? (empData[i][eDivCol] || "").toString().trim() : "";
@@ -2281,10 +2372,13 @@ function syncEmployeesSheet() {
     var isActive = eStat.toLowerCase() === "active" || eStat === "A" || eStat === "Y";
 
     var entry = {
-      lastName: eLast, firstName: eFirst, preferred: ePref,
+      lastName: eLast, firstName: eFirst, preferred: ePref, id: eId,
       displayFirst: displayFirst, position: ePos, division: eDiv,
       department: eDept, status: eStat, active: isActive ? "Y" : "N"
     };
+
+    // Index by ID
+    if (eId) empById[eId] = entry;
 
     // Index by multiple keys for matching
     var keys = [
@@ -2308,12 +2402,13 @@ function syncEmployeesSheet() {
     "This will:\n" +
     "  Step 1: Fix names on Paylocity Import tab\n" +
     "  Step 2: Fix names, status, division, dept, position on Training\n" +
+    "          (matching by ID first, then by name)\n" +
     "  Step 3: Add new employees, deactivate missing ones\n\n" +
     "Continue?",
     ui.ButtonSet.YES_NO);
   if (confirm !== ui.Button.YES) return;
 
-  var stats = { piFixed: 0, tUpdated: 0, tAdded: 0, tDeactivated: 0, tNamesFix: 0 };
+  var stats = { piFixed: 0, tUpdated: 0, tAdded: 0, tDeactivated: 0, tNamesFix: 0, idsPopulated: 0 };
   var syncIgnoredPairs_ = getIgnoredNamePairs_();
 
   // ═══════════════════════════════════════════════════════════
@@ -2403,17 +2498,31 @@ function syncEmployeesSheet() {
   }
 
   // ═══════════════════════════════════════════════════════════
-  //  STEP 2: Update Training sheet
+  //  STEP 2: Update Training sheet (ID-based matching)
   // ═══════════════════════════════════════════════════════════
   var trainingSheet = ss.getSheetByName(TRAINING_ACCESS_SHEET_NAME);
   if (!trainingSheet) { ui.alert("Training sheet not found."); return; }
 
+  // ── Ensure Training sheet has ID column ──
   var trainingData = trainingSheet.getDataRange().getValues();
   var trainingHeaders = trainingData[0];
+  var firstHeader = trainingHeaders[0] ? trainingHeaders[0].toString().trim().toUpperCase() : "";
+  if (firstHeader !== "ID") {
+    // Insert a new column A and write "ID" as header
+    trainingSheet.insertColumnBefore(1);
+    trainingSheet.getRange(1, 1).setValue("ID");
+    Logger.log("Sync: Inserted ID column as column A on Training sheet");
+    // Re-read data after column insert
+    trainingData = trainingSheet.getDataRange().getValues();
+    trainingHeaders = trainingData[0];
+  }
 
-  var tLNameCol = -1, tFNameCol = -1, tActiveCol = -1, tDivCol = -1, tDeptCol = -1, tPosCol = -1;
+  // Find all Training sheet columns by header
+  var tIdCol = -1, tLNameCol = -1, tFNameCol = -1, tActiveCol = -1;
+  var tDivCol = -1, tDeptCol = -1, tPosCol = -1;
   for (var c = 0; c < trainingHeaders.length; c++) {
     var th = trainingHeaders[c].toString().trim();
+    if (th.toUpperCase() === "ID" && tIdCol < 0) tIdCol = c;
     if (th.toUpperCase() === "L NAME") tLNameCol = c;
     if (th.toUpperCase() === "F NAME") tFNameCol = c;
     if (th.toUpperCase() === "ACTIVE") tActiveCol = c;
@@ -2422,13 +2531,23 @@ function syncEmployeesSheet() {
     if (th === "Position Title") tPosCol = c;
   }
   if (tLNameCol < 0 || tFNameCol < 0) { ui.alert("L NAME / F NAME not found on Training sheet."); return; }
+  if (tIdCol < 0) { ui.alert("ID column not found on Training sheet after insert attempt."); return; }
 
-  var paylocityNames = {};
+  // Build a quick ID→row map from current Training data
+  var trainingIdMap = {};
+  for (var r = 1; r < trainingData.length; r++) {
+    var rid = trainingData[r][tIdCol] ? trainingData[r][tIdCol].toString().trim() : "";
+    if (rid) trainingIdMap[rid] = r;
+  }
+
+  var paylocityIds = {};    // track IDs for deactivation
+  var paylocityNames = {};  // track names for deactivation
 
   for (var i = 1; i < empData.length; i++) {
     var lastName = empData[i][eLastCol] ? empData[i][eLastCol].toString().trim() : "";
     var firstName = empData[i][eFirstCol] ? empData[i][eFirstCol].toString().trim() : "";
     var preferred = ePrefCol >= 0 && empData[i][ePrefCol] ? empData[i][ePrefCol].toString().trim() : "";
+    var empId = eIdCol >= 0 && empData[i][eIdCol] ? empData[i][eIdCol].toString().trim() : "";
     if (!lastName || !firstName) continue;
 
     var displayFirst = preferred || firstName;
@@ -2440,17 +2559,42 @@ function syncEmployeesSheet() {
     var activeFlag = isActive ? "Y" : "N";
 
     // Track for deactivation
+    if (empId) paylocityIds[empId] = true;
     paylocityNames[lastName.toLowerCase() + "|" + displayFirst.toLowerCase()] = true;
     paylocityNames[lastName.toLowerCase() + "|" + firstName.toLowerCase()] = true;
     paylocityNames[lastName.toLowerCase() + "|" + firstName.toLowerCase().replace(/['\-\u2019]/g, "")] = true;
 
-    var matchRow = findTrainingRow(trainingData, displayFirst, lastName);
-    if (matchRow < 0 && preferred && preferred !== firstName) {
-      matchRow = findTrainingRow(trainingData, firstName, lastName);
+    // ── Match by ID first ──
+    var matchRow = -1;
+    if (empId && trainingIdMap[empId] !== undefined) {
+      matchRow = trainingIdMap[empId];
+    }
+
+    // ── Fall back to name matching ──
+    if (matchRow < 0) {
+      matchRow = findTrainingRow(trainingData, displayFirst, lastName, {
+        idCol: tIdCol, id: empId, lNameCol: tLNameCol, fNameCol: tFNameCol
+      });
+      if (matchRow < 0 && preferred && preferred !== firstName) {
+        matchRow = findTrainingRow(trainingData, firstName, lastName, {
+          idCol: tIdCol, id: empId, lNameCol: tLNameCol, fNameCol: tFNameCol
+        });
+      }
     }
 
     if (matchRow >= 0) {
       var changed = false;
+
+      // ── Populate ID if missing (first-run backfill) ──
+      var existingId = trainingData[matchRow][tIdCol] ? trainingData[matchRow][tIdCol].toString().trim() : "";
+      if (empId && !existingId) {
+        trainingSheet.getRange(matchRow + 1, tIdCol + 1).setValue(empId);
+        trainingData[matchRow][tIdCol] = empId;
+        trainingIdMap[empId] = matchRow;
+        changed = true;
+        stats.idsPopulated++;
+      }
+
       var tLast = trainingData[matchRow][tLNameCol] ? trainingData[matchRow][tLNameCol].toString().trim() : "";
       var tFirst = trainingData[matchRow][tFNameCol] ? trainingData[matchRow][tFNameCol].toString().trim() : "";
 
@@ -2490,9 +2634,10 @@ function syncEmployeesSheet() {
 
       if (changed) stats.tUpdated++;
     } else {
-      // Add new employee
+      // Add new employee — include ID in first column
       var newRow = [];
       for (var nc = 0; nc < trainingHeaders.length; nc++) newRow.push("");
+      if (tIdCol >= 0 && empId) newRow[tIdCol] = empId;
       newRow[tLNameCol] = lastName;
       newRow[tFNameCol] = displayFirst;
       if (tActiveCol >= 0) newRow[tActiveCol] = activeFlag;
@@ -2500,24 +2645,31 @@ function syncEmployeesSheet() {
       if (tDeptCol >= 0) newRow[tDeptCol] = department;
       if (tPosCol >= 0) newRow[tPosCol] = position;
       trainingSheet.appendRow(newRow);
+      // Update in-memory data so subsequent lookups find this row
+      trainingData.push(newRow);
+      if (empId) trainingIdMap[empId] = trainingData.length - 1;
       stats.tAdded++;
     }
   }
 
   // ═══════════════════════════════════════════════════════════
   //  STEP 3: Deactivate employees not in Paylocity
-  //  Uses findTrainingRow in reverse for full fuzzy matching
+  //  Try ID first, then fall back to name matching
   // ═══════════════════════════════════════════════════════════
   if (tActiveCol >= 0) {
     // Build a searchable array from Employees sheet (same format as trainingData)
-    var empSearchData = [["", ""]]; // header row placeholder
+    // Include ID column for reverse lookups
+    var empSearchData = [["", "", ""]]; // header row placeholder [lname, fname, status]
+    var empSearchIdMap = {};
     for (var ei = 1; ei < empData.length; ei++) {
       var eLast = empData[ei][eLastCol] ? empData[ei][eLastCol].toString().trim() : "";
       var eFirst = empData[ei][eFirstCol] ? empData[ei][eFirstCol].toString().trim() : "";
       var ePref = ePrefCol >= 0 && empData[ei][ePrefCol] ? empData[ei][ePrefCol].toString().trim() : "";
+      var eId = eIdCol >= 0 && empData[ei][eIdCol] ? empData[ei][eIdCol].toString().trim() : "";
       var eStat = eStatusCol >= 0 ? (empData[ei][eStatusCol] || "").toString().trim() : "";
       var eActive = eStat.toLowerCase() === "active" || eStat === "A" || eStat === "Y";
       if (!eLast || !eFirst) continue;
+      if (eId) empSearchIdMap[eId] = true;
       // Add both legal and preferred name entries
       empSearchData.push([eLast, eFirst, eActive ? "Y" : "N"]);
       if (ePref && ePref !== eFirst) {
@@ -2531,10 +2683,14 @@ function syncEmployeesSheet() {
     for (var r = 1; r < trainingData.length; r++) {
       var tL = trainingData[r][tLNameCol] ? trainingData[r][tLNameCol].toString().trim() : "";
       var tF = trainingData[r][tFNameCol] ? trainingData[r][tFNameCol].toString().trim() : "";
+      var tRowId = trainingData[r][tIdCol] ? trainingData[r][tIdCol].toString().trim() : "";
       var curActive = trainingData[r][tActiveCol] ? trainingData[r][tActiveCol].toString().trim() : "";
       if (!tL || curActive !== "Y") continue;
 
-      // Search the Employees list using full fuzzy matching
+      // Check by ID first
+      if (tRowId && empSearchIdMap[tRowId]) continue; // found by ID — keep active
+
+      // Fall back to name matching
       var empMatch = findTrainingRow(empSearchData, tF, tL);
       if (empMatch >= 0) continue; // found in Paylocity — keep active
 
@@ -2656,6 +2812,9 @@ function syncEmployeesSheet() {
   if (piSheet) summary += "Paylocity Import rows fixed: " + stats.piFixed + "\n";
   summary += "Training sheet updated: " + stats.tUpdated + "\n";
   summary += "Names corrected: " + stats.tNamesFix + "\n";
+  if (stats.idsPopulated > 0) {
+    summary += "IDs populated (first-run backfill): " + stats.idsPopulated + "\n";
+  }
   summary += "New employees added: " + stats.tAdded + "\n";
   summary += "Deactivated (not in Paylocity): " + stats.tDeactivated + "\n";
   if (stats.autoExcused > 0) {
