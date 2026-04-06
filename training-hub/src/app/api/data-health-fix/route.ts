@@ -232,24 +232,24 @@ async function handleFixCprFa(payload: FixCprFaPayload) {
     writes.push({ range: `Training!${faLetter}${item.row}`, value: cprVal });
   }
 
-  // Batch write all at once (1 API call instead of N*2)
-  if (writes.length > 0) {
-    const sheets = getSheets();
-    await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId: getSpreadsheetId(),
-      requestBody: {
-        valueInputOption: "USER_ENTERED",
-        data: writes.map((w) => ({ range: w.range, values: [[w.value]] })),
-      },
-    });
+  // Write using individual writeRange calls to ensure each one goes through
+  let writeErrors: string[] = [];
+  for (const w of writes) {
+    try {
+      await writeRange(w.range, [[w.value]]);
+    } catch (err) {
+      writeErrors.push(`${w.range}: ${err instanceof Error ? err.message : "unknown"}`);
+    }
   }
 
-  const fixed = (writes.length / 2);
+  const fixed = Math.floor(writes.length / 2);
   invalidateAll();
   return Response.json({
     success: true,
-    message: `Synced ${fixed} row(s)${skipped.length > 0 ? ". Skipped: " + skipped.slice(0, 5).join("; ") : ""}`,
+    message: `Synced ${fixed} row(s)${skipped.length > 0 ? ". Skipped: " + skipped.slice(0, 5).join("; ") : ""}${writeErrors.length > 0 ? ". Write errors: " + writeErrors.slice(0, 3).join("; ") : ""}`,
     fixed,
     skipped: skipped.length,
+    writeErrors: writeErrors.length,
+    debug: writes.length > 0 ? { sampleRange: writes[0].range, sampleValue: writes[0].value, cprCol, faCol, cprLetter, faLetter } : null,
   });
 }
