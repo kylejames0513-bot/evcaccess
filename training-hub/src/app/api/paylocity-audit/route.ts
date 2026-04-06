@@ -58,11 +58,22 @@ interface Discrepancy {
 
 export async function GET() {
   try {
-    const [trainingRows, paylocityRows, settingsRows] = await Promise.all([
-      readRange("Training"),
-      readRange("Paylocity Import"),
-      readRange("'Hub Settings'").catch(() => [] as string[][]),
-    ]);
+    let trainingRows: string[][] = [];
+    let paylocityRows: string[][] = [];
+    let settingsRows: string[][] = [];
+    try {
+      [trainingRows, paylocityRows, settingsRows] = await Promise.all([
+        readRange("Training"),
+        readRange("Paylocity Import"),
+        readRange("'Hub Settings'").catch(() => [] as string[][]),
+      ]);
+    } catch {
+      return Response.json({
+        error: "Could not read sheets. Make sure both 'Training' and 'Paylocity Import' tabs exist.",
+        discrepancies: [], noMatch: [],
+        summary: { total: 0, mismatches: 0, missingOnTraining: 0, naButHasDate: 0, noMatchCount: 0 },
+      });
+    }
 
     // Load name mappings from Hub Settings
     const nameMappings = new Map<string, string>(); // paylocity name lowercase → training name

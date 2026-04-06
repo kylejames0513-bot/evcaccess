@@ -55,7 +55,9 @@ export default function PaylocityAuditPage() {
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
 
-  const { discrepancies, noMatch, summary } = data;
+  const discrepancies = data.discrepancies || [];
+  const noMatch = data.noMatch || [];
+  const summary = data.summary || { total: 0, mismatches: 0, missingOnTraining: 0, naButHasDate: 0, noMatchCount: 0 };
 
   async function doRefresh() {
     setRefreshing(true);
