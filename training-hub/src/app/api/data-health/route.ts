@@ -16,36 +16,64 @@ const EXCUSAL_CODES = new Set([
   "F X 2", "FX 1",
   "FX1*", "FX1/NS", "FX1 - S", "FX1 - R",
   "TRAINER", "LP", "NS", "LLL",
+  "BOARD",
 ]);
 
 function isExcusal(value: string): boolean {
   return EXCUSAL_CODES.has(value.trim().toUpperCase());
 }
 
-function isValidDate(value: string): boolean {
+function isCleanDate(value: string): boolean {
+  // ONLY M/D/YYYY or MM/DD/YYYY with 4-digit year is clean
   const s = value.trim();
+  const match = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!match) return false;
+  const month = parseInt(match[1]);
+  const day = parseInt(match[2]);
+  const year = parseInt(match[3]);
+  return month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1990 && year <= 2100;
+}
 
-  // MM/DD/YYYY or M/D/YYYY or M/D/YY
-  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(s)) {
-    const d = new Date(s);
-    return !isNaN(d.getTime());
+function tryParseDateSuggestion(value: unknown): string {
+  // Try to parse any format into M/D/YYYY
+  if (!value) return "";
+
+  // If it's a Date object from Google Sheets
+  if (value instanceof Date || (typeof value === "object" && value !== null && "getTime" in (value as object))) {
+    const d = value as Date;
+    if (!isNaN(d.getTime()) && d.getFullYear() >= 1990 && d.getFullYear() <= 2100) {
+      return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    }
+  }
+
+  const s = String(value).trim();
+
+  // Already clean
+  if (isCleanDate(s)) return s;
+
+  // M/D/YY — expand to 4-digit year
+  const shortYear = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+  if (shortYear) {
+    let year = parseInt(shortYear[3]);
+    year += year < 50 ? 2000 : 1900;
+    return `${parseInt(shortYear[1])}/${parseInt(shortYear[2])}/${year}`;
   }
 
   // YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    const d = new Date(s);
-    return !isNaN(d.getTime());
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    return `${parseInt(iso[2])}/${parseInt(iso[3])}/${iso[1]}`;
   }
 
-  // "Month Day, Year" or "Month Day Year"
-  if (/^[A-Za-z]+\s+\d{1,2},?\s*\d{4}$/.test(s)) {
+  // Try native parse as last resort
+  try {
     const d = new Date(s);
-    return !isNaN(d.getTime());
-  }
+    if (!isNaN(d.getTime()) && d.getFullYear() >= 1990 && d.getFullYear() <= 2100) {
+      return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    }
+  } catch {}
 
-  // Try native Date as fallback
-  const d = new Date(s);
-  return !isNaN(d.getTime()) && d.getFullYear() > 2000;
+  return "";
 }
 
 export async function GET() {
@@ -74,10 +102,11 @@ export async function GET() {
     const cprCol = hdr("CPR");
     const faCol = hdr("FIRSTAID");
 
-    // Build list of training column indices
-    const trainingColKeys = TRAINING_DEFINITIONS.map((d) => d.columnKey);
+    // Build list of ALL training column indices (including FIRSTAID)
+    const trainingColKeysSet = new Set(TRAINING_DEFINITIONS.map((d) => d.columnKey));
+    trainingColKeysSet.add("FIRSTAID");
     const trainingCols: Array<{ key: string; index: number }> = [];
-    for (const key of trainingColKeys) {
+    for (const key of trainingColKeysSet) {
       const idx = headers.findIndex(
         (h) => h.trim().toUpperCase() === key.toUpperCase()
       );
@@ -127,22 +156,16 @@ export async function GET() {
         }
       }
 
-      // Garbled dates: check each training column
+      // Garbled dates: flag anything not in clean M/D/YYYY format
       for (const col of trainingCols) {
-        const value = (row[col.index] || "").trim();
+        const rawValue = row[col.index];
+        const value = (rawValue || "").toString().trim();
         if (!value) continue;
         if (isExcusal(value)) continue;
-        if (!isValidDate(value)) {
-          // Try to suggest a clean date
-          let suggestion = "";
-          try {
-            const d = new Date(value);
-            if (!isNaN(d.getTime()) && d.getFullYear() > 1990 && d.getFullYear() < 2100) {
-              suggestion = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-            }
-          } catch {}
-          garbledDates.push({ row: rowNum, name, column: col.key, value, suggestion });
-        }
+        if (isCleanDate(value)) continue;
+        // Not clean — flag it with a suggestion
+        const suggestion = tryParseDateSuggestion(rawValue);
+        garbledDates.push({ row: rowNum, name, column: col.key, value: value.substring(0, 60), suggestion });
       }
 
       // CPR/FA mismatch
