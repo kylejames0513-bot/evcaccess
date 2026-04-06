@@ -46,7 +46,8 @@ function createMenu() {
 
     .addSubMenu(ui.createMenu("2. Data Tools")
       .addItem("2a. Find Duplicates", "findDuplicates")
-      .addItem("2b. Install Edit Trigger (run once)", "installEditTrigger"))
+      .addItem("2b. Clean Garbled Dates", "cleanGarbledDatesUI")
+      .addItem("2c. Install Edit Trigger (run once)", "installEditTrigger"))
 
     .addToUi();
 }
@@ -1026,6 +1027,93 @@ function findDuplicates() {
     "Cells merged (newer date kept): " + merged + "\n" +
     "Groups skipped: " + skipped
   );
+}
+
+
+// ************************************************************
+//
+//   CLEAN GARBLED DATES
+//
+// ************************************************************
+
+function cleanGarbledDatesUI() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(TRAINING_ACCESS_SHEET_NAME);
+  if (!sheet) { ui.alert("Training sheet not found."); return; }
+
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+
+  // Find first training column
+  var trainingStart = -1;
+  for (var tc = 0; tc < TRAINING_CONFIG.length; tc++) {
+    for (var hc = 0; hc < headers.length; hc++) {
+      if (headers[hc].toString().trim() === TRAINING_CONFIG[tc].column) {
+        if (trainingStart < 0 || hc < trainingStart) trainingStart = hc;
+      }
+    }
+  }
+  if (trainingStart < 0) { ui.alert("No training columns found."); return; }
+
+  var fixed = 0;
+
+  for (var r = 1; r < data.length; r++) {
+    for (var c = trainingStart; c < headers.length; c++) {
+      var val = data[r][c];
+      if (!val) continue;
+      var s = val.toString().trim();
+      if (!s) continue;
+
+      // Skip if already a clean date (M/D/YYYY or MM/DD/YYYY)
+      if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(s)) continue;
+
+      // Skip excusal codes
+      if (EXCUSAL_MAP_[s.toUpperCase()]) continue;
+
+      var parsed = null;
+
+      // If cell contains a Date object (Google Sheets stores dates as Date)
+      if (val instanceof Date && !isNaN(val.getTime())) {
+        parsed = val;
+      }
+
+      // Pattern: "Fri Sep 02 2016 03:00:00 GMT-0400 (Eastern Daylight Time)"
+      if (!parsed && /^[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d/.test(s)) {
+        try { parsed = new Date(s); } catch(e) {}
+      }
+
+      // Pattern: "2016-09-02T07:00:00.000Z" (ISO)
+      if (!parsed && /^\d{4}-\d{2}-\d{2}T/.test(s)) {
+        try { parsed = new Date(s); } catch(e) {}
+      }
+
+      // Pattern: "September 2, 2016" or "Sep 2, 2016"
+      if (!parsed && /^[A-Z][a-z]+\s+\d{1,2},?\s+\d{4}/.test(s)) {
+        try { parsed = new Date(s); } catch(e) {}
+      }
+
+      // Pattern: "2016-09-02" (ISO date only)
+      if (!parsed && /^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        var isoP = s.split("-");
+        parsed = new Date(parseInt(isoP[0]), parseInt(isoP[1]) - 1, parseInt(isoP[2]));
+      }
+
+      // Pattern: any remaining string with a parseable date
+      if (!parsed && /[A-Z][a-z]{2}\s/.test(s)) {
+        try { var attempt = new Date(s); if (!isNaN(attempt.getTime())) parsed = attempt; } catch(e) {}
+      }
+
+      if (parsed && !isNaN(parsed.getTime()) && parsed.getFullYear() > 1990 && parsed.getFullYear() < 2100) {
+        var clean = (parsed.getMonth() + 1) + "/" + parsed.getDate() + "/" + parsed.getFullYear();
+        sheet.getRange(r + 1, c + 1).setValue(clean);
+        fixed++;
+        Logger.log("Fixed: row " + (r + 1) + " " + headers[c] + ": '" + s.substring(0, 50) + "' → '" + clean + "'");
+      }
+    }
+  }
+
+  ui.alert("Clean Garbled Dates Complete!\n\nFixed: " + fixed + " cell(s) converted to M/D/YYYY format.");
 }
 
 
