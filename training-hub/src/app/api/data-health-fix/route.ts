@@ -198,16 +198,25 @@ async function handleFixCprFa(payload: FixCprFaPayload) {
     const cprRaw = rowData[cprCol];
     // Normalize to M/D/YYYY
     let cprVal = (cprRaw || "").toString().trim();
+    // Normalize any date format to M/D/YYYY
     if (cprVal && !/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(cprVal)) {
-      try {
-        const d = new Date(cprVal);
-        if (!isNaN(d.getTime()) && d.getFullYear() >= 1990) {
-          cprVal = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-        }
-      } catch {}
+      // Handle 2-digit year: 1/5/24 → 1/5/2024
+      const shortYr = cprVal.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+      if (shortYr) {
+        let yr = parseInt(shortYr[3]);
+        yr += yr < 50 ? 2000 : 1900;
+        cprVal = `${parseInt(shortYr[1])}/${parseInt(shortYr[2])}/${yr}`;
+      } else {
+        try {
+          const d = new Date(cprVal);
+          if (!isNaN(d.getTime()) && d.getFullYear() >= 1990) {
+            cprVal = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+          }
+        } catch {}
+      }
     }
     if (cprVal) {
-      // Write normalized CPR to both CPR and FIRSTAID
+      // Write clean CPR to both columns, also read and write FA if it exists but differs
       await updateCell("Training", item.row, cprCol, cprVal);
       await updateCell("Training", item.row, faCol, cprVal);
       fixed++;

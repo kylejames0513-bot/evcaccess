@@ -164,6 +164,8 @@ export async function GET() {
         if (!value) continue;
         if (isExcusal(value)) continue;
         if (isCleanDate(value)) continue;
+        // "Complete" or "Completed" is valid for non-renewable trainings
+        if (/^complete[d]?$/i.test(value)) continue;
 
         // Categorize the issue
         let category = "other";
@@ -223,13 +225,19 @@ export async function GET() {
         garbledDates.push({ row: rowNum, name, column: col.key, value: value.substring(0, 60), suggestion, category });
       }
 
-      // CPR/FA mismatch — flag if CPR and FA don't match (including empty FA)
+      // CPR/FA mismatch — flag if CPR and FA don't match
       if (cprCol >= 0 && faCol >= 0) {
-        const cprNorm = tryParseDateSuggestion(row[cprCol]) || (row[cprCol] || "").toString().trim();
-        const faNorm = tryParseDateSuggestion(row[faCol]) || (row[faCol] || "").toString().trim();
-        if (cprNorm && !isExcusal(cprNorm)) {
-          if (!faNorm || (faNorm !== cprNorm && !isExcusal(faNorm))) {
-            cprFaMismatch.push({ row: rowNum, name, cprDate: cprNorm, faDate: faNorm || "(empty)" });
+        const cprRaw = (row[cprCol] || "").toString().trim();
+        const faRaw = (row[faCol] || "").toString().trim();
+        if (cprRaw && !isExcusal(cprRaw) && !/^complete[d]?$/i.test(cprRaw)) {
+          // Normalize both for comparison (so "1/5/24" == "1/5/24")
+          const cprNorm = tryParseDateSuggestion(row[cprCol]) || cprRaw;
+          const faNorm = tryParseDateSuggestion(row[faCol]) || faRaw;
+          // Check both raw and normalized — match if either is equal
+          const rawMatch = cprRaw === faRaw;
+          const normMatch = cprNorm === faNorm;
+          if (!rawMatch && !normMatch && !isExcusal(faRaw)) {
+            cprFaMismatch.push({ row: rowNum, name, cprDate: cprNorm || cprRaw, faDate: faNorm || faRaw || "(empty)" });
           }
         }
       }
