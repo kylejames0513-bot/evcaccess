@@ -212,12 +212,13 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
   const soonThreshold = new Date();
   soonThreshold.setDate(soonThreshold.getDate() + 60);
 
-  // Load excluded employees and compliance tracks from Hub Settings
+  // Load excluded employees
   const excluded = await getExcludedEmployees();
   const excludedSet = new Set(excluded.map((n) => n.toLowerCase()));
-  const { getComplianceTracks, getDeptRules } = await import("@/lib/hub-settings");
-  const trackedKeys = new Set(await getComplianceTracks());
-  const trackedDefs = TRAINING_DEFINITIONS.filter((d) => trackedKeys.has(d.columnKey));
+
+  // All training definitions — department rules control per-division requirements
+  const { getDeptRules } = await import("@/lib/hub-settings");
+  const trackedDefs = TRAINING_DEFINITIONS;
 
   // Load department training rules
   const deptRules = await getDeptRules();
@@ -320,9 +321,8 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
  */
 export async function getComplianceIssues(): Promise<ComplianceIssue[]> {
   const data = await getTrainingData();
-  const { getComplianceTracks } = await import("@/lib/hub-settings");
-  const trackedKeys = new Set(await getComplianceTracks());
-  const trackedDefs = TRAINING_DEFINITIONS.filter((d) => trackedKeys.has(d.columnKey));
+  // Use all training definitions — department rules already filtered per employee
+  const trackedDefs = TRAINING_DEFINITIONS;
   const issues: ComplianceIssue[] = [];
 
   for (const emp of data) {
