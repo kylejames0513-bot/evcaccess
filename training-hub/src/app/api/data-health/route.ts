@@ -168,18 +168,14 @@ export async function GET() {
         garbledDates.push({ row: rowNum, name, column: col.key, value: value.substring(0, 60), suggestion });
       }
 
-      // CPR/FA mismatch
+      // CPR/FA mismatch — flag if CPR and FA don't match (including empty FA)
       if (cprCol >= 0 && faCol >= 0) {
-        const cprVal = (row[cprCol] || "").trim();
-        const faVal = (row[faCol] || "").trim();
-        // Only flag if both have dates
-        if (
-          cprVal && faVal &&
-          !isExcusal(cprVal) && !isExcusal(faVal) &&
-          isValidDate(cprVal) && isValidDate(faVal) &&
-          cprVal !== faVal
-        ) {
-          cprFaMismatch.push({ row: rowNum, name, cprDate: cprVal, faDate: faVal });
+        const cprNorm = tryParseDateSuggestion(row[cprCol]) || (row[cprCol] || "").toString().trim();
+        const faNorm = tryParseDateSuggestion(row[faCol]) || (row[faCol] || "").toString().trim();
+        if (cprNorm && !isExcusal(cprNorm)) {
+          if (!faNorm || (faNorm !== cprNorm && !isExcusal(faNorm))) {
+            cprFaMismatch.push({ row: rowNum, name, cprDate: cprNorm, faDate: faNorm || "(empty)" });
+          }
         }
       }
     }

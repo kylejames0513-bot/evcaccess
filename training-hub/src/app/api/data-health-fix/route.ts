@@ -195,8 +195,26 @@ async function handleFixCprFa(payload: FixCprFaPayload) {
   for (const item of payload.items) {
     const rowData = rows[item.row - 1];
     if (!rowData) continue;
-    const cprVal = (rowData[cprCol] || "").trim();
+    const cprRaw = rowData[cprCol];
+    // Normalize to M/D/YYYY
+    let cprVal = "";
+    if (cprRaw instanceof Date && !isNaN(cprRaw.getTime())) {
+      cprVal = `${cprRaw.getMonth() + 1}/${cprRaw.getDate()}/${cprRaw.getFullYear()}`;
+    } else {
+      cprVal = (cprRaw || "").toString().trim();
+      // If it's a parseable date string but not M/D/YYYY, normalize it
+      if (cprVal && !/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(cprVal)) {
+        try {
+          const d = new Date(cprVal);
+          if (!isNaN(d.getTime()) && d.getFullYear() >= 1990) {
+            cprVal = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+          }
+        } catch {}
+      }
+    }
     if (cprVal) {
+      // Write normalized CPR to both CPR and FIRSTAID
+      await updateCell("Training", item.row, cprCol, cprVal);
       await updateCell("Training", item.row, faCol, cprVal);
       fixed++;
     }
