@@ -781,6 +781,7 @@ function findDuplicates() {
 
   var data = sheet.getDataRange().getValues();
   var headers = data[0];
+  var numCols = headers.length;
 
   // Find name and active columns by header
   var lNameCol = -1, fNameCol = -1, activeCol = -1;
@@ -792,127 +793,219 @@ function findDuplicates() {
   }
   if (lNameCol < 0 || fNameCol < 0) { ui.alert("L NAME / F NAME columns not found."); return; }
 
+  // Find training column start (first column after the metadata columns)
+  var trainingColStart = -1;
+  for (var tc = 0; tc < TRAINING_CONFIG.length; tc++) {
+    for (var hc = 0; hc < headers.length; hc++) {
+      if (headers[hc].toString().trim() === TRAINING_CONFIG[tc].column) {
+        if (trainingColStart < 0 || hc < trainingColStart) trainingColStart = hc;
+      }
+    }
+  }
+  if (trainingColStart < 0) trainingColStart = 3;
+
   // Group rows by normalized name
-  var nameMap = {};  // normalized key → array of {row, last, first, active}
+  var nameMap = {};
   for (var r = 1; r < data.length; r++) {
     var last = data[r][lNameCol] ? data[r][lNameCol].toString().trim() : "";
     var first = data[r][fNameCol] ? data[r][fNameCol].toString().trim() : "";
     if (!last) continue;
-
     var active = activeCol >= 0 ? (data[r][activeCol] || "").toString().trim().toUpperCase() : "";
     var key = last.toLowerCase() + "|" + first.toLowerCase().replace(/["'()]/g, "").replace(/\s+/g, " ").trim();
-
     if (!nameMap[key]) nameMap[key] = [];
-    nameMap[key].push({ row: r + 1, last: last, first: first, active: active });
+    nameMap[key].push({ row: r + 1, rowIdx: r, last: last, first: first, active: active });
   }
 
-  // Also check for fuzzy/nickname duplicates
-  var exactDupes = [];
-  var fuzzyDupes = [];
-  var checkedPairs = {};
-
+  // Collect all duplicate groups
+  var allDupes = [];
   var keys = Object.keys(nameMap);
 
-  // Exact duplicates (same name)
+  // Exact duplicates
   for (var k = 0; k < keys.length; k++) {
     if (nameMap[keys[k]].length > 1) {
-      exactDupes.push(nameMap[keys[k]]);
+      allDupes.push({ type: "EXACT", entries: nameMap[keys[k]], reason: "exact match" });
     }
   }
 
-  // Fuzzy duplicates (same last name, similar first name)
+  // Fuzzy/nickname duplicates
+  var checkedPairs = {};
   for (var k1 = 0; k1 < keys.length; k1++) {
     var parts1 = keys[k1].split("|");
-    var last1 = parts1[0];
-    var first1 = parts1[1];
-
     for (var k2 = k1 + 1; k2 < keys.length; k2++) {
       var parts2 = keys[k2].split("|");
-      var last2 = parts2[0];
-      var first2 = parts2[1];
-
-      if (last1 !== last2) continue;
-
+      if (parts1[0] !== parts2[0]) continue;
       var pairKey = k1 + "|" + k2;
       if (checkedPairs[pairKey]) continue;
       checkedPairs[pairKey] = true;
 
-      // Check nickname match
-      var isNickname = false;
-      var nicks1 = NICKNAMES[first1] || [];
-      var nicks2 = NICKNAMES[first2] || [];
-      if (nicks1.indexOf(first2) > -1 || nicks2.indexOf(first1) > -1) {
-        isNickname = true;
-      }
-
-      // Check fuzzy similarity
-      var sim = stringSimilarity(first1, first2);
+      var nicks1 = NICKNAMES[parts1[1]] || [];
+      var nicks2 = NICKNAMES[parts2[1]] || [];
+      var isNickname = nicks1.indexOf(parts2[1]) > -1 || nicks2.indexOf(parts1[1]) > -1;
+      var sim = stringSimilarity(parts1[1], parts2[1]);
 
       if (isNickname || sim > 0.7) {
-        var allEntries = nameMap[keys[k1]].concat(nameMap[keys[k2]]);
-        fuzzyDupes.push({ entries: allEntries, reason: isNickname ? "nickname" : "similar (" + Math.round(sim * 100) + "%)" });
+        allDupes.push({
+          type: "POSSIBLE",
+          entries: nameMap[keys[k1]].concat(nameMap[keys[k2]]),
+          reason: isNickname ? "nickname" : "similar (" + Math.round(sim * 100) + "%)"
+        });
       }
     }
   }
 
-  // Highlight duplicates on the sheet
-  var highlighted = 0;
-  for (var d = 0; d < exactDupes.length; d++) {
-    for (var e = 0; e < exactDupes[d].length; e++) {
-      var row = exactDupes[d][e].row;
-      sheet.getRange(row, lNameCol + 1).setBackground("#FFEB9C");
-      sheet.getRange(row, fNameCol + 1).setBackground("#FFEB9C");
-      sheet.getRange(row, fNameCol + 1).setNote(
-        "EXACT DUPLICATE: " + exactDupes[d].length + " rows with this name: " +
-        exactDupes[d].map(function(x) { return "row " + x.row + " (" + (x.active === "Y" ? "Active" : x.active || "?") + ")"; }).join(", ")
-      );
-      highlighted++;
+  if (allDupes.length === 0) {
+    ui.alert("No duplicates found!");
+    return;
+  }
+
+  // Show summary first
+  var exactCount = allDupes.filter(function(d) { return d.type === "EXACT"; }).length;
+  var possibleCount = allDupes.length - exactCount;
+  var startResult = ui.alert(
+    "Found " + allDupes.length + " duplicate group(s)",
+    exactCount + " exact duplicate(s)\n" +
+    possibleCount + " possible duplicate(s)\n\n" +
+    "Click OK to review each one and choose:\n" +
+    "  • Which row to KEEP (newest dates are merged)\n" +
+    "  • Whether to DELETE the other row\n" +
+    "  • Or SKIP to the next one",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (startResult !== ui.Button.OK) return;
+
+  var deleted = 0;
+  var merged = 0;
+  var skipped = 0;
+  var rowsDeleted = []; // track deleted rows to adjust later
+
+  for (var d = 0; d < allDupes.length; d++) {
+    var group = allDupes[d];
+    var entries = group.entries;
+
+    // Build comparison for each row
+    var msg = "── " + group.type + " DUPLICATE (" + group.reason + ") ──\n";
+    msg += "Group " + (d + 1) + " of " + allDupes.length + "\n\n";
+
+    for (var e = 0; e < entries.length; e++) {
+      var ent = entries[e];
+      var rowData = data[ent.rowIdx];
+      msg += (e + 1) + ") Row " + ent.row + ": " + ent.first + " " + ent.last;
+      msg += " [" + (ent.active === "Y" ? "Active" : ent.active || "?") + "]\n";
+
+      // Show training dates that have values
+      var dateCount = 0;
+      for (var col = trainingColStart; col < numCols && dateCount < 8; col++) {
+        var val = rowData[col] ? rowData[col].toString().trim() : "";
+        if (val) {
+          msg += "   " + headers[col].toString().trim() + ": " + val + "\n";
+          dateCount++;
+        }
+      }
+      if (dateCount === 0) msg += "   (no training dates)\n";
+      msg += "\n";
     }
-  }
-  for (var f = 0; f < fuzzyDupes.length; f++) {
-    for (var g = 0; g < fuzzyDupes[f].entries.length; g++) {
-      var row = fuzzyDupes[f].entries[g].row;
-      sheet.getRange(row, fNameCol + 1).setBackground("#BDD7EE");
-      sheet.getRange(row, fNameCol + 1).setNote(
-        "POSSIBLE DUPLICATE (" + fuzzyDupes[f].reason + "): " +
-        fuzzyDupes[f].entries.map(function(x) { return x.first + " " + x.last + " (row " + x.row + ", " + (x.active === "Y" ? "Active" : x.active || "?") + ")"; }).join(", ")
-      );
-      highlighted++;
+
+    msg += "Enter the number to KEEP (1";
+    for (var n = 2; n <= entries.length; n++) msg += ", " + n;
+    msg += ") or S to skip:";
+
+    var choice = ui.prompt("Review Duplicate", msg, ui.ButtonSet.OK_CANCEL);
+    if (choice.getSelectedButton() !== ui.Button.OK) {
+      ui.alert("Stopped. Deleted " + deleted + " row(s), merged " + merged + ", skipped " + skipped + ".");
+      return;
     }
-  }
 
-  // Build summary
-  var summary = "Duplicate Scan Complete!\n\n";
-  summary += "Exact duplicates: " + exactDupes.length + " group(s)\n";
-  summary += "Possible duplicates (nickname/similar): " + fuzzyDupes.length + " group(s)\n";
-  summary += "Cells highlighted: " + highlighted + "\n\n";
-
-  if (exactDupes.length > 0) {
-    summary += "── EXACT DUPLICATES (yellow) ──\n";
-    for (var d = 0; d < Math.min(exactDupes.length, 20); d++) {
-      var name = exactDupes[d][0].first + " " + exactDupes[d][0].last;
-      var rows = exactDupes[d].map(function(x) { return "row " + x.row + " (" + (x.active === "Y" ? "Active" : x.active || "?") + ")"; }).join(", ");
-      summary += "  " + name + ": " + rows + "\n";
+    var response = choice.getResponseText().trim().toUpperCase();
+    if (response === "S" || response === "SKIP") {
+      skipped++;
+      continue;
     }
-    summary += "\n";
-  }
 
-  if (fuzzyDupes.length > 0) {
-    summary += "── POSSIBLE DUPLICATES (blue) ──\n";
-    for (var f = 0; f < Math.min(fuzzyDupes.length, 20); f++) {
-      var names = fuzzyDupes[f].entries.map(function(x) { return x.first + " " + x.last + " (row " + x.row + ")"; }).join(" ↔ ");
-      summary += "  " + names + " [" + fuzzyDupes[f].reason + "]\n";
+    var keepIdx = parseInt(response) - 1;
+    if (isNaN(keepIdx) || keepIdx < 0 || keepIdx >= entries.length) {
+      skipped++;
+      continue;
     }
-    summary += "\n";
+
+    var keepEntry = entries[keepIdx];
+    var keepRowData = data[keepEntry.rowIdx];
+
+    // Merge: for each training column, keep the newest date across all rows
+    for (var col = trainingColStart; col < numCols; col++) {
+      var bestVal = keepRowData[col] ? keepRowData[col].toString().trim() : "";
+      var bestDate = parseToDate(bestVal);
+
+      for (var other = 0; other < entries.length; other++) {
+        if (other === keepIdx) continue;
+        var otherVal = data[entries[other].rowIdx][col] ? data[entries[other].rowIdx][col].toString().trim() : "";
+        if (!otherVal) continue;
+
+        // If keep row is empty, take the other value
+        if (!bestVal) {
+          bestVal = otherVal;
+          bestDate = parseToDate(otherVal);
+          continue;
+        }
+
+        // If other row has a date and it's newer, take it
+        var otherDate = parseToDate(otherVal);
+        if (otherDate && bestDate && otherDate.getTime() > bestDate.getTime()) {
+          bestVal = otherVal;
+          bestDate = otherDate;
+        }
+
+        // If keep has no date but other has excusal code, take the excusal
+        if (!bestDate && !otherDate && EXCUSAL_MAP_[otherVal.toUpperCase()] && !EXCUSAL_MAP_[bestVal.toUpperCase()]) {
+          bestVal = otherVal;
+        }
+      }
+
+      // Write merged value to keep row
+      var currentKeep = keepRowData[col] ? keepRowData[col].toString().trim() : "";
+      if (bestVal !== currentKeep) {
+        sheet.getRange(keepEntry.row, col + 1).setValue(bestVal);
+        merged++;
+      }
+    }
+
+    // Also keep Active=Y if any row has it
+    for (var ae = 0; ae < entries.length; ae++) {
+      if (entries[ae].active === "Y" && keepEntry.active !== "Y") {
+        sheet.getRange(keepEntry.row, activeCol + 1).setValue("Y");
+        break;
+      }
+    }
+
+    // Delete the other rows (from bottom up to avoid row shift issues)
+    var rowsToDelete = [];
+    for (var del = 0; del < entries.length; del++) {
+      if (del === keepIdx) continue;
+      rowsToDelete.push(entries[del].row);
+    }
+    rowsToDelete.sort(function(a, b) { return b - a; }); // bottom up
+
+    for (var dr = 0; dr < rowsToDelete.length; dr++) {
+      // Adjust for previously deleted rows
+      var adjustedRow = rowsToDelete[dr];
+      for (var prev = 0; prev < rowsDeleted.length; prev++) {
+        if (rowsDeleted[prev] < adjustedRow) adjustedRow--;
+      }
+      sheet.deleteRow(adjustedRow);
+      rowsDeleted.push(rowsToDelete[dr]);
+      deleted++;
+    }
+
+    // Clear highlights on kept row
+    sheet.getRange(keepEntry.row, lNameCol + 1).setBackground(null);
+    sheet.getRange(keepEntry.row, fNameCol + 1).setBackground(null).clearNote();
   }
 
-  if (exactDupes.length === 0 && fuzzyDupes.length === 0) {
-    summary += "No duplicates found!";
-  } else {
-    summary += "Yellow = exact duplicate\nBlue = possible duplicate (nickname or similar spelling)\n\nCheck the highlighted cells on the Training sheet.";
-  }
-
-  ui.alert(summary);
+  ui.alert(
+    "Duplicate Review Complete!\n\n" +
+    "Rows deleted: " + deleted + "\n" +
+    "Cells merged (newer date kept): " + merged + "\n" +
+    "Groups skipped: " + skipped
+  );
 }
 
 
