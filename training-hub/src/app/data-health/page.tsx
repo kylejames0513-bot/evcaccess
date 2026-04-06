@@ -77,6 +77,7 @@ export default function DataHealthPage() {
   // CPR/FA state
   const [fixingCpr, setFixingCpr] = useState(false);
   const [fixingCprRow, setFixingCprRow] = useState<number | null>(null);
+  const [cprFixResult, setCprFixResult] = useState("");
 
   if (loading) return <Loading message="Scanning training data..." />;
   if (error) return <ErrorState message={error} />;
@@ -147,8 +148,6 @@ export default function DataHealthPage() {
   }
 
   // ── CPR/FA actions ──
-  const [cprFixResult, setCprFixResult] = useState("");
-
   async function handleFixAllCpr() {
     setFixingCpr(true);
     setCprFixResult("");
