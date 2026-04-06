@@ -67,47 +67,39 @@ async function handleClearGarbled(payload: ClearGarbledPayload) {
     return Response.json({ error: "No items provided" }, { status: 400 });
   }
 
-  // Read entire sheet, modify in memory, write back affected rows only
   const rows = await readRangeFresh("Training");
   const headers = rows[0];
-  const totalCols = headers.length;
 
-  // Group items by row for efficient writing
-  const rowUpdates = new Map<number, Map<number, string>>();
+  // Build cell-level writes (safe — only touches the specific cells)
+  const data: Array<{ range: string; values: string[][] }> = [];
   for (const item of payload.items) {
     const colIndex = headers.findIndex(
       (h) => h.trim().toUpperCase() === item.column.toUpperCase()
     );
     if (colIndex < 0) continue;
-    if (!rowUpdates.has(item.row)) rowUpdates.set(item.row, new Map());
-    rowUpdates.get(item.row)!.set(colIndex, item.newValue || "");
+    const col = colToLetter(colIndex);
+    data.push({ range: `Training!${col}${item.row}`, values: [[item.newValue || ""]] });
   }
 
-  // Build row-level writes (1 write per affected row instead of per cell)
-  const data: Array<{ range: string; values: string[][] }> = [];
-  for (const [rowNum, colChanges] of rowUpdates) {
-    const rowData = rows[rowNum - 1];
-    if (!rowData) continue;
-    const newRow = [...rowData];
-    for (const [col, val] of colChanges) {
-      newRow[col] = val;
-    }
-    const lastCol = colToLetter(totalCols - 1);
-    data.push({ range: `Training!A${rowNum}:${lastCol}${rowNum}`, values: [newRow] });
-  }
-
-  if (data.length > 0) {
+  // Write in chunks of 50 to avoid quota (with delay between chunks)
+  const CHUNK_SIZE = 50;
+  let written = 0;
+  for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+    const chunk = data.slice(i, i + CHUNK_SIZE);
     const sheets = getSheets();
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: getSpreadsheetId(),
-      requestBody: { valueInputOption: "USER_ENTERED", data },
+      requestBody: { valueInputOption: "USER_ENTERED", data: chunk },
     });
+    written += chunk.length;
+    // Wait 1 second between chunks to avoid quota
+    if (i + CHUNK_SIZE < data.length) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   }
 
   invalidateAll();
-  let totalCells = 0;
-  for (const m of rowUpdates.values()) totalCells += m.size;
-  return Response.json({ success: true, message: `Fixed ${totalCells} cell(s) across ${data.length} row(s)` });
+  return Response.json({ success: true, message: `Fixed ${written} cell(s)` });
 }
 
 // ----------------------------------------------------------------
@@ -211,7 +203,7 @@ async function handleFixCprFa(payload: FixCprFaPayload) {
   }
 
   const skipped: string[] = [];
-  const rowsToWrite = new Set<number>();
+  const writes: Array<{ range: string; values: string[][] }> = [];
 
   for (const item of payload.items) {
     const rowData = rows[item.row - 1];
@@ -237,30 +229,30 @@ async function handleFixCprFa(payload: FixCprFaPayload) {
       }
     }
 
-    // Update the row data in memory
-    rowData[cprCol] = cprVal;
-    rowData[faCol] = cprVal;
-    // Track which rows need writing
-    rowsToWrite.add(item.row);
+    // Add cell-level writes (safe — only touches CPR and FA columns)
+    const cprLetter = colToLetter(cprCol);
+    const faLetter = colToLetter(faCol);
+    writes.push({ range: `Training!${cprLetter}${item.row}`, values: [[cprVal]] });
+    writes.push({ range: `Training!${faLetter}${item.row}`, values: [[cprVal]] });
   }
 
-  // Write affected rows back (1 API call per row, much fewer than per cell)
-  const totalCols = headers.length;
-  const lastCol = colToLetter(totalCols - 1);
-  const batchData = Array.from(rowsToWrite).map((rowNum) => ({
-    range: `Training!A${rowNum}:${lastCol}${rowNum}`,
-    values: [rows[rowNum - 1]],
-  }));
-
-  if (batchData.length > 0) {
+  // Write in chunks of 50 to avoid quota
+  const CHUNK_SIZE = 50;
+  let written = 0;
+  for (let i = 0; i < writes.length; i += CHUNK_SIZE) {
+    const chunk = writes.slice(i, i + CHUNK_SIZE);
     const sheets = getSheets();
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: getSpreadsheetId(),
-      requestBody: { valueInputOption: "USER_ENTERED", data: batchData },
+      requestBody: { valueInputOption: "USER_ENTERED", data: chunk },
     });
+    written += chunk.length;
+    if (i + CHUNK_SIZE < writes.length) {
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   }
 
-  const fixed = rowsToWrite.size;
+  const fixed = Math.floor(written / 2);
   invalidateAll();
   return Response.json({
     success: true,
