@@ -49,8 +49,9 @@ function tryParseDateSuggestion(value: unknown): string {
 
   const s = String(value).trim();
 
-  // Already clean
-  if (isCleanDate(s)) return s;
+  // M/D/YYYY with 4-digit year — normalize to strip leading zeros
+  const fullDate = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (fullDate) return `${parseInt(fullDate[1])}/${parseInt(fullDate[2])}/${fullDate[3]}`;
 
   // M/D/YY — expand to 4-digit year
   const shortYear = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);

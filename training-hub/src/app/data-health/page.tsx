@@ -161,8 +161,7 @@ export default function DataHealthPage() {
       if (!res.ok) {
         setCprFixResult("API Error: " + (data.error || res.status));
       } else {
-        const debugStr = data.debug ? ` | Debug: range=${data.debug.sampleRange} val=${data.debug.sampleValue} cprCol=${data.debug.cprCol} faCol=${data.debug.faCol}` : "";
-        setCprFixResult((data.message || `Fixed ${data.fixed}`) + debugStr);
+        setCprFixResult(data.message || `Fixed ${data.fixed}`);
         await doRefresh();
       }
     } catch (err) {
