@@ -36,7 +36,7 @@ export default function SettingsPage() {
       <DeptRulesSection />
 
       {/* Bulk Excuse */}
-      <BulkExcuseSection trackedTrainings={tracks} />
+      <BulkExcuseSection />
     </div>
   );
 }
@@ -427,7 +427,7 @@ const EXCUSAL_REASONS = [
   { code: "EI", label: "EI" },
 ];
 
-function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string> }) {
+function BulkExcuseSection() {
   const [divisions, setDivisions] = useState<string[]>([]);
   const [employees, setEmployees] = useState<Array<{ name: string; position: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -454,7 +454,7 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
       .finally(() => setLoading(false));
   }, []);
 
-  const trackedList = ALL_TRAININGS.filter((t) => trackedTrainings.has(t.columnKey));
+  const trackedList = ALL_TRAININGS;
 
   function toggleTraining(key: string) {
     const next = new Set(selectedTrainings);
