@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { XCircle, Clock, AlertTriangle, UserPlus, Loader2, Check, X, CalendarPlus, RefreshCw } from "lucide-react";
 import StatCard from "@/components/ui/StatCard";
 import StatusBadge from "@/components/ui/StatusBadge";
+import EmployeeDetailModal from "@/components/EmployeeDetailModal";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 import { namesMatch } from "@/lib/name-utils";
@@ -46,6 +47,7 @@ export default function CompliancePage() {
   const [divisionFilter, setDivisionFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [enrollPopup, setEnrollPopup] = useState<{ employee: string; training: string } | null>(null);
+  const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
 
   // Re-fetch schedule after enrollment
   const { data: freshSchedule } = useFetch<ScheduleData>(`/api/schedule?r=${refreshKey}`);
@@ -137,6 +139,15 @@ export default function CompliancePage() {
         <span className="ml-auto text-xs text-slate-400">{filtered.length} result{filtered.length !== 1 ? "s" : ""}</span>
       </div>
 
+      {/* Employee Detail Modal */}
+      {selectedEmployee && (
+        <EmployeeDetailModal
+          name={selectedEmployee}
+          onClose={() => setSelectedEmployee(null)}
+          onEnrolled={() => { setSelectedEmployee(null); setRefreshKey((k) => k + 1); }}
+        />
+      )}
+
       {/* Quick Enroll Popup */}
       {enrollPopup && (
         <QuickEnrollPopup
@@ -179,7 +190,7 @@ export default function CompliancePage() {
 
                 return (
                   <tr key={i} className={`hover:bg-blue-50/30 group ${enrolledSession ? "bg-emerald-50/30" : ""}`}>
-                    <td className="px-5 py-3 text-sm font-medium text-slate-900">{item.employee}</td>
+                    <td className="px-5 py-3 text-sm font-medium text-blue-700 hover:text-blue-900 cursor-pointer" onClick={() => setSelectedEmployee(item.employee)}>{item.employee}</td>
                     <td className="px-5 py-3 text-sm text-slate-600">{item.training}</td>
                     <td className="px-5 py-3 text-sm text-slate-500">{item.date || "—"}</td>
                     <td className="px-5 py-3 text-sm text-slate-500">{item.expirationDate || "—"}</td>
