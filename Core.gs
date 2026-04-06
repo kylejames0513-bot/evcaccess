@@ -2219,34 +2219,56 @@ function syncEmployeesSheet() {
 
   // ═══════════════════════════════════════════════════════════
   //  STEP 3: Deactivate employees not in Paylocity
+  //  Uses findTrainingRow in reverse for full fuzzy matching
   // ═══════════════════════════════════════════════════════════
   if (tActiveCol >= 0) {
+    // Build a searchable array from Employees sheet (same format as trainingData)
+    var empSearchData = [["", ""]]; // header row placeholder
+    for (var ei = 1; ei < empData.length; ei++) {
+      var eLast = empData[ei][eLastCol] ? empData[ei][eLastCol].toString().trim() : "";
+      var eFirst = empData[ei][eFirstCol] ? empData[ei][eFirstCol].toString().trim() : "";
+      var ePref = ePrefCol >= 0 && empData[ei][ePrefCol] ? empData[ei][ePrefCol].toString().trim() : "";
+      var eStat = eStatusCol >= 0 ? (empData[ei][eStatusCol] || "").toString().trim() : "";
+      var eActive = eStat.toLowerCase() === "active" || eStat === "A" || eStat === "Y";
+      if (!eLast || !eFirst) continue;
+      // Add both legal and preferred name entries
+      empSearchData.push([eLast, eFirst, eActive ? "Y" : "N"]);
+      if (ePref && ePref !== eFirst) {
+        empSearchData.push([eLast, ePref, eActive ? "Y" : "N"]);
+      }
+    }
+
     trainingData = trainingSheet.getDataRange().getValues();
+    var toDeactivate = [];
+
     for (var r = 1; r < trainingData.length; r++) {
-      var tL = trainingData[r][tLNameCol] ? trainingData[r][tLNameCol].toString().trim().toLowerCase() : "";
-      var tF = trainingData[r][tFNameCol] ? trainingData[r][tFNameCol].toString().trim().toLowerCase() : "";
-      var tFC = tF.replace(/["'()\-\u2019]/g, "").replace(/\s+/g, " ").trim();
+      var tL = trainingData[r][tLNameCol] ? trainingData[r][tLNameCol].toString().trim() : "";
+      var tF = trainingData[r][tFNameCol] ? trainingData[r][tFNameCol].toString().trim() : "";
       var curActive = trainingData[r][tActiveCol] ? trainingData[r][tActiveCol].toString().trim() : "";
       if (!tL || curActive !== "Y") continue;
 
-      var found = false;
-      var tryKeys = [tL + "|" + tF, tL + "|" + tFC];
-      var fParts = tFC.split(" ");
-      for (var fp = 0; fp < fParts.length; fp++) tryKeys.push(tL + "|" + fParts[fp]);
+      // Search the Employees list using full fuzzy matching
+      var empMatch = findTrainingRow(empSearchData, tF, tL);
+      if (empMatch >= 0) continue; // found in Paylocity — keep active
 
-      for (var tk = 0; tk < tryKeys.length; tk++) {
-        if (paylocityNames[tryKeys[tk]]) { found = true; break; }
+      toDeactivate.push({ row: r + 1, name: tF + " " + tL });
+    }
+
+    if (toDeactivate.length > 0) {
+      var deactMsg = "Found " + toDeactivate.length + " active employee(s) NOT in the Employees sheet:\n\n";
+      for (var di = 0; di < Math.min(toDeactivate.length, 30); di++) {
+        deactMsg += "  Row " + toDeactivate[di].row + ": " + toDeactivate[di].name + "\n";
       }
-      if (!found) {
-        var nicks = NICKNAMES[tFC] || NICKNAMES[fParts[0]] || [];
-        for (var ni = 0; ni < nicks.length; ni++) {
-          if (paylocityNames[tL + "|" + nicks[ni]]) { found = true; break; }
+      if (toDeactivate.length > 30) deactMsg += "  ...and " + (toDeactivate.length - 30) + " more\n";
+      deactMsg += "\nSet these to Inactive?";
+
+      var deactConfirm = ui.alert("Deactivate?", deactMsg, ui.ButtonSet.YES_NO);
+      if (deactConfirm === ui.Button.YES) {
+        for (var di = 0; di < toDeactivate.length; di++) {
+          trainingSheet.getRange(toDeactivate[di].row, tActiveCol + 1).setValue("N");
+          stats.tDeactivated++;
+          Logger.log("Deactivated: " + toDeactivate[di].name + " (row " + toDeactivate[di].row + ")");
         }
-      }
-      if (!found) {
-        trainingSheet.getRange(r + 1, tActiveCol + 1).setValue("N");
-        stats.tDeactivated++;
-        Logger.log("Deactivated: " + trainingData[r][tFNameCol] + " " + trainingData[r][tLNameCol] + " (row " + (r + 1) + ")");
       }
     }
   }
