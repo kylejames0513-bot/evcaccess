@@ -518,7 +518,7 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
   const [divisions, setDivisions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [division, setDivision] = useState("");
-  const [trainingKey, setTrainingKey] = useState("");
+  const [selectedTrainings, setSelectedTrainings] = useState<Set<string>>(new Set());
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ excused: number; skipped: number } | null>(null);
@@ -534,8 +534,26 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
 
   const trackedList = ALL_TRAININGS.filter((t) => trackedTrainings.has(t.columnKey));
 
+  function toggleTraining(key: string) {
+    const next = new Set(selectedTrainings);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setSelectedTrainings(next);
+    setResult(null);
+  }
+
+  function selectAllTrainings() {
+    setSelectedTrainings(new Set(trackedList.map((t) => t.columnKey)));
+    setResult(null);
+  }
+
+  function clearAllTrainings() {
+    setSelectedTrainings(new Set());
+    setResult(null);
+  }
+
   async function handleExcuse() {
-    if (!division || !trainingKey || !reason) return;
+    if (!division || selectedTrainings.size === 0 || !reason) return;
     setSubmitting(true);
     setResult(null);
     setError("");
@@ -543,7 +561,7 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
       const res = await fetch("/api/bulk-excuse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ division, trainingColumnKey: trainingKey, reason }),
+        body: JSON.stringify({ division, trainingColumnKeys: Array.from(selectedTrainings), reason }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
@@ -554,6 +572,8 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
     setSubmitting(false);
   }
 
+  const allSelected = selectedTrainings.size === trackedList.length;
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
       <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-3">
@@ -562,7 +582,7 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
         </div>
         <div>
           <h2 className="font-semibold text-slate-900">Bulk Excuse</h2>
-          <p className="text-xs text-slate-500">Excuse an entire division from a training at once</p>
+          <p className="text-xs text-slate-500">Excuse an entire division from one or more trainings at once</p>
         </div>
       </div>
 
@@ -572,7 +592,7 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
         </div>
       ) : (
         <div className="px-6 py-5 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Division</label>
               <select
@@ -583,20 +603,6 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
                 <option value="">Select division...</option>
                 {divisions.map((d) => (
                   <option key={d} value={d}>{formatDivision(d)}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Training</label>
-              <select
-                value={trainingKey}
-                onChange={(e) => { setTrainingKey(e.target.value); setResult(null); }}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Select training...</option>
-                {trackedList.map((t) => (
-                  <option key={t.columnKey} value={t.columnKey}>{t.name}</option>
                 ))}
               </select>
             </div>
@@ -616,38 +622,72 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
             </div>
           </div>
 
+          {/* Training multi-select */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                Trainings ({selectedTrainings.size} selected)
+              </label>
+              <button
+                onClick={allSelected ? clearAllTrainings : selectAllTrainings}
+                className="text-xs font-medium text-blue-600 hover:text-blue-800"
+              >
+                {allSelected ? "Deselect All" : "Select All"}
+              </button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5 max-h-48 overflow-y-auto p-1 border border-slate-100 rounded-lg">
+              {trackedList.map(({ columnKey, name }) => {
+                const isSelected = selectedTrainings.has(columnKey);
+                return (
+                  <button
+                    key={columnKey}
+                    onClick={() => toggleTraining(columnKey)}
+                    className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-xs transition-colors ${
+                      isSelected ? "bg-blue-100 text-blue-800" : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+                    }`}
+                  >
+                    <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${
+                      isSelected ? "bg-[#1e3a5f] border-[#1e3a5f]" : "border-slate-300"
+                    }`}>
+                      {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
+                    </div>
+                    <span className="font-medium truncate">{name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="flex items-center gap-4">
             <button
               onClick={handleExcuse}
-              disabled={!division || !trainingKey || !reason || submitting}
+              disabled={!division || selectedTrainings.size === 0 || !reason || submitting}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#1e3a5f] text-white hover:bg-[#2a4d7a] disabled:opacity-50 transition-all"
             >
               {submitting ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Excusing...</>
               ) : (
-                <><ShieldCheck className="h-4 w-4" /> Excuse Division</>
+                <><ShieldCheck className="h-4 w-4" /> Excuse {selectedTrainings.size} Training{selectedTrainings.size !== 1 ? "s" : ""}</>
               )}
             </button>
 
             {result && (
               <p className="text-sm text-slate-600">
-                <span className="font-semibold text-emerald-700">{result.excused} excused</span>
+                <span className="font-semibold text-emerald-700">{result.excused} cell(s) excused</span>
                 {result.skipped > 0 && (
-                  <>, <span className="text-slate-400">{result.skipped} skipped (already completed or excused)</span></>
+                  <>, <span className="text-slate-400">{result.skipped} skipped</span></>
                 )}
               </p>
             )}
 
-            {error && (
-              <p className="text-sm text-red-600 font-medium">{error}</p>
-            )}
+            {error && <p className="text-sm text-red-600 font-medium">{error}</p>}
           </div>
         </div>
       )}
 
       <div className="px-6 py-3 border-t border-slate-100 bg-slate-50">
         <p className="text-xs text-slate-500">
-          Only employees with an empty value for the selected training will be excused. Existing dates and excusals are never overwritten.
+          Only empty cells are excused. Existing dates and excusals are never overwritten.
         </p>
       </div>
     </div>

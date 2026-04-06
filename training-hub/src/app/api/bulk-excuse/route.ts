@@ -4,11 +4,16 @@ import { invalidateAll } from "@/lib/cache";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { division, trainingColumnKey, reason } = body;
+    const { division, trainingColumnKeys, reason } = body;
 
-    if (!division || !trainingColumnKey || !reason) {
+    // Support both single key (legacy) and array
+    const keys: string[] = trainingColumnKeys
+      ? (Array.isArray(trainingColumnKeys) ? trainingColumnKeys : [trainingColumnKeys])
+      : body.trainingColumnKey ? [body.trainingColumnKey] : [];
+
+    if (!division || keys.length === 0 || !reason) {
       return Response.json(
-        { error: "Missing required fields: division, trainingColumnKey, reason" },
+        { error: "Missing required fields: division, trainingColumnKeys (array), reason" },
         { status: 400 }
       );
     }
@@ -24,13 +29,18 @@ export async function POST(request: Request) {
 
     const activeCol = hdr("ACTIVE");
     const divCol = hdr("Division Description");
-    const trainingCol = hdr(trainingColumnKey);
 
     if (divCol < 0) {
       return Response.json({ error: "Division Description column not found" }, { status: 400 });
     }
-    if (trainingCol < 0) {
-      return Response.json({ error: `Training column "${trainingColumnKey}" not found` }, { status: 400 });
+
+    // Resolve all training column indices
+    const trainingCols: { key: string; col: number }[] = [];
+    const notFound: string[] = [];
+    for (const key of keys) {
+      const col = hdr(key);
+      if (col < 0) notFound.push(key);
+      else trainingCols.push({ key, col });
     }
 
     let excused = 0;
@@ -39,31 +49,34 @@ export async function POST(request: Request) {
     for (let i = 1; i < rows.length; i++) {
       const row = rows[i];
 
-      // Only active employees
       if (activeCol >= 0) {
         const active = (row[activeCol] || "").toString().trim().toUpperCase();
         if (active !== "Y") continue;
       }
 
-      // Match division
       const empDiv = (row[divCol] || "").trim();
       if (empDiv.toLowerCase() !== division.toLowerCase()) continue;
 
-      // Check current value — skip if already has a date or excusal
-      const currentValue = (row[trainingCol] || "").trim();
-      if (currentValue) {
-        skipped++;
-        continue;
+      for (const tc of trainingCols) {
+        const currentValue = (row[tc.col] || "").trim();
+        if (currentValue) {
+          skipped++;
+          continue;
+        }
+        await updateCell("Training", i + 1, tc.col, reason);
+        excused++;
       }
-
-      // Write the reason
-      await updateCell("Training", i + 1, trainingCol, reason);
-      excused++;
     }
 
     invalidateAll();
 
-    return Response.json({ success: true, excused, skipped });
+    return Response.json({
+      success: true,
+      excused,
+      skipped,
+      trainingsProcessed: trainingCols.length,
+      notFound: notFound.length > 0 ? notFound : undefined,
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return Response.json({ error: message }, { status: 500 });
