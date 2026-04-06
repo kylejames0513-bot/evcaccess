@@ -20,7 +20,7 @@ import StatCard from "@/components/ui/StatCard";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 
-interface GarbledDate { row: number; name: string; column: string; value: string; }
+interface GarbledDate { row: number; name: string; column: string; value: string; suggestion: string; }
 interface DuplicateEmployee { name: string; rows: number[]; }
 interface CprFaMismatch { row: number; name: string; cprDate: string; faDate: string; }
 
@@ -64,6 +64,7 @@ export default function DataHealthPage() {
 
   // Garbled dates state
   const [selectedGarbled, setSelectedGarbled] = useState<Set<string>>(new Set());
+  const [garbledEdits, setGarbledEdits] = useState<Record<string, string>>({});
   const [clearingGarbled, setClearingGarbled] = useState(false);
 
   // Duplicate state — which row to keep per group
@@ -99,10 +100,30 @@ export default function DataHealthPage() {
     else setSelectedGarbled(new Set(issues.garbledDates.map((d) => `${d.row}|${d.column}`)));
   }
 
-  async function handleClearGarbled() {
+  function setGarbledEdit(key: string, value: string) {
+    setGarbledEdits({ ...garbledEdits, [key]: value });
+  }
+
+  function acceptAllSuggestions() {
+    const edits: Record<string, string> = { ...garbledEdits };
+    for (const d of issues.garbledDates) {
+      if (d.suggestion) {
+        const key = `${d.row}|${d.column}`;
+        edits[key] = d.suggestion;
+        selectedGarbled.add(key);
+      }
+    }
+    setGarbledEdits(edits);
+    setSelectedGarbled(new Set(selectedGarbled));
+  }
+
+  async function handleFixGarbled() {
     setClearingGarbled(true);
     try {
-      const items = Array.from(selectedGarbled).map((k) => { const [row, column] = k.split("|"); return { row: parseInt(row), column }; });
+      const items = Array.from(selectedGarbled).map((k) => {
+        const [row, column] = k.split("|");
+        return { row: parseInt(row), column, newValue: garbledEdits[k] || "" };
+      });
       await fetch("/api/data-health-fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "clear_garbled", items }) });
       doRefresh();
     } catch {}
@@ -167,11 +188,20 @@ export default function DataHealthPage() {
         {/* ── Garbled Dates ── */}
         <Section
           title="Garbled Dates" count={issues.garbledDates.length} icon={CalendarX}
-          action={selectedGarbled.size > 0 ? (
-            <button onClick={handleClearGarbled} disabled={clearingGarbled} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50">
-              {clearingGarbled ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-              Clear {selectedGarbled.size} Selected
-            </button>
+          action={issues.garbledDates.length > 0 ? (
+            <div className="flex items-center gap-2">
+              {issues.garbledDates.some((d) => d.suggestion) && (
+                <button onClick={acceptAllSuggestions} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100">
+                  <Wrench className="h-3 w-3" /> Accept All Suggestions
+                </button>
+              )}
+              {selectedGarbled.size > 0 && (
+                <button onClick={handleFixGarbled} disabled={clearingGarbled} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+                  {clearingGarbled ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
+                  Fix {selectedGarbled.size} Selected
+                </button>
+              )}
+            </div>
           ) : null}
         >
           {issues.garbledDates.length === 0 ? (
@@ -187,20 +217,34 @@ export default function DataHealthPage() {
                     <th className="pb-2 pr-4">Row</th>
                     <th className="pb-2 pr-4">Employee</th>
                     <th className="pb-2 pr-4">Column</th>
-                    <th className="pb-2">Value</th>
+                    <th className="pb-2 pr-4">Current Value</th>
+                    <th className="pb-2">Fix To</th>
                   </tr>
                 </thead>
                 <tbody>
                   {issues.garbledDates.map((d, i) => {
                     const key = `${d.row}|${d.column}`;
                     const checked = selectedGarbled.has(key);
+                    const editValue = garbledEdits[key] ?? d.suggestion ?? "";
                     return (
-                      <tr key={i} className={`border-b border-slate-50 last:border-0 ${checked ? "bg-red-50/50" : ""}`}>
+                      <tr key={i} className={`border-b border-slate-50 last:border-0 ${checked ? "bg-blue-50/50" : ""}`}>
                         <td className="py-2 pr-2"><input type="checkbox" checked={checked} onChange={() => toggleGarbled(key)} className="rounded border-slate-300" /></td>
                         <td className="py-2 pr-4 text-slate-500 font-mono text-xs">{d.row}</td>
                         <td className="py-2 pr-4 text-slate-800">{d.name}</td>
                         <td className="py-2 pr-4 text-slate-600 font-mono text-xs">{d.column}</td>
-                        <td className="py-2"><span className="bg-red-50 text-red-700 px-2 py-0.5 rounded text-xs font-mono">{d.value.substring(0, 50)}</span></td>
+                        <td className="py-2 pr-4"><span className="bg-red-50 text-red-700 px-2 py-0.5 rounded text-xs font-mono">{d.value.substring(0, 40)}</span></td>
+                        <td className="py-2">
+                          <input
+                            type="text"
+                            value={editValue}
+                            onChange={(e) => { setGarbledEdit(key, e.target.value); if (!checked) toggleGarbled(key); }}
+                            placeholder={d.suggestion || "M/D/YYYY or leave empty to clear"}
+                            className={`w-32 px-2 py-1 border rounded text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 ${d.suggestion && !garbledEdits[key] ? "border-emerald-300 bg-emerald-50/50 text-emerald-700" : "border-slate-200 text-slate-700"}`}
+                          />
+                          {d.suggestion && !garbledEdits[key] && (
+                            <span className="ml-1 text-[10px] text-emerald-600">suggested</span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}

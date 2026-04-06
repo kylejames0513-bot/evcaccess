@@ -84,7 +84,7 @@ export async function GET() {
       if (idx >= 0) trainingCols.push({ key, index: idx });
     }
 
-    const garbledDates: Array<{ row: number; name: string; column: string; value: string }> = [];
+    const garbledDates: Array<{ row: number; name: string; column: string; value: string; suggestion: string }> = [];
     const cprFaMismatch: Array<{ row: number; name: string; cprDate: string; faDate: string }> = [];
     const emptyRows: number[] = [];
     const missingNames: number[] = [];
@@ -133,7 +133,15 @@ export async function GET() {
         if (!value) continue;
         if (isExcusal(value)) continue;
         if (!isValidDate(value)) {
-          garbledDates.push({ row: rowNum, name, column: col.key, value });
+          // Try to suggest a clean date
+          let suggestion = "";
+          try {
+            const d = new Date(value);
+            if (!isNaN(d.getTime()) && d.getFullYear() > 1990 && d.getFullYear() < 2100) {
+              suggestion = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+            }
+          } catch {}
+          garbledDates.push({ row: rowNum, name, column: col.key, value, suggestion });
         }
       }
 

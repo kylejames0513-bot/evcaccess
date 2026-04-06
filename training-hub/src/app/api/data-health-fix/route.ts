@@ -14,7 +14,7 @@ import { invalidateAll } from "@/lib/cache";
 
 interface ClearGarbledPayload {
   action: "clear_garbled";
-  items: Array<{ row: number; column: string }>;
+  items: Array<{ row: number; column: string; newValue?: string }>;
 }
 
 interface RemoveDuplicatesPayload {
@@ -64,18 +64,21 @@ async function handleClearGarbled(payload: ClearGarbledPayload) {
   const rows = await readRange("Training");
   const headers = rows[0];
 
+  let fixed = 0;
   for (const item of payload.items) {
     const colIndex = headers.findIndex(
       (h) => h.trim().toUpperCase() === item.column.toUpperCase()
     );
     if (colIndex < 0) continue;
-    await updateCell("Training", item.row, colIndex, "");
+    // Write newValue if provided (user correction), otherwise clear
+    await updateCell("Training", item.row, colIndex, item.newValue || "");
+    fixed++;
   }
 
   invalidateAll();
   return Response.json({
     success: true,
-    message: `Cleared ${payload.items.length} garbled date(s)`,
+    message: `Fixed ${fixed} cell(s)`,
   });
 }
 
@@ -127,7 +130,7 @@ async function handleRemoveDuplicates(payload: RemoveDuplicatesPayload) {
     fields: "sheets.properties",
   });
   const trainingSheet = spreadsheet.data.sheets?.find(
-    (s: { properties?: { title?: string } }) => s.properties?.title === "Training"
+    (s) => s.properties?.title === "Training"
   );
   if (!trainingSheet?.properties?.sheetId && trainingSheet?.properties?.sheetId !== 0) {
     return Response.json(
