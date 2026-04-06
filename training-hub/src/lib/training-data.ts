@@ -276,6 +276,19 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
       );
       if (colIndex === -1) continue;
 
+      // Prerequisite check: skip if prerequisite column has no date
+      // (e.g., Post Med requires MED_TRAIN — don't show if no MED_TRAIN date)
+      if (def.prerequisite) {
+        const prereqCol = headers.findIndex(
+          (h) => h.trim().toUpperCase() === def.prerequisite!.toUpperCase()
+        );
+        if (prereqCol >= 0) {
+          const prereqVal = (row[prereqCol] || "").trim();
+          const prereqDate = parseDate(prereqVal);
+          if (!prereqDate && !isExcusal(prereqVal)) continue; // no prereq = skip this training
+        }
+      }
+
       const value = (row[colIndex] || "").trim();
       const isExcused = isExcusal(value);
       const date = parseDate(value);
