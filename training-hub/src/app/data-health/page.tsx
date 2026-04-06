@@ -226,7 +226,6 @@ export default function DataHealthPage() {
           ) : (() => {
             const CATEGORY_LABELS: Record<string, string> = {
               legacy_excusal: "Legacy Excusals",
-              short_year: "2-Digit Year",
               failed_code: "Failed Codes",
               date_format: "Date Format",
               missing_day: "Missing Day",
@@ -236,7 +235,6 @@ export default function DataHealthPage() {
             };
             const CATEGORY_COLORS: Record<string, string> = {
               legacy_excusal: "bg-indigo-100 text-indigo-800",
-              short_year: "bg-cyan-100 text-cyan-800",
               failed_code: "bg-orange-100 text-orange-800",
               date_format: "bg-blue-100 text-blue-800",
               missing_day: "bg-amber-100 text-amber-800",

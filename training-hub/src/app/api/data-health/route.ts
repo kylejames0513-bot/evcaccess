@@ -34,13 +34,14 @@ const LEGACY_EXCUSAL_CODES = new Set([
 ]);
 
 function isCleanDate(value: string): boolean {
-  // ONLY M/D/YYYY with 4-digit year is clean — everything else needs review
+  // M/D/YYYY or M/D/YY — both acceptable
   const s = value.trim();
-  const match = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const match = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
   if (!match) return false;
   const month = parseInt(match[1]);
   const day = parseInt(match[2]);
-  const year = parseInt(match[3]);
+  const yearStr = match[3];
+  const year = yearStr.length === 2 ? (parseInt(yearStr) < 50 ? 2000 + parseInt(yearStr) : 1900 + parseInt(yearStr)) : parseInt(yearStr);
   return month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1950 && year <= 2100;
 }
 
@@ -181,18 +182,8 @@ export async function GET() {
         let category = "other";
         let suggestion = "";
 
-        // 2-digit year dates — "1/5/24", "12/15/98" — need 4-digit year
-        if (/^\d{1,2}\/\d{1,2}\/\d{2}$/.test(value)) {
-          category = "short_year";
-          suggestion = tryParseDateSuggestion(value);
-        }
-        // Leading zeros dates — "01/02/2026", "05/07/2025"
-        else if (/^0\d\/|\/0\d\//.test(value) && /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value)) {
-          category = "date_format";
-          suggestion = tryParseDateSuggestion(value);
-        }
         // Failed codes — "Failed", "Failed X1", "FX1", etc.
-        else if (/fail/i.test(value) || /^f\s*x\s*\d/i.test(value) || /^fs$/i.test(value)) {
+        if (/fail/i.test(value) || /^f\s*x\s*\d/i.test(value) || /^fs$/i.test(value)) {
           category = "failed_code";
           const numMatch = value.match(/(\d)/);
           suggestion = numMatch ? "FX" + numMatch[1] : (/^fs$/i.test(value) ? "FS" : "FX1");
