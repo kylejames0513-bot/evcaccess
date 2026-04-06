@@ -393,12 +393,19 @@ function findTrainingRow(trainingData, firstName, lastName) {
       }
     }
 
-    // Fuzzy matching for misspellings
+    // Fuzzy matching for misspellings — but only if there's no other person
+    // with the same last name that matches better
     var sim = stringSimilarity(firstStripped, rowFirstStripped);
     var levDist = levenshteinDistance_(firstStripped, rowFirstStripped);
     var levScore = 1 - (levDist / Math.max(firstStripped.length, rowFirstStripped.length, 1));
     var bestSim = Math.max(sim, levScore);
-    if (bestSim > 0.6 && bestSim > bestFuzzyScore) {
+    // Require higher threshold for short names to avoid
+    // confusing similar but different names (megan/meegan, leah/maleah)
+    // Short names need near-exact match to avoid megan/meegan confusion
+    // Longer names can tolerate more difference (katlynn/katelyn)
+    var minLen = Math.min(firstStripped.length, rowFirstStripped.length);
+    var threshold = minLen <= 4 ? 0.95 : minLen <= 6 ? 0.85 : 0.65;
+    if (bestSim > threshold && bestSim > bestFuzzyScore) {
       bestFuzzyRow = r;
       bestFuzzyScore = bestSim;
     }
