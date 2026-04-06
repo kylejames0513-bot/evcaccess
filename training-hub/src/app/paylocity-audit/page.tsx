@@ -43,6 +43,11 @@ export default function PaylocityAuditPage() {
   const [fixFilter, setFixFilter] = useState<string>("all");
 
   const [resolved, setResolved] = useState<Set<string>>(new Set());
+  const [fixError, setFixError] = useState("");
+  const [matchingName, setMatchingName] = useState<string | null>(null);
+  const [matchSearch, setMatchSearch] = useState("");
+  const [employees, setEmployees] = useState<string[]>([]);
+  const [savingMatch, setSavingMatch] = useState(false);
 
   const { data, loading, error } = useFetch<AuditData>(`/api/paylocity-audit?r=${refreshKey}`);
 
@@ -57,8 +62,6 @@ export default function PaylocityAuditPage() {
     try { await fetch("/api/refresh", { method: "POST" }); setRefreshKey((k) => k + 1); } catch {}
     setRefreshing(false);
   }
-
-  const [fixError, setFixError] = useState("");
 
   async function handleFix(d: Discrepancy) {
     const key = `${d.employee}|${d.training}`;
@@ -96,12 +99,6 @@ export default function PaylocityAuditPage() {
     } catch (err) { setFixError(err instanceof Error ? err.message : "Fix failed"); }
     setFixing(null);
   }
-
-  // Name matching for unmatched people
-  const [matchingName, setMatchingName] = useState<string | null>(null);
-  const [matchSearch, setMatchSearch] = useState("");
-  const [employees, setEmployees] = useState<string[]>([]);
-  const [savingMatch, setSavingMatch] = useState(false);
 
   async function loadEmployees() {
     if (employees.length > 0) return;
