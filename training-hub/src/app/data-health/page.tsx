@@ -128,9 +128,13 @@ export default function DataHealthPage() {
         const [row, column] = k.split("|");
         return { row: parseInt(row), column, newValue: garbledEdits[k] || "" };
       });
-      await fetch("/api/data-health-fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "clear_garbled", items }) });
-      doRefresh();
-    } catch {}
+      const res = await fetch("/api/data-health-fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "clear_garbled", items }) });
+      const data = await res.json();
+      if (!res.ok) alert("Fix error: " + (data.error || res.status));
+      else await doRefresh();
+    } catch (err) {
+      alert("Fix error: " + (err instanceof Error ? err.message : "unknown"));
+    }
     setClearingGarbled(false);
   }
 
@@ -154,10 +158,14 @@ export default function DataHealthPage() {
     try {
       const res = await fetch("/api/data-health-fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "fix_cpr_fa", items: issues.cprFaMismatch.map((d) => ({ row: d.row })) }) });
       const data = await res.json();
-      setCprFixResult(data.message || `Fixed ${data.fixed}, skipped ${data.skipped}`);
-      await doRefresh();
+      if (!res.ok) {
+        setCprFixResult("API Error: " + (data.error || res.status));
+      } else {
+        setCprFixResult(data.message || `Fixed ${data.fixed}, skipped ${data.skipped}`);
+        await doRefresh();
+      }
     } catch (err) {
-      setCprFixResult("Error: " + (err instanceof Error ? err.message : "unknown"));
+      setCprFixResult("Network Error: " + (err instanceof Error ? err.message : "unknown"));
     }
     setFixingCpr(false);
   }

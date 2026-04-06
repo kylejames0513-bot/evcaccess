@@ -42,7 +42,8 @@ export async function POST(request: Request) {
         );
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = error instanceof Error ? error.stack || error.message : "Unknown error";
+    console.error("data-health-fix error:", message);
     return Response.json({ error: message }, { status: 500 });
   }
 }
