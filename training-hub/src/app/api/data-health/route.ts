@@ -24,14 +24,15 @@ function isExcusal(value: string): boolean {
 }
 
 function isCleanDate(value: string): boolean {
-  // ONLY M/D/YYYY or MM/DD/YYYY with 4-digit year is clean
+  // M/D/YYYY, MM/DD/YYYY, or M/D/YY are all acceptable
   const s = value.trim();
-  const match = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  const match = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
   if (!match) return false;
   const month = parseInt(match[1]);
   const day = parseInt(match[2]);
-  const year = parseInt(match[3]);
-  return month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1990 && year <= 2100;
+  const yearStr = match[3];
+  const year = yearStr.length === 2 ? (parseInt(yearStr) < 50 ? 2000 + parseInt(yearStr) : 1900 + parseInt(yearStr)) : parseInt(yearStr);
+  return month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1950 && year <= 2100;
 }
 
 function tryParseDateSuggestion(value: unknown): string {
