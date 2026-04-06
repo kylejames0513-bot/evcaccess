@@ -307,15 +307,25 @@ export async function GET() {
     }
 
     // Duplicate employees: names appearing more than once among active
-    const duplicateEmployees: Array<{ name: string; rows: number[] }> = [];
+    const duplicateEmployees: Array<{ name: string; rows: Array<{ row: number; trainings: Record<string, string> }> }> = [];
     for (const [nameKey, rowNums] of nameRows) {
       if (rowNums.length > 1) {
-        // Use the first occurrence's cased name for display
         const displayRow = rows[rowNums[0] - 1];
         const ln = (lNameCol >= 0 ? displayRow[lNameCol] || "" : "").trim();
         const fn = (fNameCol >= 0 ? displayRow[fNameCol] || "" : "").trim();
         const displayName = fn ? `${ln}, ${fn}` : ln;
-        duplicateEmployees.push({ name: displayName, rows: rowNums });
+
+        const rowDetails = rowNums.map((rowNum) => {
+          const rd = rows[rowNum - 1];
+          const trainings: Record<string, string> = {};
+          for (const col of trainingCols) {
+            const val = (rd[col.index] || "").toString().trim();
+            if (val) trainings[col.key] = val;
+          }
+          return { row: rowNum, trainings };
+        });
+
+        duplicateEmployees.push({ name: displayName, rows: rowDetails });
       }
     }
 

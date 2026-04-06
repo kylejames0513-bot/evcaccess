@@ -21,7 +21,7 @@ import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 
 interface GarbledDate { row: number; name: string; column: string; value: string; suggestion: string; category: string; }
-interface DuplicateEmployee { name: string; rows: number[]; }
+interface DuplicateEmployee { name: string; rows: Array<{ row: number; trainings: Record<string, string> }>; }
 interface CprFaMismatch { row: number; name: string; cprDate: string; faDate: string; }
 
 interface DataHealthResponse {
@@ -139,12 +139,12 @@ export default function DataHealthPage() {
   }
 
   // ── Duplicate actions ──
-  async function handleRemoveDupe(name: string, rows: number[]) {
+  async function handleRemoveDupe(name: string, rowDetails: Array<{ row: number }>) {
     const keep = keepRows[name];
     if (!keep) return;
     setRemovingDupe(name);
     try {
-      const deleteRows = rows.filter((r) => r !== keep);
+      const deleteRows = rowDetails.map((r) => r.row).filter((r) => r !== keep);
       await fetch("/api/data-health-fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remove_duplicates", keepRow: keep, deleteRows }) });
       doRefresh();
     } catch {}
@@ -427,30 +427,76 @@ export default function DataHealthPage() {
             <p className="text-sm text-slate-500">No duplicates found.</p>
           ) : (
             <div className="space-y-4">
-              {issues.duplicateEmployees.map((d) => (
-                <div key={d.name} className="border border-slate-100 rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-slate-800">{d.name}</span>
-                    <button
-                      onClick={() => handleRemoveDupe(d.name, d.rows)}
-                      disabled={!keepRows[d.name] || removingDupe === d.name}
-                      className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-40 transition-colors"
-                    >
-                      {removingDupe === d.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                      Remove Duplicate{d.rows.length > 2 ? "s" : ""}
-                    </button>
+              {issues.duplicateEmployees.map((d) => {
+                // Collect all training columns across both rows
+                const allTrainingKeys = new Set<string>();
+                for (const r of d.rows) {
+                  for (const key of Object.keys(r.trainings)) allTrainingKeys.add(key);
+                }
+                const trainingKeys = [...allTrainingKeys].sort();
+
+                return (
+                  <div key={d.name} className="border border-slate-100 rounded-lg p-3">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-medium text-slate-800">{d.name}</span>
+                      <button
+                        onClick={() => handleRemoveDupe(d.name, d.rows)}
+                        disabled={!keepRows[d.name] || removingDupe === d.name}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-40 transition-colors"
+                      >
+                        {removingDupe === d.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+                        Remove Duplicate
+                      </button>
+                    </div>
+
+                    {/* Training comparison table */}
+                    <div className="overflow-x-auto mb-2">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-left text-[10px] text-slate-400 uppercase tracking-wide border-b border-slate-100">
+                            <th className="pb-1 pr-3 w-16">Keep</th>
+                            <th className="pb-1 pr-3">Row</th>
+                            {trainingKeys.map((key) => (
+                              <th key={key} className="pb-1 pr-2 font-medium">{key}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {d.rows.map((r) => {
+                            const isKeep = keepRows[d.name] === r.row;
+                            const isRemove = keepRows[d.name] && keepRows[d.name] !== r.row;
+                            return (
+                              <tr key={r.row} className={isKeep ? "bg-emerald-50" : isRemove ? "bg-red-50/50" : ""}>
+                                <td className="py-1.5 pr-3">
+                                  <label className="flex items-center gap-1.5 cursor-pointer">
+                                    <input type="radio" name={`keep-${d.name}`} checked={isKeep} onChange={() => setKeepRows({ ...keepRows, [d.name]: r.row })} className="text-blue-600" />
+                                    <span className={`font-medium ${isKeep ? "text-emerald-700" : isRemove ? "text-red-500" : "text-slate-500"}`}>
+                                      {isKeep ? "Keep" : isRemove ? "Remove" : ""}
+                                    </span>
+                                  </label>
+                                </td>
+                                <td className="py-1.5 pr-3 font-mono text-slate-500">{r.row}</td>
+                                {trainingKeys.map((key) => {
+                                  const val = r.trainings[key] || "";
+                                  const otherRows = d.rows.filter((o) => o.row !== r.row);
+                                  const otherVal = otherRows.length > 0 ? (otherRows[0].trainings[key] || "") : "";
+                                  const differs = val !== otherVal && (val || otherVal);
+                                  return (
+                                    <td key={key} className={`py-1.5 pr-2 font-mono ${differs ? (val ? "text-slate-900 font-semibold" : "text-slate-300") : "text-slate-500"} ${isRemove ? "line-through opacity-50" : ""}`}>
+                                      {val || "—"}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-[11px] text-slate-400">Dates from removed row merge into kept row (newest wins). Differences shown in bold.</p>
                   </div>
-                  <div className="space-y-1">
-                    {d.rows.map((row) => (
-                      <label key={row} className={`flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer text-xs ${keepRows[d.name] === row ? "bg-emerald-50 text-emerald-800" : keepRows[d.name] && keepRows[d.name] !== row ? "bg-red-50/50 text-red-600 line-through" : "hover:bg-slate-50 text-slate-600"}`}>
-                        <input type="radio" name={`keep-${d.name}`} checked={keepRows[d.name] === row} onChange={() => setKeepRows({ ...keepRows, [d.name]: row })} className="text-blue-600" />
-                        Row {row} {keepRows[d.name] === row ? "(keep)" : keepRows[d.name] ? "(remove)" : ""}
-                      </label>
-                    ))}
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-2">Training dates from removed rows are merged into the kept row (newest wins).</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </Section>
