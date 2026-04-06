@@ -313,7 +313,13 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
       }
 
       // onlyExpired: skip if employee has no date or is current (they need Initial, not Recert)
-      if (def.onlyExpired && (!date || status === "needed" || status === "current")) continue;
+      // But still write "current" status so the training doesn't disappear
+      if (def.onlyExpired && (!date || status === "needed" || status === "current")) {
+        if (date && status === "current" && !trainings[def.columnKey]) {
+          trainings[def.columnKey] = { value, date, isExcused, status };
+        }
+        continue;
+      }
       // onlyNeeded: skip if employee already has a date (they need Recert, not Initial)
       if (def.onlyNeeded && date) continue;
 
