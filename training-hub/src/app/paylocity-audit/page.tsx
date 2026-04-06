@@ -42,6 +42,8 @@ export default function PaylocityAuditPage() {
   const [fixing, setFixing] = useState<string | null>(null);
   const [fixFilter, setFixFilter] = useState<string>("all");
 
+  const [resolved, setResolved] = useState<Set<string>>(new Set());
+
   const { data, loading, error } = useFetch<AuditData>(`/api/paylocity-audit?r=${refreshKey}`);
 
   if (loading) return <Loading message="Comparing Training sheet with Paylocity Import..." />;
@@ -191,34 +193,52 @@ export default function PaylocityAuditPage() {
               <tbody className="divide-y divide-slate-50">
                 {filtered.map((d, i) => {
                   const key = `${d.employee}|${d.training}`;
+                  const isResolved = resolved.has(key);
+                  const hasBothDates = d.issue === "mismatch" && d.trainingSheetDate !== "(empty)";
                   return (
-                    <tr key={i} className="hover:bg-blue-50/30">
+                    <tr key={i} className={`hover:bg-blue-50/30 ${isResolved ? "opacity-40" : ""}`}>
                       <td className="px-5 py-3 font-medium text-slate-900">{d.employee}</td>
                       <td className="px-5 py-3 text-slate-600 font-mono text-xs">{d.training}</td>
                       <td className="px-5 py-3">
-                        <span className={`font-mono text-xs ${d.issue === "mismatch" ? "text-red-600 font-semibold" : "text-slate-400"}`}>
-                          {d.trainingSheetDate}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`font-mono text-xs ${d.issue === "mismatch" ? "text-red-600 font-semibold" : "text-slate-400"}`}>
+                            {d.trainingSheetDate}
+                          </span>
+                          {hasBothDates && !isResolved && (
+                            <button
+                              onClick={() => { setResolved(new Set([...resolved, key])); }}
+                              disabled={!!fixing}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-40"
+                              title="Keep this date"
+                            >
+                              <Check className="h-2.5 w-2.5" /> Keep
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-5 py-3"><ArrowRight className="h-3 w-3 text-slate-300" /></td>
                       <td className="px-5 py-3">
-                        <span className="font-mono text-xs text-emerald-700 font-semibold">{d.paylocityDate}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs text-emerald-700 font-semibold">{d.paylocityDate}</span>
+                          {!isResolved && (
+                            <button
+                              onClick={() => handleFix(d)}
+                              disabled={!!fixing}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40"
+                              title="Use this date"
+                            >
+                              {fixing === key ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Check className="h-2.5 w-2.5" />}
+                              Use
+                            </button>
+                          )}
+                        </div>
                       </td>
                       <td className="px-5 py-3">
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${ISSUE_COLORS[d.issue] || "bg-slate-100 text-slate-600"}`}>
-                          {ISSUE_LABELS[d.issue] || d.issue}
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${isResolved ? "bg-emerald-100 text-emerald-700" : ISSUE_COLORS[d.issue] || "bg-slate-100 text-slate-600"}`}>
+                          {isResolved ? "Kept" : ISSUE_LABELS[d.issue] || d.issue}
                         </span>
                       </td>
-                      <td className="px-5 py-3">
-                        <button
-                          onClick={() => handleFix(d)}
-                          disabled={fixing === key || fixing === "all"}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40"
-                        >
-                          {fixing === key ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                          Fix
-                        </button>
-                      </td>
+                      <td className="px-5 py-3"></td>
                     </tr>
                   );
                 })}
