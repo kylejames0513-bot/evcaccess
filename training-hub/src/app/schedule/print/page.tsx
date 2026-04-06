@@ -42,16 +42,40 @@ export default function PrintSchedulePage() {
       {/* Print-specific styles */}
       <style>{`
         @media print {
-          /* Hide sidebar, nav, and any app chrome */
-          nav, header, aside, [data-sidebar], [data-nav] {
-            display: none !important;
-          }
-          body {
+          /* Reset the entire app layout for printing */
+          html, body {
+            height: auto !important;
+            overflow: visible !important;
             background: white !important;
             margin: 0 !important;
             padding: 0 !important;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
+          }
+          /* Hide sidebar, nav, mobile nav, and any app chrome */
+          nav, header, aside,
+          [data-sidebar], [data-nav],
+          .lg\\:flex.lg\\:flex-col.lg\\:w-60,
+          .lg\\:flex.lg\\:w-60 {
+            display: none !important;
+          }
+          /* Remove flex layout constraints */
+          .flex.h-full {
+            display: block !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+          .flex-1.overflow-y-auto,
+          .flex-1.flex-col.overflow-hidden,
+          .flex.flex-1.flex-col.overflow-hidden {
+            display: block !important;
+            overflow: visible !important;
+            height: auto !important;
+          }
+          main {
+            padding: 0 !important;
+            overflow: visible !important;
+            height: auto !important;
           }
           .print-hidden {
             display: none !important;

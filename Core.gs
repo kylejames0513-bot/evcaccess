@@ -2562,8 +2562,11 @@ function syncEmployeesSheet() {
         if (ruleVal === "ALL") {
           deptRules[ruleDept] = "ALL";
         } else {
+          // New format: "tracked_keys|required_keys" — we only need tracked
+          // Old format: "CPR, Ukeru" (no pipe)
+          var trackedStr = ruleVal.indexOf("|") > -1 ? ruleVal.split("|")[0] : ruleVal;
           var ruleKeys = {};
-          var parts = ruleVal.split(",");
+          var parts = trackedStr.split(",");
           for (var p = 0; p < parts.length; p++) {
             var k = parts[p].trim();
             if (k) ruleKeys[k] = true;
@@ -2606,7 +2609,16 @@ function syncEmployeesSheet() {
       if (!empDiv) continue;
 
       var rule = deptRules[empDiv];
-      if (!rule) continue; // no rule = don't auto-excuse (gets all trainings)
+      if (!rule) {
+        // Also try without spaces around hyphens (e.g., "100-Residential" vs "100 - Residential")
+        var altDiv = empDiv.replace(/\s*-\s*/g, "-");
+        rule = deptRules[altDiv];
+        if (!rule) {
+          altDiv = empDiv.replace(/\s*-\s*/g, " - ");
+          rule = deptRules[altDiv];
+        }
+      }
+      if (!rule) continue; // no rule = don't auto-excuse
       if (rule === "ALL") continue; // needs everything
 
       // For each training column NOT in the rule, write NA if cell is empty
