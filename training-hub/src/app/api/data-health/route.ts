@@ -1,4 +1,4 @@
-import { readRangeFresh } from "@/lib/google-sheets";
+import { readRange } from "@/lib/google-sheets";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 
 // Only these are recognized as valid excusals in the data health scan.
@@ -89,7 +89,7 @@ function tryParseDateSuggestion(value: unknown): string {
 
 export async function GET() {
   try {
-    const rows = await readRangeFresh("Training");
+    const rows = await readRange("Training");
     if (rows.length < 2) {
       return Response.json({
         issues: {

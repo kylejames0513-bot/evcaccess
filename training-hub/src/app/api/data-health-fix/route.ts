@@ -67,18 +67,33 @@ async function handleClearGarbled(payload: ClearGarbledPayload) {
     return Response.json({ error: "No items provided" }, { status: 400 });
   }
 
+  // Read entire sheet, modify in memory, write back affected rows only
   const rows = await readRangeFresh("Training");
   const headers = rows[0];
+  const totalCols = headers.length;
 
-  // Build writes
-  const data: Array<{ range: string; values: (string | number)[][] }> = [];
+  // Group items by row for efficient writing
+  const rowUpdates = new Map<number, Map<number, string>>();
   for (const item of payload.items) {
     const colIndex = headers.findIndex(
       (h) => h.trim().toUpperCase() === item.column.toUpperCase()
     );
     if (colIndex < 0) continue;
-    const col = colToLetter(colIndex);
-    data.push({ range: `Training!${col}${item.row}`, values: [[item.newValue || ""]] });
+    if (!rowUpdates.has(item.row)) rowUpdates.set(item.row, new Map());
+    rowUpdates.get(item.row)!.set(colIndex, item.newValue || "");
+  }
+
+  // Build row-level writes (1 write per affected row instead of per cell)
+  const data: Array<{ range: string; values: string[][] }> = [];
+  for (const [rowNum, colChanges] of rowUpdates) {
+    const rowData = rows[rowNum - 1];
+    if (!rowData) continue;
+    const newRow = [...rowData];
+    for (const [col, val] of colChanges) {
+      newRow[col] = val;
+    }
+    const lastCol = colToLetter(totalCols - 1);
+    data.push({ range: `Training!A${rowNum}:${lastCol}${rowNum}`, values: [newRow] });
   }
 
   if (data.length > 0) {
@@ -90,7 +105,9 @@ async function handleClearGarbled(payload: ClearGarbledPayload) {
   }
 
   invalidateAll();
-  return Response.json({ success: true, message: `Fixed ${data.length} cell(s)` });
+  let totalCells = 0;
+  for (const m of rowUpdates.values()) totalCells += m.size;
+  return Response.json({ success: true, message: `Fixed ${totalCells} cell(s) across ${data.length} row(s)` });
 }
 
 // ----------------------------------------------------------------
@@ -193,11 +210,8 @@ async function handleFixCprFa(payload: FixCprFaPayload) {
     return Response.json({ error: `CPR (col ${cprCol}) or FIRSTAID (col ${faCol}) not found` }, { status: 500 });
   }
 
-  const cprLetter = colToLetter(cprCol);
-  const faLetter = colToLetter(faCol);
-
-  const writes: Array<{ range: string; value: string }> = [];
   const skipped: string[] = [];
+  const rowsToWrite = new Set<number>();
 
   for (const item of payload.items) {
     const rowData = rows[item.row - 1];
@@ -223,24 +237,30 @@ async function handleFixCprFa(payload: FixCprFaPayload) {
       }
     }
 
-    // Write normalized CPR to both CPR and FIRSTAID columns
-    writes.push({ range: `Training!${cprLetter}${item.row}`, value: cprVal });
-    writes.push({ range: `Training!${faLetter}${item.row}`, value: cprVal });
+    // Update the row data in memory
+    rowData[cprCol] = cprVal;
+    rowData[faCol] = cprVal;
+    // Track which rows need writing
+    rowsToWrite.add(item.row);
   }
 
-  // Batch write all at once
-  if (writes.length > 0) {
+  // Write affected rows back (1 API call per row, much fewer than per cell)
+  const totalCols = headers.length;
+  const lastCol = colToLetter(totalCols - 1);
+  const batchData = Array.from(rowsToWrite).map((rowNum) => ({
+    range: `Training!A${rowNum}:${lastCol}${rowNum}`,
+    values: [rows[rowNum - 1]],
+  }));
+
+  if (batchData.length > 0) {
     const sheets = getSheets();
     await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: getSpreadsheetId(),
-      requestBody: {
-        valueInputOption: "USER_ENTERED",
-        data: writes.map((w) => ({ range: w.range, values: [[w.value]] })),
-      },
+      requestBody: { valueInputOption: "USER_ENTERED", data: batchData },
     });
   }
 
-  const fixed = Math.floor(writes.length / 2);
+  const fixed = rowsToWrite.size;
   invalidateAll();
   return Response.json({
     success: true,
