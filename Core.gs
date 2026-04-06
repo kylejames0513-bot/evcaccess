@@ -1386,6 +1386,38 @@ function importFromPaylocity() {
       continue;
     }
 
+    // Fix misspelled names — Paylocity is the authoritative source
+    var sheetLast = trainingData[matchRow][0] ? trainingData[matchRow][0].toString().trim() : "";
+    var sheetFirst = trainingData[matchRow][1] ? trainingData[matchRow][1].toString().trim() : "";
+    var paylocityLast = lastName;
+    var paylocityFirst = preferred || firstName;
+
+    if (sheetLast !== paylocityLast && sheetLast.toLowerCase() === paylocityLast.toLowerCase()) {
+      // Case difference only — update to Paylocity's casing
+      trainingSheet.getRange(matchRow + 1, 1).setValue(paylocityLast);
+      trainingData[matchRow][0] = paylocityLast;
+    } else if (sheetLast.toLowerCase() !== paylocityLast.toLowerCase()) {
+      // Actual spelling difference — update to Paylocity
+      trainingSheet.getRange(matchRow + 1, 1).setValue(paylocityLast);
+      trainingData[matchRow][0] = paylocityLast;
+      if (!stats.namesFixed) stats.namesFixed = 0;
+      stats.namesFixed++;
+      Logger.log("Name fix (last): '" + sheetLast + "' → '" + paylocityLast + "' (row " + (matchRow + 1) + ")");
+    }
+
+    // Fix first name — but preserve parenthetical nicknames like 'Michael "Mike"'
+    var sheetFirstClean = sheetFirst.replace(/["'()].*/g, "").trim();
+    if (sheetFirstClean.toLowerCase() !== paylocityFirst.toLowerCase()) {
+      // Check if the existing name has extra info (nickname in parens/quotes)
+      var suffix = sheetFirst.substring(sheetFirstClean.length).trim();
+      var newFirst = suffix ? paylocityFirst + " " + suffix : paylocityFirst;
+      trainingSheet.getRange(matchRow + 1, 2).setValue(newFirst);
+      trainingData[matchRow][1] = newFirst;
+      if (!stats.namesFixed) stats.namesFixed = 0;
+      stats.namesFixed++;
+      Logger.log("Name fix (first): '" + sheetFirst + "' → '" + newFirst + "' (row " + (matchRow + 1) + ")");
+    }
+
     // Update Division, Department, Position Title (always overwrite with latest)
     var divVal = colDivision >= 0 && importData[i][colDivision] ? importData[i][colDivision].toString().trim() : "";
     var deptVal = colDepartment >= 0 && importData[i][colDepartment] ? importData[i][colDepartment].toString().trim() : "";
@@ -1440,7 +1472,11 @@ function importFromPaylocity() {
   // Build summary
   var summary = "Paylocity Import Complete!\n\n";
   summary += "Rows processed: " + stats.processed + "\n";
-  summary += "Dates written: " + stats.written + "\n\n";
+  summary += "Dates written: " + stats.written + "\n";
+  if (stats.namesFixed) {
+    summary += "Names corrected: " + stats.namesFixed + "\n";
+  }
+  summary += "\n";
   summary += "Skipped (not a tracked training): " + stats.skippedSkill + "\n";
   summary += "Skipped (no name match): " + stats.skippedNoMatch + "\n";
   summary += "Skipped (no valid date): " + stats.skippedNoDate + "\n";
