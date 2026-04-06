@@ -20,7 +20,8 @@ const ALL_TRAININGS = (() => {
 
 interface DeptRule {
   department: string;
-  trainings: string[];
+  tracked: string[];
+  required: string[];
 }
 
 export default function SettingsPage() {
@@ -155,7 +156,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Department Training Rules */}
-      <DeptRulesSection trackedTrainings={tracks} />
+      <DeptRulesSection />
 
       {/* Bulk Excuse */}
       <BulkExcuseSection trackedTrainings={tracks} />
@@ -167,7 +168,7 @@ export default function SettingsPage() {
 // Department Training Rules Section
 // ────────────────────────────────────────────────────────────
 
-function DeptRulesSection({ trackedTrainings }: { trackedTrainings: Set<string> }) {
+function DeptRulesSection() {
   const [rules, setRules] = useState<DeptRule[]>([]);
   const [divisions, setDivisions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);

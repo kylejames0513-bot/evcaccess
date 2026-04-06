@@ -229,34 +229,56 @@ export async function clearNoShows(employeeName: string): Promise<void> {
 // Department training rules — which trainings each department needs
 // ────────────────────────────────────────────────────────────
 
-// Type="dept_rule", Key=department name, Value="ALL" or comma-separated columnKeys
-// e.g. { type: "dept_rule", key: "Facilities", value: "CPR" }
-// e.g. { type: "dept_rule", key: "100-Residential", value: "ALL" }
+// Type="dept_rule", Key=department name
+// Value format: "tracked_keys|required_keys"
+//   tracked = trainings this division has (unchecked = NA auto-fill)
+//   required = subset of tracked that are actively monitored for compliance
+// Legacy format: "ALL" or "CPR,Ukeru" (treated as tracked=required=same list)
 
 export interface DeptRule {
   department: string;
-  trainings: string[]; // column keys, or ["ALL"]
+  tracked: string[];  // column keys this division has (not NA)
+  required: string[]; // subset — actively monitored for compliance
+}
+
+function parseDeptRuleValue(value: string): { tracked: string[]; required: string[] } {
+  if (value === "ALL") return { tracked: ["ALL"], required: ["ALL"] };
+  if (value.includes("|")) {
+    const [trackedStr, requiredStr] = value.split("|");
+    return {
+      tracked: trackedStr.split(",").map((t) => t.trim()).filter(Boolean),
+      required: requiredStr.split(",").map((t) => t.trim()).filter(Boolean),
+    };
+  }
+  // Legacy format: same list for both
+  const keys = value.split(",").map((t) => t.trim()).filter(Boolean);
+  return { tracked: keys, required: keys };
+}
+
+function encodeDeptRuleValue(tracked: string[], required: string[]): string {
+  if (tracked.includes("ALL") && required.includes("ALL")) return "ALL";
+  return tracked.join(", ") + "|" + required.join(", ");
 }
 
 export async function getDeptRules(): Promise<DeptRule[]> {
   const settings = await readSettings();
   return settings
     .filter((s) => s.type === "dept_rule")
-    .map((s) => ({
-      department: s.key,
-      trainings: s.value === "ALL" ? ["ALL"] : s.value.split(",").map((t) => t.trim()).filter(Boolean),
-    }));
+    .map((s) => {
+      const parsed = parseDeptRuleValue(s.value);
+      return { department: s.key, ...parsed };
+    });
 }
 
-export async function setDeptRule(department: string, trainings: string[]): Promise<DeptRule[]> {
+export async function setDeptRule(department: string, tracked: string[], required: string[]): Promise<DeptRule[]> {
   const settings = await readSettings();
   const idx = settings.findIndex(
     (s) => s.type === "dept_rule" && s.key.toLowerCase() === department.toLowerCase()
   );
-  const value = trainings.includes("ALL") ? "ALL" : trainings.join(", ");
+  const value = encodeDeptRuleValue(tracked, required);
   if (idx >= 0) {
     settings[idx].value = value;
-    settings[idx].key = department; // preserve original casing
+    settings[idx].key = department;
   } else {
     settings.push({ type: "dept_rule", key: department, value });
   }
@@ -276,9 +298,9 @@ export async function removeDeptRule(department: string): Promise<DeptRule[]> {
 function getDeptRulesSync(settings: Array<{ type: string; key: string; value: string }>): DeptRule[] {
   return settings
     .filter((s) => s.type === "dept_rule")
-    .map((s) => ({
-      department: s.key,
-      trainings: s.value === "ALL" ? ["ALL"] : s.value.split(",").map((t) => t.trim()).filter(Boolean),
+    .map((s) => {
+      const parsed = parseDeptRuleValue(s.value);
+      return { department: s.key, ...parsed };
     }));
 }
 

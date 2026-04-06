@@ -221,9 +221,9 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
 
   // Load department training rules
   const deptRules = await getDeptRules();
-  const deptRuleMap = new Map<string, Set<string>>(); // lowercase dept → set of columnKeys (or "ALL")
+  const deptRequiredMap = new Map<string, Set<string>>(); // dept → required training keys
   for (const rule of deptRules) {
-    deptRuleMap.set(rule.department.toLowerCase(), new Set(rule.trainings));
+    deptRequiredMap.set(rule.department.toLowerCase(), new Set(rule.required));
   }
 
   const employees: EmployeeTrainingRow[] = [];
@@ -257,13 +257,14 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     // Skip excluded employees
     if (excludedSet.has(name.toLowerCase())) continue;
 
-    // Determine which trainings this employee needs based on department rules
-    // No rule = gets all tracked trainings (configure rules in Settings to narrow down)
-    const empDeptRule = position ? deptRuleMap.get(position.toLowerCase()) : undefined;
-    const employeeDefs = empDeptRule
-      ? empDeptRule.has("ALL")
+    // Determine which trainings this employee is monitored for (required)
+    // Only trainings in their division's "required" list show on compliance
+    // No rule = all tracked trainings are required
+    const empRequired = position ? deptRequiredMap.get(position.toLowerCase()) : undefined;
+    const employeeDefs = empRequired
+      ? empRequired.has("ALL")
         ? trackedDefs
-        : trackedDefs.filter((d) => empDeptRule.has(d.columnKey))
+        : trackedDefs.filter((d) => empRequired.has(d.columnKey))
       : trackedDefs; // no rule = all tracked trainings
 
     const trainings: EmployeeTrainingRow["trainings"] = {};

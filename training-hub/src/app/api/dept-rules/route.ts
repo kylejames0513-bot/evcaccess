@@ -24,11 +24,12 @@ export async function POST(request: Request) {
       return Response.json({ rules });
     }
 
-    if (!trainings || !Array.isArray(trainings)) {
-      return Response.json({ error: "Missing trainings array" }, { status: 400 });
+    const { tracked, required } = body;
+    if (!tracked || !Array.isArray(tracked)) {
+      return Response.json({ error: "Missing tracked array" }, { status: 400 });
     }
 
-    const rules = await setDeptRule(department, trainings);
+    const rules = await setDeptRule(department, tracked, required || []);
     return Response.json({ rules });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
