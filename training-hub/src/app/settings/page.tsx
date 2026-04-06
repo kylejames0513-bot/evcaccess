@@ -418,7 +418,7 @@ function DeptRulesSection() {
               <div className="flex items-center gap-2 mt-3">
                 <button
                   onClick={saveEdit}
-                  disabled={!newDept.trim() || editTracked.size === 0 || saving !== null}
+                  disabled={!newDept.trim() || saving !== null}
                   className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#1e3a5f] text-white hover:bg-[#2a4d7a] disabled:opacity-50 transition-all"
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -454,7 +454,7 @@ function DeptRulesSection() {
                       <div className="flex items-center gap-2 mt-3">
                         <button
                           onClick={saveEdit}
-                          disabled={editTracked.size === 0 || saving !== null}
+                          disabled={saving !== null}
                           className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#1e3a5f] text-white hover:bg-[#2a4d7a] disabled:opacity-50 transition-all"
                         >
                           {saving === rule.department ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -478,11 +478,17 @@ function DeptRulesSection() {
                     <div>
                       <p className="text-sm font-medium text-slate-900">{formatDivision(rule.department)}</p>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        <span className="text-slate-600 font-medium">{rule.tracked.length} tracked</span>
-                        {", "}
-                        <span className="text-amber-600 font-medium">{rule.required.length} required</span>
-                        {rule.required.length > 0 && (
-                          <span className="text-slate-400"> — {requiredNames}</span>
+                        {rule.tracked.length === 0 ? (
+                          <span className="text-red-600 font-medium">All excused (NA)</span>
+                        ) : (
+                          <>
+                            <span className="text-slate-600 font-medium">{rule.tracked.length} tracked</span>
+                            {", "}
+                            <span className="text-amber-600 font-medium">{rule.required.length} required</span>
+                            {rule.required.length > 0 && (
+                              <span className="text-slate-400"> — {requiredNames}</span>
+                            )}
+                          </>
                         )}
                       </p>
                     </div>
