@@ -17,10 +17,6 @@ const EXCUSAL_CODES = new Set([
   "FX1*", "FX1/NS", "FX1 - S", "FX1 - R",
   "TRAINER", "LP", "NS", "LLL",
   "BOARD",
-  // Status codes
-  "ECF", "S", "R", "Y",
-  // Attempt/level numbers
-  "1", "2", "3", "4",
 ]);
 
 function isExcusal(value: string): boolean {
@@ -238,12 +234,22 @@ export async function GET() {
           category = "random";
           suggestion = "";
         }
-        // Plain number > 4 digits that isn't a date
+        // Single digit 1-4 = failure count (FX1, FX2, etc.)
+        else if (/^[1-4]$/.test(value)) {
+          category = "failed_code";
+          suggestion = "FX" + value;
+        }
+        // Plain number that isn't a failure count
         else if (/^\d+$/.test(value)) {
           category = "random";
           suggestion = "";
         }
-        // Short random text (3 chars or less)
+        // Short text codes that need review — ECF, S, R, Y, etc.
+        else if (value.length <= 3 && /^[A-Za-z]+$/.test(value)) {
+          category = "status_code";
+          suggestion = "";
+        }
+        // Other short random text (3 chars or less)
         else if (value.length <= 3) {
           category = "random";
           suggestion = "";

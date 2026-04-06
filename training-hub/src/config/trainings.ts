@@ -327,10 +327,6 @@ export const EXCUSAL_CODES = [
   "BH", "PA", "BA", "QA", "TAC",
   // Board of Directors
   "BOARD",
-  // Status codes
-  "ECF", "S", "R", "Y",
-  // Attempt/level numbers
-  "1", "2", "3", "4",
   // Facility/failure codes (tracked separately by data integrity)
   "FX1", "FX2", "FX3", "FS",
   "F X 2", "FX 1",
