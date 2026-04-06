@@ -2069,26 +2069,35 @@ function importFromPaylocity() {
     var currentStr = currentVal ? currentVal.toString().trim() : "";
     var currentUpper = currentStr.toUpperCase();
 
-    // Skip NA/excusal codes
-    if (currentUpper === "NA" || currentUpper === "N/A" || getExcusalCode(currentStr)) {
-      stats.skippedNA++;
+    // Blank or NA → always overwrite with Paylocity date
+    if (!currentStr || currentUpper === "NA" || currentUpper === "N/A" || currentUpper === "N/") {
+      var formattedDate = formatBackfillDate(importDate);
+      trainingSheet.getRange(matchRow + 1, targetColIdx + 1).setValue(formattedDate);
+      trainingData[matchRow][targetColIdx] = formattedDate;
+      stats.written++;
       continue;
     }
 
-    // Skip failure codes
+    // Skip failure codes — don't overwrite FX1, FX2, etc.
     if (isFailureCode(currentStr)) {
       stats.skippedFailed++;
       continue;
     }
 
-    // Only write if newer than existing date
+    // Skip other excusal codes (DIR, NURSE, BOARD, etc.) — don't overwrite
+    if (getExcusalCode(currentStr)) {
+      stats.skippedNA++;
+      continue;
+    }
+
+    // Has an existing date — only write if Paylocity date is newer
     var existingDate = parseToDate(currentVal);
     if (existingDate && importDate.getTime() <= existingDate.getTime()) {
       stats.skippedNewer++;
       continue;
     }
 
-    // Write the date
+    // Write the date (Paylocity is newer or existing wasn't a valid date)
     var formattedDate = formatBackfillDate(importDate);
     trainingSheet.getRange(matchRow + 1, targetColIdx + 1).setValue(formattedDate);
     trainingData[matchRow][targetColIdx] = formattedDate;
