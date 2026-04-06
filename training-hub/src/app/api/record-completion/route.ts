@@ -1,4 +1,8 @@
 import { recordCompletion } from "@/lib/training-data";
+import { appendRows } from "@/lib/google-sheets";
+import { invalidateAll } from "@/lib/cache";
+import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { toFirstLast } from "@/lib/name-utils";
 
 export async function POST(request: Request) {
   try {
@@ -12,39 +16,46 @@ export async function POST(request: Request) {
       );
     }
 
-    // Basic date validation
-    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!dateRegex.test(completionDate)) {
-      return Response.json(
-        { error: "Invalid date format. Use YYYY-MM-DD." },
-        { status: 400 }
-      );
-    }
+    // Accept any reasonable date format
+    const dateStr = completionDate.trim();
 
-    const parsed = new Date(completionDate);
-    if (isNaN(parsed.getTime())) {
-      return Response.json(
-        { error: "Invalid date value." },
-        { status: 400 }
-      );
-    }
-
-    // Reject future dates > 1 year out
-    const oneYearOut = new Date();
-    oneYearOut.setFullYear(oneYearOut.getFullYear() + 1);
-    if (parsed > oneYearOut) {
-      return Response.json(
-        { error: "Date cannot be more than 1 year in the future." },
-        { status: 400 }
-      );
-    }
-
-    const result = await recordCompletion(employeeName, trainingColumnKey, completionDate);
+    // Record on Training sheet
+    const result = await recordCompletion(employeeName, trainingColumnKey, dateStr);
 
     if (!result.success) {
       return Response.json({ error: result.message }, { status: 404 });
     }
 
+    // Also add a row to Training Records for record-keeping
+    try {
+      const def = TRAINING_DEFINITIONS.find(
+        (d) => d.columnKey.toUpperCase() === trainingColumnKey.toUpperCase() ||
+          d.name.toUpperCase() === trainingColumnKey.toUpperCase()
+      );
+      const sessionName = def ? def.name : trainingColumnKey;
+      const attendeeName = toFirstLast(employeeName);
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+
+      await appendRows("Training Records", [[
+        timeStr,          // Arrival Time
+        sessionName,      // Session
+        attendeeName,     // Attendee
+        dateStr,          // Date
+        "No",             // Left Early
+        "",               // Reason
+        "Manual entry via Hub",  // Notes
+        "",               // End Time
+        "",               // Session Length
+        "Pass",           // Pass/Fail
+        "Hub"             // Reviewed By
+      ]]);
+    } catch (err) {
+      // Don't fail the main operation if Training Records write fails
+      console.error("Failed to write to Training Records:", err);
+    }
+
+    invalidateAll();
     return Response.json({ message: result.message });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
