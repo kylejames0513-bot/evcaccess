@@ -47,7 +47,8 @@ function createMenu() {
     .addSubMenu(ui.createMenu("2. Data Tools")
       .addItem("2a. Find Duplicates", "findDuplicates")
       .addItem("2b. Clean Garbled Dates", "cleanGarbledDatesUI")
-      .addItem("2c. Install Edit Trigger (run once)", "installEditTrigger"))
+      .addItem("2c. Fix Training Record Names", "fixTrainingRecordNames")
+      .addItem("2d. Install Edit Trigger (run once)", "installEditTrigger"))
 
     .addToUi();
 }
@@ -1114,6 +1115,211 @@ function cleanGarbledDatesUI() {
   }
 
   ui.alert("Clean Garbled Dates Complete!\n\nFixed: " + fixed + " cell(s) converted to M/D/YYYY format.");
+}
+
+
+// ************************************************************
+//
+//   FIX TRAINING RECORD NAMES
+//
+//   Scans the Training Records sheet and matches attendee names
+//   to the Employees sheet. Fixes misspellings, missing last names,
+//   wrong last names, etc. Shows each mismatch for confirmation.
+//
+// ************************************************************
+
+function fixTrainingRecordNames() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  var recordsSheet = ss.getSheetByName("Training Records");
+  if (!recordsSheet) { ui.alert("Training Records sheet not found."); return; }
+
+  var empSheet = ss.getSheetByName("Employees");
+  if (!empSheet) { ui.alert("Employees sheet not found. Needed as the name authority."); return; }
+
+  var empData = empSheet.getDataRange().getValues();
+  var empHeaders = empData[0];
+
+  // Parse Employees sheet
+  var eLastCol = -1, eFirstCol = -1, ePrefCol = -1;
+  for (var c = 0; c < empHeaders.length; c++) {
+    var h = empHeaders[c].toString().trim().toLowerCase();
+    if (h === "last name") eLastCol = c;
+    if (h === "first name") eFirstCol = c;
+    if (h === "preferred name") ePrefCol = c;
+  }
+  if (eLastCol < 0 || eFirstCol < 0) { ui.alert("Last Name / First Name not found on Employees sheet."); return; }
+
+  // Build employee search data for findTrainingRow
+  // Format: array of [lastName, firstName] rows (same structure findTrainingRow expects)
+  var empSearchData = [["", ""]]; // placeholder header
+  var empFullNames = [""]; // parallel array of "First Last" for display
+  for (var i = 1; i < empData.length; i++) {
+    var eLast = empData[i][eLastCol] ? empData[i][eLastCol].toString().trim() : "";
+    var eFirst = empData[i][eFirstCol] ? empData[i][eFirstCol].toString().trim() : "";
+    var ePref = ePrefCol >= 0 && empData[i][ePrefCol] ? empData[i][ePrefCol].toString().trim() : "";
+    if (!eLast || !eFirst) continue;
+
+    var displayFirst = ePref || eFirst;
+    empSearchData.push([eLast, displayFirst]);
+    empFullNames.push(displayFirst + " " + eLast);
+
+    // Also add legal first name if different from preferred
+    if (ePref && ePref !== eFirst) {
+      empSearchData.push([eLast, eFirst]);
+      empFullNames.push(eFirst + " " + eLast);
+    }
+  }
+
+  // Also build a first-name-only lookup for cases like "Nynaka Weaver" where last name is wrong
+  var firstNameLookup = {}; // lowercase first → [{last, displayFirst, fullName}]
+  for (var i = 1; i < empData.length; i++) {
+    var eLast = empData[i][eLastCol] ? empData[i][eLastCol].toString().trim() : "";
+    var eFirst = empData[i][eFirstCol] ? empData[i][eFirstCol].toString().trim() : "";
+    var ePref = ePrefCol >= 0 && empData[i][ePrefCol] ? empData[i][ePrefCol].toString().trim() : "";
+    if (!eLast || !eFirst) continue;
+    var displayFirst = ePref || eFirst;
+
+    var names = [eFirst.toLowerCase(), displayFirst.toLowerCase()];
+    for (var n = 0; n < names.length; n++) {
+      if (!firstNameLookup[names[n]]) firstNameLookup[names[n]] = [];
+      firstNameLookup[names[n]].push({ last: eLast, first: displayFirst, full: displayFirst + " " + eLast });
+    }
+  }
+
+  var recordsData = recordsSheet.getDataRange().getValues();
+  // Attendee is column C (index 2)
+  var attendeeCol = 2;
+
+  var mismatches = [];
+
+  for (var r = 1; r < recordsData.length; r++) {
+    var attendee = recordsData[r][attendeeCol] ? recordsData[r][attendeeCol].toString().trim() : "";
+    if (!attendee) continue;
+
+    // Parse the attendee name
+    var firstName = "", lastName = "";
+    if (attendee.indexOf(",") > -1) {
+      var parts = attendee.split(",");
+      lastName = parts[0].trim();
+      firstName = parts[1] ? parts[1].trim() : "";
+    } else {
+      var spaceParts = attendee.split(/\s+/);
+      if (spaceParts.length >= 2) {
+        firstName = spaceParts[0].trim();
+        lastName = spaceParts.slice(1).join(" ").trim();
+      } else {
+        firstName = attendee;
+      }
+    }
+
+    if (!firstName) continue;
+
+    // Try to find in Employees using full fuzzy matching
+    var matchRow = -1;
+    if (lastName) {
+      matchRow = findTrainingRow(empSearchData, firstName, lastName);
+    }
+
+    // If no match with given last name, try first-name-only lookup
+    if (matchRow < 0) {
+      var candidates = firstNameLookup[firstName.toLowerCase()] || [];
+      if (candidates.length === 1) {
+        // Only one person with this first name — use them
+        matchRow = -2; // special flag
+        var candidate = candidates[0];
+      } else if (candidates.length > 1 && lastName) {
+        // Multiple candidates — try fuzzy on last name
+        var bestCand = null, bestCandScore = 0;
+        for (var ci = 0; ci < candidates.length; ci++) {
+          var s = stringSimilarity(lastName.toLowerCase(), candidates[ci].last.toLowerCase());
+          var l = levenshteinDistance_(lastName.toLowerCase(), candidates[ci].last.toLowerCase());
+          var lScore = 1 - (l / Math.max(lastName.length, candidates[ci].last.length, 1));
+          var best = Math.max(s, lScore);
+          if (best > 0.4 && best > bestCandScore) { bestCand = candidates[ci]; bestCandScore = best; }
+        }
+        if (bestCand) { matchRow = -2; candidate = bestCand; }
+      }
+    }
+
+    var correctName = null;
+    if (matchRow > 0) {
+      correctName = empFullNames[matchRow];
+    } else if (matchRow === -2 && candidate) {
+      correctName = candidate.full;
+    }
+
+    if (!correctName) continue;
+
+    // Check if the name is already correct
+    if (attendee.toLowerCase() === correctName.toLowerCase()) continue;
+    // Also check "Last, First" format
+    var correctLastFirst = correctName.split(" ").slice(1).join(" ") + ", " + correctName.split(" ")[0];
+    if (attendee.toLowerCase() === correctLastFirst.toLowerCase()) continue;
+
+    mismatches.push({
+      row: r + 1,
+      current: attendee,
+      correct: correctName,
+      session: recordsData[r][1] ? recordsData[r][1].toString().trim() : "",
+      date: recordsData[r][3] ? recordsData[r][3].toString().trim() : ""
+    });
+  }
+
+  if (mismatches.length === 0) {
+    ui.alert("All Training Record names match! No fixes needed.");
+    return;
+  }
+
+  // Deduplicate by current name (same misspelling appears for every session they attended)
+  var seenNames = {};
+  var uniqueMismatches = [];
+  for (var m = 0; m < mismatches.length; m++) {
+    var key = mismatches[m].current.toLowerCase();
+    if (!seenNames[key]) {
+      seenNames[key] = { correct: mismatches[m].correct, rows: [] };
+    }
+    seenNames[key].rows.push(mismatches[m].row);
+  }
+  var nameKeys = Object.keys(seenNames);
+
+  var startConfirm = ui.alert(
+    "Found " + nameKeys.length + " name(s) to fix",
+    "Found " + nameKeys.length + " unique name(s) across " + mismatches.length + " row(s) that don't match Paylocity.\n\n" +
+    "Click OK to review each one.",
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (startConfirm !== ui.Button.OK) return;
+
+  var fixed = 0, skipped = 0;
+
+  for (var ni = 0; ni < nameKeys.length; ni++) {
+    var entry = seenNames[nameKeys[ni]];
+    var msg = "Name mismatch " + (ni + 1) + " of " + nameKeys.length + "\n\n";
+    msg += "Training Records:  " + nameKeys[ni] + "\n";
+    msg += "Paylocity:         " + entry.correct + "\n";
+    msg += "Appears on " + entry.rows.length + " row(s)\n\n";
+    msg += "Fix all occurrences to \"" + entry.correct + "\"?";
+
+    var choice = ui.alert("Fix Name?", msg, ui.ButtonSet.YES_NO);
+    if (choice === ui.Button.YES) {
+      for (var ri = 0; ri < entry.rows.length; ri++) {
+        recordsSheet.getRange(entry.rows[ri], attendeeCol + 1).setValue(entry.correct);
+      }
+      fixed++;
+      Logger.log("Fixed Training Record name: '" + nameKeys[ni] + "' → '" + entry.correct + "' (" + entry.rows.length + " rows)");
+    } else {
+      skipped++;
+    }
+  }
+
+  ui.alert(
+    "Training Records Name Fix Complete!\n\n" +
+    "Names fixed: " + fixed + "\n" +
+    "Names skipped: " + skipped + "\n\n" +
+    "Run 1e. Backfill to sync any corrected records to the Training sheet."
+  );
 }
 
 
