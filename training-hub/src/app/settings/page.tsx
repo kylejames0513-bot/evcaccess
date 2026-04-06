@@ -516,8 +516,12 @@ const EXCUSAL_REASONS = [
 
 function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string> }) {
   const [divisions, setDivisions] = useState<string[]>([]);
+  const [employees, setEmployees] = useState<Array<{ name: string; position: string }>>([]);
   const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState<"division" | "individuals">("division");
   const [division, setDivision] = useState("");
+  const [selectedEmployees, setSelectedEmployees] = useState<Set<string>>(new Set());
+  const [empSearch, setEmpSearch] = useState("");
   const [selectedTrainings, setSelectedTrainings] = useState<Set<string>>(new Set());
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -525,9 +529,14 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/divisions")
-      .then((r) => r.json())
-      .then((d) => setDivisions(d.divisions || []))
+    Promise.all([
+      fetch("/api/divisions").then((r) => r.json()),
+      fetch("/api/employees").then((r) => r.json()),
+    ])
+      .then(([divData, empData]) => {
+        setDivisions(divData.divisions || []);
+        setEmployees((empData.employees || []).sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name)));
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -552,16 +561,37 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
     setResult(null);
   }
 
+  function toggleEmployee(name: string) {
+    const next = new Set(selectedEmployees);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    setSelectedEmployees(next);
+    setResult(null);
+  }
+
+  const filteredEmployees = empSearch
+    ? employees.filter((e) => e.name.toLowerCase().includes(empSearch.toLowerCase()))
+    : employees;
+
   async function handleExcuse() {
-    if (!division || selectedTrainings.size === 0 || !reason) return;
+    const hasDivision = mode === "division" && division;
+    const hasEmployees = mode === "individuals" && selectedEmployees.size > 0;
+    if ((!hasDivision && !hasEmployees) || selectedTrainings.size === 0 || !reason) return;
     setSubmitting(true);
     setResult(null);
     setError("");
     try {
+      const payload: Record<string, unknown> = {
+        trainingColumnKeys: Array.from(selectedTrainings),
+        reason,
+      };
+      if (mode === "division") payload.division = division;
+      else payload.employeeNames = Array.from(selectedEmployees);
+
       const res = await fetch("/api/bulk-excuse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ division, trainingColumnKeys: Array.from(selectedTrainings), reason }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed");
@@ -582,7 +612,7 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
         </div>
         <div>
           <h2 className="font-semibold text-slate-900">Bulk Excuse</h2>
-          <p className="text-xs text-slate-500">Excuse an entire division from one or more trainings at once</p>
+          <p className="text-xs text-slate-500">Excuse a division or individual employees from trainings</p>
         </div>
       </div>
 
@@ -592,20 +622,72 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
         </div>
       ) : (
         <div className="px-6 py-5 space-y-4">
+          {/* Mode toggle */}
+          <div className="flex bg-slate-100 rounded-lg p-0.5 w-fit">
+            <button
+              onClick={() => { setMode("division"); setResult(null); }}
+              className={`px-4 py-1.5 text-xs font-medium rounded-md transition-colors ${mode === "division" ? "bg-white shadow text-slate-900" : "text-slate-500"}`}
+            >
+              By Division
+            </button>
+            <button
+              onClick={() => { setMode("individuals"); setResult(null); }}
+              className={`px-4 py-1.5 text-xs font-medium rounded-md transition-colors ${mode === "individuals" ? "bg-white shadow text-slate-900" : "text-slate-500"}`}
+            >
+              Individual Employees
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Division</label>
-              <select
-                value={division}
-                onChange={(e) => { setDivision(e.target.value); setResult(null); }}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Select division...</option>
-                {divisions.map((d) => (
-                  <option key={d} value={d}>{formatDivision(d)}</option>
-                ))}
-              </select>
-            </div>
+            {mode === "division" ? (
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Division</label>
+                <select
+                  value={division}
+                  onChange={(e) => { setDivision(e.target.value); setResult(null); }}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select division...</option>
+                  {divisions.map((d) => (
+                    <option key={d} value={d}>{formatDivision(d)}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">
+                  Employees ({selectedEmployees.size} selected)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Search employees..."
+                  value={empSearch}
+                  onChange={(e) => setEmpSearch(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
+                />
+                <div className="max-h-40 overflow-y-auto border border-slate-100 rounded-lg p-1 space-y-0.5">
+                  {filteredEmployees.slice(0, 100).map((emp) => {
+                    const isSelected = selectedEmployees.has(emp.name);
+                    return (
+                      <button
+                        key={emp.name}
+                        onClick={() => toggleEmployee(emp.name)}
+                        className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-xs transition-colors ${
+                          isSelected ? "bg-blue-100 text-blue-800" : "hover:bg-slate-50 text-slate-600"
+                        }`}
+                      >
+                        <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${
+                          isSelected ? "bg-[#1e3a5f] border-[#1e3a5f]" : "border-slate-300"
+                        }`}>
+                          {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
+                        </div>
+                        <span className="truncate">{emp.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Reason</label>
@@ -661,13 +743,13 @@ function BulkExcuseSection({ trackedTrainings }: { trackedTrainings: Set<string>
           <div className="flex items-center gap-4">
             <button
               onClick={handleExcuse}
-              disabled={!division || selectedTrainings.size === 0 || !reason || submitting}
+              disabled={(mode === "division" ? !division : selectedEmployees.size === 0) || selectedTrainings.size === 0 || !reason || submitting}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#1e3a5f] text-white hover:bg-[#2a4d7a] disabled:opacity-50 transition-all"
             >
               {submitting ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Excusing...</>
               ) : (
-                <><ShieldCheck className="h-4 w-4" /> Excuse {selectedTrainings.size} Training{selectedTrainings.size !== 1 ? "s" : ""}</>
+                <><ShieldCheck className="h-4 w-4" /> Excuse {selectedTrainings.size} Training{selectedTrainings.size !== 1 ? "s" : ""}{mode === "individuals" ? ` for ${selectedEmployees.size} Employee${selectedEmployees.size !== 1 ? "s" : ""}` : ""}</>
               )}
             </button>
 

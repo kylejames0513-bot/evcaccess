@@ -1,19 +1,22 @@
 import { readRange, updateCell } from "@/lib/google-sheets";
 import { invalidateAll } from "@/lib/cache";
+import { namesMatch } from "@/lib/name-utils";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { division, trainingColumnKeys, reason } = body;
+    const { division, employeeNames, trainingColumnKeys, reason } = body;
 
     // Support both single key (legacy) and array
     const keys: string[] = trainingColumnKeys
       ? (Array.isArray(trainingColumnKeys) ? trainingColumnKeys : [trainingColumnKeys])
       : body.trainingColumnKey ? [body.trainingColumnKey] : [];
 
-    if (!division || keys.length === 0 || !reason) {
+    const names: string[] = employeeNames && Array.isArray(employeeNames) ? employeeNames : [];
+
+    if ((!division && names.length === 0) || keys.length === 0 || !reason) {
       return Response.json(
-        { error: "Missing required fields: division, trainingColumnKeys (array), reason" },
+        { error: "Missing required fields: division or employeeNames, trainingColumnKeys, reason" },
         { status: 400 }
       );
     }
@@ -29,10 +32,8 @@ export async function POST(request: Request) {
 
     const activeCol = hdr("ACTIVE");
     const divCol = hdr("Division Description");
-
-    if (divCol < 0) {
-      return Response.json({ error: "Division Description column not found" }, { status: 400 });
-    }
+    const lNameCol = hdr("L NAME");
+    const fNameCol = hdr("F NAME");
 
     // Resolve all training column indices
     const trainingCols: { key: string; col: number }[] = [];
@@ -54,8 +55,19 @@ export async function POST(request: Request) {
         if (active !== "Y") continue;
       }
 
-      const empDiv = (row[divCol] || "").trim();
-      if (empDiv.toLowerCase() !== division.toLowerCase()) continue;
+      // Check if this employee matches the filter (division or individual names)
+      let matches = false;
+      if (division && divCol >= 0) {
+        const empDiv = (row[divCol] || "").trim();
+        if (empDiv.toLowerCase() === division.toLowerCase()) matches = true;
+      }
+      if (names.length > 0 && lNameCol >= 0 && fNameCol >= 0) {
+        const last = (row[lNameCol] || "").trim();
+        const first = (row[fNameCol] || "").trim();
+        const fullName = first ? `${last}, ${first}` : last;
+        if (names.some((n) => namesMatch(n, fullName))) matches = true;
+      }
+      if (!matches) continue;
 
       for (const tc of trainingCols) {
         const currentValue = (row[tc.col] || "").trim();
