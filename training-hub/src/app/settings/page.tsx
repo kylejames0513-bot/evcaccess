@@ -176,8 +176,8 @@ function DeptRulesSection() {
   const [adding, setAdding] = useState(false);
   const [newDept, setNewDept] = useState("");
   const [editingDept, setEditingDept] = useState<string | null>(null);
-  const [editTrainings, setEditTrainings] = useState<Set<string>>(new Set());
-  const [editAll, setEditAll] = useState(false);
+  const [editTracked, setEditTracked] = useState<Set<string>>(new Set());
+  const [editRequired, setEditRequired] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     Promise.all([
@@ -192,16 +192,13 @@ function DeptRulesSection() {
       .finally(() => setLoading(false));
   }, []);
 
-  // Tracked trainings for checkboxes
-  const trackedList = ALL_TRAININGS.filter((t) => trackedTrainings.has(t.columnKey));
-
-  async function handleSaveRule(department: string, trainings: string[]) {
+  async function handleSaveRule(department: string, tracked: string[], required: string[]) {
     setSaving(department);
     try {
       const res = await fetch("/api/dept-rules", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ department, trainings }),
+        body: JSON.stringify({ department, tracked, required }),
       });
       const d = await res.json();
       setRules(d.rules || []);
@@ -228,15 +225,14 @@ function DeptRulesSection() {
 
   function startEdit(rule: DeptRule) {
     setEditingDept(rule.department);
-    const isAll = rule.trainings.includes("ALL");
-    setEditAll(isAll);
-    setEditTrainings(isAll ? new Set(trackedList.map((t) => t.columnKey)) : new Set(rule.trainings));
+    setEditTracked(new Set(rule.tracked));
+    setEditRequired(new Set(rule.required));
   }
 
   function startAdd() {
     setAdding(true);
-    setEditAll(true);
-    setEditTrainings(new Set(trackedList.map((t) => t.columnKey)));
+    setEditTracked(new Set(ALL_TRAININGS.map((t) => t.columnKey)));
+    setEditRequired(new Set(ALL_TRAININGS.map((t) => t.columnKey)));
   }
 
   function cancelEdit() {
@@ -245,33 +241,131 @@ function DeptRulesSection() {
     setNewDept("");
   }
 
-  function toggleEditTraining(key: string) {
-    const next = new Set(editTrainings);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    setEditTrainings(next);
-    // If all are selected, set editAll
-    setEditAll(next.size === trackedList.length);
+  function toggleTracked(key: string) {
+    const next = new Set(editTracked);
+    if (next.has(key)) {
+      next.delete(key);
+      // Also remove from required if untracking
+      const nextReq = new Set(editRequired);
+      nextReq.delete(key);
+      setEditRequired(nextReq);
+    } else {
+      next.add(key);
+    }
+    setEditTracked(next);
   }
 
-  function toggleAll() {
-    if (editAll) {
-      setEditTrainings(new Set());
-      setEditAll(false);
-    } else {
-      setEditTrainings(new Set(trackedList.map((t) => t.columnKey)));
-      setEditAll(true);
-    }
+  function toggleRequired(key: string) {
+    // Can only require if tracked
+    if (!editTracked.has(key)) return;
+    const next = new Set(editRequired);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setEditRequired(next);
+  }
+
+  function trackAll() {
+    setEditTracked(new Set(ALL_TRAININGS.map((t) => t.columnKey)));
+  }
+
+  function trackNone() {
+    setEditTracked(new Set());
+    setEditRequired(new Set());
+  }
+
+  function requireAllTracked() {
+    setEditRequired(new Set(editTracked));
+  }
+
+  function requireNone() {
+    setEditRequired(new Set());
   }
 
   function saveEdit() {
     const dept = adding ? newDept.trim() : editingDept;
     if (!dept) return;
-    const trainings = editAll ? ["ALL"] : Array.from(editTrainings);
-    handleSaveRule(dept, trainings);
+    handleSaveRule(dept, Array.from(editTracked), Array.from(editRequired));
   }
 
   const isEditing = editingDept !== null || adding;
+
+  // Inline editor table for tracked/required checkboxes
+  function renderTrainingTable() {
+    return (
+      <div>
+        <div className="flex items-center gap-3 mb-2 flex-wrap">
+          <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide">Trainings</label>
+          <div className="flex items-center gap-2 ml-auto flex-wrap">
+            <button
+              onClick={editTracked.size === ALL_TRAININGS.length ? trackNone : trackAll}
+              className="text-xs font-medium text-blue-600 hover:text-blue-800"
+            >
+              {editTracked.size === ALL_TRAININGS.length ? "Track None" : "Track All"}
+            </button>
+            <span className="text-slate-300">|</span>
+            <button
+              onClick={editRequired.size === editTracked.size && editTracked.size > 0 ? requireNone : requireAllTracked}
+              className="text-xs font-medium text-blue-600 hover:text-blue-800"
+            >
+              {editRequired.size === editTracked.size && editTracked.size > 0 ? "Require None" : "Require All Tracked"}
+            </button>
+          </div>
+        </div>
+        <div className="border border-slate-200 rounded-lg overflow-hidden max-h-72 overflow-y-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 sticky top-0">
+              <tr>
+                <th className="text-left px-3 py-2 font-semibold text-slate-600">Training</th>
+                <th className="text-center px-3 py-2 font-semibold text-slate-600 w-20">Tracked</th>
+                <th className="text-center px-3 py-2 font-semibold text-slate-600 w-20">Required</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {ALL_TRAININGS.map(({ columnKey, name }) => {
+                const isTracked = editTracked.has(columnKey);
+                const isRequired = editRequired.has(columnKey);
+                return (
+                  <tr key={columnKey} className={isTracked ? "bg-blue-50/30" : ""}>
+                    <td className="px-3 py-2">
+                      <span className={`font-medium ${isTracked ? "text-slate-900" : "text-slate-400"}`}>{name}</span>
+                    </td>
+                    <td className="text-center px-3 py-2">
+                      <button
+                        onClick={() => toggleTracked(columnKey)}
+                        className="inline-flex items-center justify-center"
+                      >
+                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
+                          isTracked ? "bg-[#1e3a5f] border-[#1e3a5f]" : "border-slate-300"
+                        }`}>
+                          {isTracked && <Check className="h-3 w-3 text-white" />}
+                        </div>
+                      </button>
+                    </td>
+                    <td className="text-center px-3 py-2">
+                      <button
+                        onClick={() => toggleRequired(columnKey)}
+                        disabled={!isTracked}
+                        className="inline-flex items-center justify-center disabled:opacity-30"
+                      >
+                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
+                          isRequired ? "bg-amber-600 border-amber-600" : "border-slate-300"
+                        }`}>
+                          {isRequired && <Check className="h-3 w-3 text-white" />}
+                        </div>
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[10px] text-slate-400 mt-1">
+          Tracked = division has this training (unchecked = NA auto-fill). Required = actively monitored for compliance.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -282,7 +376,7 @@ function DeptRulesSection() {
           </div>
           <div>
             <h2 className="font-semibold text-slate-900">Department Training Rules</h2>
-            <p className="text-xs text-slate-500">Set which trainings each department requires. Employees without a rule get all tracked trainings.</p>
+            <p className="text-xs text-slate-500">Set which trainings each department tracks and requires. Employees without a rule get all tracked trainings.</p>
           </div>
         </div>
         {!isEditing && (
@@ -316,21 +410,15 @@ function DeptRulesSection() {
                   {divisions
                     .filter((d) => !rules.some((r) => r.department.toLowerCase() === d.toLowerCase()))
                     .map((d) => (
-                      <option key={d} value={d}>{d}</option>
+                      <option key={d} value={d}>{formatDivision(d)}</option>
                     ))}
                 </select>
               </div>
-              <TrainingCheckboxes
-                trackedList={trackedList}
-                selected={editTrainings}
-                allSelected={editAll}
-                onToggle={toggleEditTraining}
-                onToggleAll={toggleAll}
-              />
+              {renderTrainingTable()}
               <div className="flex items-center gap-2 mt-3">
                 <button
                   onClick={saveEdit}
-                  disabled={!newDept.trim() || editTrainings.size === 0 || saving !== null}
+                  disabled={!newDept.trim() || editTracked.size === 0 || saving !== null}
                   className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#1e3a5f] text-white hover:bg-[#2a4d7a] disabled:opacity-50 transition-all"
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -352,33 +440,21 @@ function DeptRulesSection() {
             <div className="divide-y divide-slate-100">
               {rules.map((rule) => {
                 const isEditingThis = editingDept === rule.department;
-                const isAll = rule.trainings.includes("ALL");
-                const displayTrainings = isAll
-                  ? "All tracked trainings"
-                  : rule.trainings
-                      .map((key) => ALL_TRAININGS.find((t) => t.columnKey === key)?.name || key)
-                      .join(", ");
 
                 if (isEditingThis) {
                   return (
                     <div key={rule.department} className="px-6 py-4 bg-blue-50/30">
                       <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-sm font-semibold text-slate-900">{rule.department}</h3>
+                        <h3 className="text-sm font-semibold text-slate-900">{formatDivision(rule.department)}</h3>
                         <button onClick={cancelEdit} className="p-1 hover:bg-slate-200 rounded">
                           <X className="h-4 w-4 text-slate-400" />
                         </button>
                       </div>
-                      <TrainingCheckboxes
-                        trackedList={trackedList}
-                        selected={editTrainings}
-                        allSelected={editAll}
-                        onToggle={toggleEditTraining}
-                        onToggleAll={toggleAll}
-                      />
+                      {renderTrainingTable()}
                       <div className="flex items-center gap-2 mt-3">
                         <button
                           onClick={saveEdit}
-                          disabled={editTrainings.size === 0 || saving !== null}
+                          disabled={editTracked.size === 0 || saving !== null}
                           className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#1e3a5f] text-white hover:bg-[#2a4d7a] disabled:opacity-50 transition-all"
                         >
                           {saving === rule.department ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -392,15 +468,21 @@ function DeptRulesSection() {
                   );
                 }
 
+                const requiredNames = rule.required
+                  .map((key) => ALL_TRAININGS.find((t) => t.columnKey === key)?.name || key)
+                  .sort()
+                  .join(", ");
+
                 return (
                   <div key={rule.department} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50 group">
                     <div>
-                      <p className="text-sm font-medium text-slate-900">{rule.department}</p>
+                      <p className="text-sm font-medium text-slate-900">{formatDivision(rule.department)}</p>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        {isAll ? (
-                          <span className="text-blue-600 font-medium">All tracked trainings</span>
-                        ) : (
-                          <>{rule.trainings.length} training{rule.trainings.length !== 1 ? "s" : ""}: {displayTrainings}</>
+                        <span className="text-slate-600 font-medium">{rule.tracked.length} tracked</span>
+                        {", "}
+                        <span className="text-amber-600 font-medium">{rule.required.length} required</span>
+                        {rule.required.length > 0 && (
+                          <span className="text-slate-400"> — {requiredNames}</span>
                         )}
                       </p>
                     </div>
@@ -431,61 +513,8 @@ function DeptRulesSection() {
       <div className="px-6 py-3 border-t border-slate-100 bg-slate-50">
         <p className="text-xs text-slate-500">
           {rules.length} rule{rules.length !== 1 ? "s" : ""} configured.
-          Employees in departments without a rule will be tracked against all {trackedTrainings.size} tracked trainings.
+          Employees in departments without a rule will be tracked against all trainings.
         </p>
-      </div>
-    </div>
-  );
-}
-
-// ────────────────────────────────────────────────────────────
-// Training checkboxes (reused in add/edit)
-// ────────────────────────────────────────────────────────────
-
-function TrainingCheckboxes({
-  trackedList,
-  selected,
-  allSelected,
-  onToggle,
-  onToggleAll,
-}: {
-  trackedList: { columnKey: string; name: string }[];
-  selected: Set<string>;
-  allSelected: boolean;
-  onToggle: (key: string) => void;
-  onToggleAll: () => void;
-}) {
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide">Required Trainings</label>
-        <button
-          onClick={onToggleAll}
-          className="text-xs font-medium text-blue-600 hover:text-blue-800"
-        >
-          {allSelected ? "Deselect All" : "Select All"}
-        </button>
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-60 overflow-y-auto p-1">
-        {trackedList.map(({ columnKey, name }) => {
-          const isSelected = selected.has(columnKey);
-          return (
-            <button
-              key={columnKey}
-              onClick={() => onToggle(columnKey)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-left text-xs transition-colors ${
-                isSelected ? "bg-blue-100 text-blue-800" : "bg-slate-50 text-slate-500 hover:bg-slate-100"
-              }`}
-            >
-              <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
-                isSelected ? "bg-[#1e3a5f] border-[#1e3a5f]" : "border-slate-300"
-              }`}>
-                {isSelected && <Check className="h-3 w-3 text-white" />}
-              </div>
-              <span className="font-medium truncate">{name}</span>
-            </button>
-          );
-        })}
       </div>
     </div>
   );
