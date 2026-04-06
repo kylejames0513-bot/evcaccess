@@ -58,10 +58,21 @@ interface Discrepancy {
 
 export async function GET() {
   try {
-    const [trainingRows, paylocityRows] = await Promise.all([
+    const [trainingRows, paylocityRows, settingsRows] = await Promise.all([
       readRange("Training"),
       readRange("Paylocity Import"),
+      readRange("'Hub Settings'").catch(() => [] as string[][]),
     ]);
+
+    // Load name mappings from Hub Settings
+    const nameMappings = new Map<string, string>(); // paylocity name lowercase → training name
+    for (let i = 1; i < settingsRows.length; i++) {
+      if ((settingsRows[i][0] || "").trim() === "name_map") {
+        const pName = (settingsRows[i][1] || "").trim().toLowerCase();
+        const tName = (settingsRows[i][2] || "").trim();
+        if (pName && tName) nameMappings.set(pName, tName);
+      }
+    }
 
     if (trainingRows.length < 2) return Response.json({ error: "Training sheet empty" }, { status: 400 });
     if (paylocityRows.length < 2) return Response.json({ error: "Paylocity Import tab empty" }, { status: 400 });
@@ -142,8 +153,15 @@ export async function GET() {
       if (seen.has(dedupeKey)) continue;
       seen.set(dedupeKey, new Set());
 
-      // Find on Training sheet
-      const match = trainingLookup.find((t) => namesMatch(t.name, payName) || namesMatch(t.name, `${pLastName}, ${pFirstName}`));
+      // Find on Training sheet — check name mapping first
+      const mappedName = nameMappings.get(payName.toLowerCase()) || nameMappings.get(`${pLastName}, ${pFirstName}`.toLowerCase());
+      let match = mappedName
+        ? trainingLookup.find((t) => namesMatch(t.name, mappedName))
+        : null;
+
+      if (!match) {
+        match = trainingLookup.find((t) => namesMatch(t.name, payName) || namesMatch(t.name, `${pLastName}, ${pFirstName}`));
+      }
 
       if (!match) {
         noMatch.push({ name: payName, skill, date: payDate });
