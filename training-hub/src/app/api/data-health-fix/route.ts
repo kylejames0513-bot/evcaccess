@@ -127,7 +127,7 @@ async function handleRemoveDuplicates(payload: RemoveDuplicatesPayload) {
     fields: "sheets.properties",
   });
   const trainingSheet = spreadsheet.data.sheets?.find(
-    (s) => s.properties?.title === "Training"
+    (s: { properties?: { title?: string } }) => s.properties?.title === "Training"
   );
   if (!trainingSheet?.properties?.sheetId && trainingSheet?.properties?.sheetId !== 0) {
     return Response.json(
