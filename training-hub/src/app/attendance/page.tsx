@@ -192,15 +192,50 @@ export default function AttendancePage() {
         throw new Error(body.error || "Failed to archive session");
       }
 
-      if (failures.length > 0) {
-        setCompleteMessage(
-          `Session archived. ${presentList.length - failures.length} of ${presentList.length} completions recorded. Some failures:\n${failures.join("\n")}`
-        );
-      } else {
-        setCompleteMessage(
-          `Session completed! ${presentList.length} completion${presentList.length === 1 ? "" : "s"} recorded and session archived.`
-        );
+      // 4. Auto-enroll in next training if configured (e.g., Initial Med → Post Med)
+      let autoEnrolled = 0;
+      if (trainingDef.autoEnrollNext) {
+        try {
+          const schedRes = await fetch("/api/schedule");
+          const schedData = await schedRes.json();
+          const sessions = schedData.sessions || [];
+          // Find next scheduled session for the target training
+          const targetDef = TRAINING_DEFINITIONS.find(
+            (d) => d.name.toLowerCase() === trainingDef.autoEnrollNext!.toLowerCase()
+          );
+          if (targetDef) {
+            const nextSession = sessions.find(
+              (s: { status: string; training: string; enrolled: string[]; capacity: number }) =>
+                s.status === "scheduled" &&
+                (s.training.toLowerCase() === targetDef.name.toLowerCase() ||
+                 targetDef.aliases?.some((a) => a.toLowerCase() === s.training.toLowerCase())) &&
+                s.enrolled.length < s.capacity
+            );
+            if (nextSession) {
+              const enrollRes = await fetch("/api/enroll", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ sessionRowIndex: nextSession.rowIndex, names: presentList }),
+              });
+              if (enrollRes.ok) {
+                const enrollData = await enrollRes.json();
+                autoEnrolled = presentList.length;
+              }
+            }
+          }
+        } catch {}
       }
+
+      let msg = "";
+      if (failures.length > 0) {
+        msg = `Session archived. ${presentList.length - failures.length} of ${presentList.length} completions recorded. Some failures:\n${failures.join("\n")}`;
+      } else {
+        msg = `Session completed! ${presentList.length} completion${presentList.length === 1 ? "" : "s"} recorded and session archived.`;
+      }
+      if (autoEnrolled > 0) {
+        msg += `\n\n${autoEnrolled} employee${autoEnrolled !== 1 ? "s" : ""} auto-enrolled in next ${trainingDef.autoEnrollNext} session.`;
+      }
+      setCompleteMessage(msg);
 
       // Refresh and clear selection
       setRefreshKey((k) => k + 1);

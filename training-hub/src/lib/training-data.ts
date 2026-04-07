@@ -671,11 +671,12 @@ export async function getEmployeesNeedingTraining(
 
   const now = new Date();
 
-  // For look-ahead (Med Recert): 3 months from today
-  let quarterLookAhead: Date | null = null;
-  if (def.lookAheadQuarterly && def.renewalYears > 0) {
-    quarterLookAhead = new Date(now.getFullYear(), now.getMonth() + 3, now.getDate());
-  }
+  // Look-ahead: include people expiring within lookAheadDays
+  // Grace period: include people expired within postExpGraceDays (can still recert)
+  const lookAheadDate = def.lookAheadDays && def.renewalYears > 0
+    ? new Date(now.getTime() + def.lookAheadDays * 24 * 60 * 60 * 1000) : null;
+  const graceDate = def.postExpGraceDays && def.renewalYears > 0
+    ? new Date(now.getTime() - def.postExpGraceDays * 24 * 60 * 60 * 1000) : null;
 
   const results: Array<{ name: string; status: ComplianceStatus; daysExpired: number; daysUntilExpiry: number; division: string }> = [];
   for (const emp of data) {
@@ -686,17 +687,23 @@ export async function getEmployeesNeedingTraining(
     if (def.onlyExpired && (t.status === "needed")) continue;
     if (def.onlyNeeded && (t.status === "expired" || t.status === "expiring_soon") && t.date) continue;
 
-    // For quarterly look-ahead: also include "current" employees expiring before end of next quarter
-    let includeForQuarter = false;
-    if (quarterLookAhead && t.status === "current" && t.date && def.renewalYears > 0) {
+    // Look-ahead: include "current" employees expiring within lookAheadDays
+    let includeLookAhead = false;
+    if (lookAheadDate && t.status === "current" && t.date && def.renewalYears > 0) {
       const expiry = new Date(t.date);
       expiry.setFullYear(expiry.getFullYear() + def.renewalYears);
-      if (expiry <= quarterLookAhead) {
-        includeForQuarter = true;
-      }
+      if (expiry <= lookAheadDate) includeLookAhead = true;
     }
 
-    if (t.status === "expired" || t.status === "expiring_soon" || t.status === "needed" || includeForQuarter) {
+    // Grace period: for expired people, only include if expired within grace days
+    // (expired more than 30 days = lost cert, needs Initial Med again)
+    if (def.postExpGraceDays && t.status === "expired" && t.date && def.renewalYears > 0) {
+      const expiry = new Date(t.date);
+      expiry.setFullYear(expiry.getFullYear() + def.renewalYears);
+      if (expiry < (graceDate || now)) continue; // too long expired — skip for recert
+    }
+
+    if (t.status === "expired" || t.status === "expiring_soon" || t.status === "needed" || includeLookAhead) {
       let daysExpired = 0;
       let daysUntilExpiry = 0;
 
@@ -714,7 +721,7 @@ export async function getEmployeesNeedingTraining(
         daysExpired = 9999;
       }
 
-      const effectiveStatus = includeForQuarter && t.status === "current" ? "expiring_soon" as ComplianceStatus : t.status;
+      const effectiveStatus = includeLookAhead && t.status === "current" ? "expiring_soon" as ComplianceStatus : t.status;
       results.push({ name: emp.name, status: effectiveStatus, daysExpired, daysUntilExpiry, division: emp.position });
     }
   }

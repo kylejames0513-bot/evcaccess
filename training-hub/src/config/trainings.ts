@@ -13,7 +13,9 @@ export interface TrainingDef {
   classCapacity: number;
   onlyExpired?: boolean;
   onlyNeeded?: boolean;
-  lookAheadQuarterly?: boolean; // include people expiring through end of next quarter
+  lookAheadDays?: number;     // include people expiring within this many days
+  postExpGraceDays?: number;  // also include people expired within this many days
+  autoEnrollNext?: string;    // after completion, auto-enroll in this training's next session
   prerequisite?: string; // column_key of prerequisite
   aliases?: string[];
   rulesName?: string;
@@ -68,7 +70,8 @@ export const TRAINING_DEFINITIONS: TrainingDef[] = [
     renewalYears: 3,
     isRequired: false,
     onlyExpired: true,
-    lookAheadQuarterly: true,
+    lookAheadDays: 90,      // show people expiring within 90 days
+    postExpGraceDays: 30,   // also show people expired up to 30 days ago
     classCapacity: 8,
     aliases: ["med cert", "med test out"],
   },
@@ -79,6 +82,7 @@ export const TRAINING_DEFINITIONS: TrainingDef[] = [
     renewalYears: 0,
     isRequired: false,
     onlyNeeded: true,
+    autoEnrollNext: "Post Med",  // after passing, auto-enroll in Post Med
     classCapacity: 4,
     aliases: ["med training"],
   },
