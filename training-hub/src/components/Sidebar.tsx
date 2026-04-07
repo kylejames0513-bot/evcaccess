@@ -15,6 +15,7 @@ import {
   FileText,
   HeartPulse,
   GitCompare,
+  UserPlus,
 } from "lucide-react";
 
 const mainNav = [
@@ -25,6 +26,7 @@ const mainNav = [
   { href: "/attendance", label: "Attendance", icon: UserCheck },
   { href: "/records", label: "Records", icon: FileText },
   { href: "/notifications", label: "Notifications", icon: Bell },
+  { href: "/new-hires", label: "New Hires", icon: UserPlus },
 ];
 
 const secondaryNav = [

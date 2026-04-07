@@ -2335,7 +2335,7 @@ function syncEmployeesSheet() {
 
   // ── Parse Employees sheet headers ──
   var empHeaders = empData[0];
-  var eLastCol = -1, eFirstCol = -1, ePrefCol = -1, ePositionCol = -1;
+  var eLastCol = -1, eFirstCol = -1, ePrefCol = -1, ePositionCol = -1, eHireCol = -1;
   var eDivCol = -1, eDeptCol = -1, eStatusCol = -1, eIdCol = -1;
   for (var c = 0; c < empHeaders.length; c++) {
     var h = empHeaders[c].toString().trim().toLowerCase();
@@ -2344,6 +2344,7 @@ function syncEmployeesSheet() {
     if (h === "preferred name") ePrefCol = c;
     if (h === "id") eIdCol = c;
     if (h === "position / job title" || h === "position" || h === "job title" || h === "position title") ePositionCol = c;
+    if (h === "hire date") eHireCol = c;
     if (h === "division") eDivCol = c;
     if (h === "department") eDeptCol = c;
     if (h === "status") eStatusCol = c;
@@ -2519,7 +2520,7 @@ function syncEmployeesSheet() {
 
   // Find all Training sheet columns by header
   var tIdCol = -1, tLNameCol = -1, tFNameCol = -1, tActiveCol = -1;
-  var tDivCol = -1, tDeptCol = -1, tPosCol = -1;
+  var tDivCol = -1, tDeptCol = -1, tPosCol = -1, tHireCol = -1;
   for (var c = 0; c < trainingHeaders.length; c++) {
     var th = trainingHeaders[c].toString().trim();
     if (th.toUpperCase() === "ID" && tIdCol < 0) tIdCol = c;
@@ -2529,6 +2530,7 @@ function syncEmployeesSheet() {
     if (th === "Division Description") tDivCol = c;
     if (th === "Department Description") tDeptCol = c;
     if (th === "Position Title") tPosCol = c;
+    if (th === "Hire Date") tHireCol = c;
   }
   if (tLNameCol < 0 || tFNameCol < 0) { ui.alert("L NAME / F NAME not found on Training sheet."); return; }
   if (tIdCol < 0) { ui.alert("ID column not found on Training sheet after insert attempt."); return; }
@@ -2554,6 +2556,11 @@ function syncEmployeesSheet() {
     var division = eDivCol >= 0 ? (empData[i][eDivCol] || "").toString().trim() : "";
     var department = eDeptCol >= 0 ? (empData[i][eDeptCol] || "").toString().trim() : "";
     var position = ePositionCol >= 0 ? (empData[i][ePositionCol] || "").toString().trim() : "";
+    var hireDate = eHireCol >= 0 ? (empData[i][eHireCol] || "").toString().trim() : "";
+    if (hireDate && empData[i][eHireCol] instanceof Date) {
+      var hd = empData[i][eHireCol];
+      hireDate = (hd.getMonth() + 1) + "/" + hd.getDate() + "/" + hd.getFullYear();
+    }
     var status = eStatusCol >= 0 ? (empData[i][eStatusCol] || "").toString().trim() : "";
     var isActive = status.toLowerCase() === "active" || status === "A" || status === "Y";
     var activeFlag = isActive ? "Y" : "N";
@@ -2631,6 +2638,7 @@ function syncEmployeesSheet() {
       if (tDivCol >= 0 && division) { trainingSheet.getRange(matchRow + 1, tDivCol + 1).setValue(division); changed = true; }
       if (tDeptCol >= 0 && department) { trainingSheet.getRange(matchRow + 1, tDeptCol + 1).setValue(department); changed = true; }
       if (tPosCol >= 0 && position) { trainingSheet.getRange(matchRow + 1, tPosCol + 1).setValue(position); changed = true; }
+      if (tHireCol >= 0 && hireDate) { trainingSheet.getRange(matchRow + 1, tHireCol + 1).setValue(hireDate); changed = true; }
 
       if (changed) stats.tUpdated++;
     } else {
@@ -2644,6 +2652,7 @@ function syncEmployeesSheet() {
       if (tDivCol >= 0) newRow[tDivCol] = division;
       if (tDeptCol >= 0) newRow[tDeptCol] = department;
       if (tPosCol >= 0) newRow[tPosCol] = position;
+      if (tHireCol >= 0 && hireDate) newRow[tHireCol] = hireDate;
       trainingSheet.appendRow(newRow);
       // Update in-memory data so subsequent lookups find this row
       trainingData.push(newRow);

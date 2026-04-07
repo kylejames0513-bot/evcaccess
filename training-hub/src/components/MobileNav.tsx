@@ -18,6 +18,7 @@ import {
   FileText,
   HeartPulse,
   GitCompare,
+  UserPlus,
 } from "lucide-react";
 
 const navItems = [
@@ -28,6 +29,7 @@ const navItems = [
   { href: "/attendance", label: "Attendance", icon: UserCheck },
   { href: "/records", label: "Records", icon: FileText },
   { href: "/notifications", label: "Notifications", icon: Bell },
+  { href: "/new-hires", label: "New Hires", icon: UserPlus },
   { href: "/trainings", label: "Training Types", icon: GraduationCap },
   { href: "/data-health", label: "Data Health", icon: HeartPulse },
   { href: "/paylocity-audit", label: "Paylocity Audit", icon: GitCompare },
