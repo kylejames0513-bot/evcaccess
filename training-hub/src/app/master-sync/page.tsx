@@ -762,8 +762,8 @@ function UpdateTable({ rows, deselected, winnerOverrides, onToggle, onConflictPi
                 <td className="px-4 py-2.5">
                   {r.winnerSource === "phs" ? (
                     r.phsHasDoc
-                      ? <File className="h-3.5 w-3.5 text-emerald-500" title="Has documentation" />
-                      : <FileX className="h-3.5 w-3.5 text-slate-300" title="No file attached" />
+                      ? <span title="Has documentation"><File className="h-3.5 w-3.5 text-emerald-500" /></span>
+                      : <span title="No file attached"><FileX className="h-3.5 w-3.5 text-slate-300" /></span>
                   ) : <span className="text-slate-200">—</span>}
                 </td>
               </tr>
