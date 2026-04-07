@@ -38,6 +38,13 @@ function normalizeDate(val: string): string {
   // M/D/YYYY — strip leading zeros
   const full = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (full) return `${parseInt(full[1])}/${parseInt(full[2])}/${full[3]}`;
+  // MM-DD-YY or MM-DD-YYYY (dashes)
+  const dash = s.match(/^(\d{1,2})-(\d{1,2})-(\d{2,4})$/);
+  if (dash) {
+    let yr = parseInt(dash[3]);
+    if (yr < 100) yr += yr < 50 ? 2000 : 1900;
+    return `${parseInt(dash[1])}/${parseInt(dash[2])}/${yr}`;
+  }
   // Try Date parse
   try {
     const d = new Date(s);
@@ -46,6 +53,23 @@ function normalizeDate(val: string): string {
     }
   } catch {}
   return s;
+}
+
+function parseToTimestamp(dateStr: string): number {
+  const m = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return new Date(parseInt(m[3]), parseInt(m[1]) - 1, parseInt(m[2])).getTime();
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+function datesEqual(a: string, b: string): boolean {
+  // String compare first (fast path)
+  if (a === b) return true;
+  // Parse to timestamps and compare (handles format differences)
+  const ta = parseToTimestamp(a);
+  const tb = parseToTimestamp(b);
+  if (ta && tb) return ta === tb;
+  return false;
 }
 
 interface Discrepancy {
@@ -199,7 +223,7 @@ export async function GET() {
           paylocityDate: payDate,
           issue: "na_but_has_date",
         });
-      } else if (trainingDate && payDate && trainingDate !== payDate) {
+      } else if (trainingDate && payDate && !datesEqual(trainingDate, payDate)) {
         discrepancies.push({
           employee: match.name,
           training: targetCol,
