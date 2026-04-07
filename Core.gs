@@ -2797,13 +2797,22 @@ function syncEmployeesSheet() {
       for (var tc = 0; tc < allTrainingCols.length; tc++) {
         var colKey = allTrainingCols[tc].key;
         var colIdx = allTrainingCols[tc].index;
-        if (rule[colKey]) continue; // this training IS required — skip
-
         var cellVal = (trainingData[r][colIdx] || "").toString().trim();
-        if (cellVal) continue; // already has a value — don't overwrite
+        var cellUpper = cellVal.toUpperCase();
 
-        trainingSheet.getRange(r + 1, colIdx + 1).setValue("NA");
-        stats.autoExcused++;
+        if (rule[colKey]) {
+          // This training IS tracked — if cell says NA, clear it (now tracked)
+          if (cellUpper === "NA" || cellUpper === "N/A") {
+            trainingSheet.getRange(r + 1, colIdx + 1).setValue("");
+            stats.autoCleared = (stats.autoCleared || 0) + 1;
+          }
+        } else {
+          // This training is NOT tracked — write NA if empty
+          if (!cellVal) {
+            trainingSheet.getRange(r + 1, colIdx + 1).setValue("NA");
+            stats.autoExcused++;
+          }
+        }
       }
     }
   }
@@ -2818,7 +2827,10 @@ function syncEmployeesSheet() {
   summary += "New employees added: " + stats.tAdded + "\n";
   summary += "Deactivated (not in Paylocity): " + stats.tDeactivated + "\n";
   if (stats.autoExcused > 0) {
-    summary += "Auto-excused (based on dept rules): " + stats.autoExcused + " cell(s)\n";
+    summary += "Auto-excused (NA written): " + stats.autoExcused + " cell(s)\n";
+  }
+  if (stats.autoCleared > 0) {
+    summary += "NA cleared (now tracked): " + stats.autoCleared + " cell(s)\n";
   }
 
   ui.alert(summary);
