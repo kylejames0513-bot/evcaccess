@@ -121,7 +121,8 @@ export default function SchedulePage() {
   async function handleDelete(rowIndex: number) {
     setDeleteLoading(true);
     try {
-      await fetch("/api/delete-session", {
+      // Archive instead of delete — preserves the record
+      await fetch("/api/archive-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionRowIndex: rowIndex }),
@@ -297,9 +298,9 @@ export default function SchedulePage() {
                           <button
                             onClick={() => handleDelete(session.rowIndex)}
                             disabled={deleteLoading}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-red-600 text-white hover:bg-red-700"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700"
                           >
-                            {deleteLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Confirm"}
+                            {deleteLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Archive"}
                           </button>
                           <button
                             onClick={() => setDeletingSession(null)}
@@ -312,7 +313,7 @@ export default function SchedulePage() {
                         <button
                           onClick={() => setDeletingSession(session.rowIndex)}
                           className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
-                          title="Delete session"
+                          title="Archive session"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
