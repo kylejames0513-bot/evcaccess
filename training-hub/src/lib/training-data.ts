@@ -171,8 +171,10 @@ function parseDate(value: string): Date | null {
 // ────────────────────────────────────────────────────────────
 
 export interface EmployeeTrainingRow {
-  name: string;       // "Last, First" from column A+B
-  position: string;   // Column D — job title
+  name: string;       // "Last, First"
+  employeeId: string; // ID from first column
+  position: string;   // Division Description
+  hireDate: string;   // Hire Date
   rowIndex: number;   // 1-based row in sheet
   trainings: Record<string, {
     value: string;        // raw cell value
@@ -232,10 +234,12 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
   // Resolve key columns by header name (not hardcoded index)
   const hdr = (label: string) =>
     headers.findIndex((h) => h.trim().toUpperCase() === label.toUpperCase());
+  const idCol = hdr("ID");
   const lNameCol = hdr("L NAME");
   const fNameCol = hdr("F NAME");
   const activeCol = hdr("ACTIVE");
   const divisionCol = hdr("Division Description");
+  const hireDateCol = hdr("Hire Date");
 
   if (lNameCol < 0 || fNameCol < 0) return []; // can't proceed without name columns
 
@@ -243,7 +247,9 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     const row = rows[i];
     const lastName = (row[lNameCol] || "").trim();
     const firstName = (row[fNameCol] || "").trim();
+    const employeeId = idCol >= 0 ? (row[idCol] || "").toString().trim() : "";
     const position = divisionCol >= 0 ? (row[divisionCol] || "").trim() : "";
+    const hireDate = hireDateCol >= 0 ? (row[hireDateCol] || "").toString().trim() : "";
     if (!lastName) continue;
 
     // Combine to "Last, First"
@@ -329,7 +335,7 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
       trainings[def.columnKey] = { value, date, isExcused, status };
     }
 
-    employees.push({ name, position, rowIndex: i + 1, trainings });
+    employees.push({ name, employeeId, position, hireDate, rowIndex: i + 1, trainings });
   }
 
   return employees;
@@ -561,22 +567,30 @@ export async function recordCompletion(
     return { success: false, message: `Column "${trainingColumnKey}" not found in Training sheet` };
   }
 
-  // Find name columns by header
+  // Find ID and name columns by header
+  const idCol = headers.findIndex((h) => h.trim().toUpperCase() === "ID");
   const lCol = headers.findIndex((h) => h.trim().toUpperCase() === "L NAME");
   const fCol = headers.findIndex((h) => h.trim().toUpperCase() === "F NAME");
 
-  // Find the employee row (format-agnostic: handles "First Last" and "Last, First")
-  const empRow = rows.findIndex((row, i) => {
-    if (i === 0) return false;
-    if (lCol >= 0 && fCol >= 0) {
-      const last = (row[lCol] || "").trim();
-      const first = (row[fCol] || "").trim();
-      const combined = first ? `${last}, ${first}` : last;
-      return namesMatch(combined, employeeName);
-    }
-    // Fallback: match first column
-    return namesMatch((row[0] || "").trim(), employeeName);
-  });
+  // Find employee row — try ID first, then name
+  let empRow = -1;
+  // If employeeName looks like an ID (short alphanumeric), try ID match
+  if (idCol >= 0 && employeeName.length <= 10 && /^[A-Z0-9]+$/i.test(employeeName)) {
+    empRow = rows.findIndex((row, i) => i > 0 && (row[idCol] || "").toString().trim() === employeeName);
+  }
+  // Name-based matching
+  if (empRow === -1) {
+    empRow = rows.findIndex((row, i) => {
+      if (i === 0) return false;
+      if (lCol >= 0 && fCol >= 0) {
+        const last = (row[lCol] || "").trim();
+        const first = (row[fCol] || "").trim();
+        const combined = first ? `${last}, ${first}` : last;
+        return namesMatch(combined, employeeName);
+      }
+      return namesMatch((row[0] || "").trim(), employeeName);
+    });
+  }
   if (empRow === -1) {
     return { success: false, message: `Employee "${employeeName}" not found` };
   }
@@ -607,20 +621,24 @@ export async function setExcusal(
     return { success: false, message: `Column "${trainingColumnKey}" not found` };
   }
 
-  // Find name columns by header
+  // Find by ID first, then name
+  const idCol = headers.findIndex((h) => h.trim().toUpperCase() === "ID");
   const lCol = headers.findIndex((h) => h.trim().toUpperCase() === "L NAME");
   const fCol = headers.findIndex((h) => h.trim().toUpperCase() === "F NAME");
 
-  // Find employee by "Last, First" matching
   const nameLower = employeeName.trim().toLowerCase();
   let empRow = -1;
   for (let i = 1; i < rows.length; i++) {
+    // Try ID match
+    if (idCol >= 0 && (rows[i][idCol] || "").toString().trim() === employeeName.trim()) {
+      empRow = i; break;
+    }
+    // Try name match
     const last = (rows[i][lCol >= 0 ? lCol : 0] || "").trim();
     const first = (rows[i][fCol >= 0 ? fCol : 1] || "").trim();
     const combined = first ? `${last}, ${first}`.toLowerCase() : last.toLowerCase();
-    if (combined === nameLower) {
-      empRow = i;
-      break;
+    if (combined === nameLower || namesMatch(`${last}, ${first}`, employeeName)) {
+      empRow = i; break;
     }
   }
 
