@@ -69,10 +69,12 @@ function resolvePHSColumn(category: string, uploadType: string): string | null {
 }
 
 // All tracked training columns (union of Paylocity + PHS maps)
+// FIRSTAID is always included because it mirrors CPR (CPR/FA is one combined cert)
 const ALL_TRAINING_COLS = new Set<string>([
   ...Object.values(PAYLOCITY_SKILL_MAP),
   ...Object.values(PHS_CATEGORY_MAP).filter(Boolean),
   ...Object.values(PHS_ADDITIONAL_MAP).filter((v): v is string => !!v),
+  "FIRSTAID",
 ]);
 
 export interface SyncRow {

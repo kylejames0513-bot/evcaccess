@@ -66,6 +66,13 @@ export interface FixEntry {
   date: string;
 }
 
+// Columns that must always stay in sync with each other.
+// When a fix writes to one, the same date is written to all linked columns.
+const LINKED_COLUMNS: Record<string, string[]> = {
+  "CPR": ["FIRSTAID"],
+  "FIRSTAID": ["CPR"],
+};
+
 /**
  * Batch-write fixes to the Training sheet.
  * Finds each employee row and training column, then writes the date.
@@ -82,11 +89,26 @@ export async function applyFixes(fixes: FixEntry[]): Promise<{ matched: number; 
     return { matched: 0, errors: ["L NAME / F NAME columns not found"] };
   }
 
+  // Expand fixes to include any linked columns (e.g. CPR ↔ FIRSTAID)
+  const expanded: FixEntry[] = [];
+  const seen = new Set<string>();
+  for (const fix of fixes) {
+    const key = `${fix.employee.toLowerCase()}|${fix.training.toUpperCase()}`;
+    if (!seen.has(key)) { seen.add(key); expanded.push(fix); }
+    for (const linked of LINKED_COLUMNS[fix.training.toUpperCase()] || []) {
+      const lKey = `${fix.employee.toLowerCase()}|${linked}`;
+      if (!seen.has(lKey)) {
+        seen.add(lKey);
+        expanded.push({ employee: fix.employee, training: linked, date: fix.date });
+      }
+    }
+  }
+
   const data: Array<{ range: string; values: string[][] }> = [];
   let matched = 0;
   const errors: string[] = [];
 
-  for (const fix of fixes) {
+  for (const fix of expanded) {
     const colIdx = headers.findIndex((h) => h.trim().toUpperCase() === fix.training.toUpperCase());
     if (colIdx < 0) {
       errors.push(`Column "${fix.training}" not found`);
