@@ -1,6 +1,7 @@
 import { readRangeFresh, getSheets, getSpreadsheetId } from "./google-sheets";
 import { namesMatch } from "./name-utils";
 import { invalidateAll } from "./cache";
+import { AUTO_FILL_RULES } from "@/config/trainings";
 
 // ============================================================
 // Shared import/sync utilities for Paylocity, PHS, etc.
@@ -67,11 +68,18 @@ export interface FixEntry {
 }
 
 // Columns that must always stay in sync with each other.
+// Derived from AUTO_FILL_RULES (same-day mirrors only, offsetDays === 0).
 // When a fix writes to one, the same date is written to all linked columns.
-const LINKED_COLUMNS: Record<string, string[]> = {
-  "CPR": ["FIRSTAID"],
-  "FIRSTAID": ["CPR"],
-};
+const LINKED_COLUMNS: Record<string, string[]> = (() => {
+  const result: Record<string, string[]> = {};
+  for (const rule of AUTO_FILL_RULES) {
+    if (rule.offsetDays === 0) {
+      if (!result[rule.source]) result[rule.source] = [];
+      result[rule.source].push(rule.target);
+    }
+  }
+  return result;
+})();
 
 /**
  * Batch-write fixes to the Training sheet.
