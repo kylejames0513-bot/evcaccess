@@ -2678,6 +2678,10 @@ function syncEmployeesSheet() {
       if (tPosCol >= 0) newRow[tPosCol] = position;
       if (tHireCol >= 0 && hireDate) newRow[tHireCol] = hireDate;
       trainingSheet.appendRow(newRow);
+      // Format new row: Arial 9pt centered
+      var newRowNum = trainingSheet.getLastRow();
+      var newRowRange = trainingSheet.getRange(newRowNum, 1, 1, trainingHeaders.length);
+      newRowRange.setFontFamily("Arial").setFontSize(9).setHorizontalAlignment("center");
       trainingData.push(newRow);
       if (empId) trainingIdMap[empId] = trainingData.length - 1;
       stats.tAdded++;
@@ -2848,6 +2852,13 @@ function syncEmployeesSheet() {
         }
       }
     }
+  }
+
+  // Format entire data range: Arial 9pt centered
+  var lastRow = trainingSheet.getLastRow();
+  if (lastRow > 1) {
+    var dataRange = trainingSheet.getRange(2, 1, lastRow - 1, trainingSheet.getLastColumn());
+    dataRange.setFontFamily("Arial").setFontSize(9).setHorizontalAlignment("center");
   }
 
   var summary = "Employee Sync Complete!\n\n";
