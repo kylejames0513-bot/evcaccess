@@ -368,12 +368,25 @@ export async function GET() {
 
         if (payDate && phsDate) {
           if (datesEqual(payDate, phsDate)) {
-            // Both sources agree
+            // Both external sources agree — highest confidence regardless of Training sheet
             winner = payDate;
             winnerSource = "paylocity";
             confidence = "high";
+          } else if (trainingDate && datesEqual(payDate, trainingDate)) {
+            // Paylocity + Training sheet agree, PHS differs
+            winner = payDate;
+            winnerSource = "paylocity";
+            confidence = "medium";
+            conflictNote = `PHS has ${phsDate}`;
+          } else if (trainingDate && datesEqual(phsDate, trainingDate)) {
+            // PHS + Training sheet agree, Paylocity differs
+            winner = phsDate;
+            winnerSource = "phs";
+            // Two agreeing sources — HIGH if PHS has documentation, MEDIUM otherwise
+            confidence = phsHasDoc ? "high" : "medium";
+            conflictNote = `Paylocity has ${payDate}`;
           } else {
-            // Sources conflict — pick most recent as proposed winner, flag as conflict
+            // All 3 differ (or Training sheet is empty) — true conflict, user must pick
             if (payTs >= phsTs) {
               winner = payDate;
               winnerSource = "paylocity";
@@ -382,7 +395,8 @@ export async function GET() {
               winnerSource = "phs";
             }
             confidence = "conflict";
-            conflictNote = `Paylocity: ${payDate} · PHS: ${phsDate}`;
+            conflictNote = `Paylocity: ${payDate} · PHS: ${phsDate}` +
+              (trainingDate ? ` · Training: ${trainingDate}` : "");
           }
         } else if (phsDate) {
           winner = phsDate;
