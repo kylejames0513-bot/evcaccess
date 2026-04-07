@@ -16,6 +16,8 @@ import {
   HeartPulse,
   GitCompare,
   UserPlus,
+  FileUp,
+  BarChart3,
 } from "lucide-react";
 
 const mainNav = [
@@ -25,6 +27,7 @@ const mainNav = [
   { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
   { href: "/attendance", label: "Attendance", icon: UserCheck },
   { href: "/records", label: "Records", icon: FileText },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/new-hires", label: "New Hires", icon: UserPlus },
 ];
@@ -33,6 +36,7 @@ const secondaryNav = [
   { href: "/trainings", label: "Training Types", icon: GraduationCap },
   { href: "/data-health", label: "Data Health", icon: HeartPulse },
   { href: "/paylocity-audit", label: "Paylocity Audit", icon: GitCompare },
+  { href: "/phs-import", label: "PHS Import", icon: FileUp },
   { href: "/archive", label: "Archive", icon: Archive },
   { href: "/settings", label: "Settings", icon: Settings },
 ];

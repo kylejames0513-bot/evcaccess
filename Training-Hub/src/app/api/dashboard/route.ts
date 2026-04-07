@@ -1,11 +1,13 @@
 import { getTrainingData, getScheduledSessions } from "@/lib/training-data";
+import { getExpirationThresholds } from "@/lib/hub-settings";
 
 export async function GET() {
   try {
     // Single call each — results are cached for 60s
-    const [data, sessions] = await Promise.all([
+    const [data, sessions, thresholds] = await Promise.all([
       getTrainingData(),
       getScheduledSessions(),
+      getExpirationThresholds(),
     ]);
 
     // Build stats from training data
@@ -64,6 +66,17 @@ export async function GET() {
       .sort((a, b) => a.sortDateMs - b.sortDateMs)
       .slice(0, 4);
 
+    // Count critical expirations (within critical threshold days)
+    const now = new Date();
+    let criticalExpiring = 0;
+    for (const issue of urgentIssues) {
+      if (issue.expirationDate) {
+        const exp = new Date(issue.expirationDate);
+        const daysUntil = Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysUntil >= 0 && daysUntil <= thresholds.critical) criticalExpiring++;
+      }
+    }
+
     return Response.json({
       stats: {
         totalEmployees: data.length,
@@ -72,6 +85,7 @@ export async function GET() {
         expired,
         needed,
         upcomingSessions: sessions.filter((s) => s.status === "scheduled").length,
+        criticalExpiring,
       },
       urgentIssues: urgentIssues.slice(0, 8),
       upcoming,

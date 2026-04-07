@@ -24,6 +24,7 @@ interface DashboardData {
     expired: number;
     needed: number;
     upcomingSessions: number;
+    criticalExpiring: number;
   };
   urgentIssues: Array<{
     employee: string;
@@ -87,6 +88,27 @@ export default function DashboardPage() {
         </div>
         </div>
       </div>
+
+      {/* Critical Alert Banner */}
+      {(stats.criticalExpiring > 0 || stats.expired > 0) && (
+        <div className={`rounded-xl border p-4 flex items-center gap-3 ${stats.expired > 0 ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"}`}>
+          <AlertTriangle className={`h-5 w-5 shrink-0 ${stats.expired > 0 ? "text-red-600" : "text-amber-600"}`} />
+          <div className="flex-1">
+            <p className={`text-sm font-semibold ${stats.expired > 0 ? "text-red-700" : "text-amber-700"}`}>
+              {stats.expired > 0 && <>{stats.expired} training(s) expired</>}
+              {stats.expired > 0 && stats.criticalExpiring > 0 && " and "}
+              {stats.criticalExpiring > 0 && <>{stats.criticalExpiring} expiring within 30 days</>}
+            </p>
+            <p className="text-xs text-slate-500 mt-0.5">These need immediate attention to maintain compliance.</p>
+          </div>
+          <a
+            href="/compliance"
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium text-white shrink-0 ${stats.expired > 0 ? "bg-red-600 hover:bg-red-700" : "bg-amber-600 hover:bg-amber-700"}`}
+          >
+            View Details
+          </a>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">

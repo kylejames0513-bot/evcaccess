@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { RefreshCw, AlertTriangle, ArrowRight, Loader2, Check, XCircle, CheckCircle2, MessageSquare } from "lucide-react";
+import { RefreshCw, AlertTriangle, ArrowRight, Loader2, Check, XCircle, CheckCircle2, MessageSquare, Zap, ChevronDown, History } from "lucide-react";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 
@@ -82,6 +82,41 @@ export default function PaylocityAuditPage() {
       setNoteText("");
     } catch {}
     setSavingNote(false);
+  }
+
+  // Quick sync state
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ applied: number; skippedMismatches: number; skippedNA: number } | null>(null);
+  const [syncError, setSyncError] = useState("");
+
+  // Sync log state
+  const [syncLog, setSyncLog] = useState<Array<{ timestamp: string; source: string; applied: number; skipped: number; errors: number }>>([]);
+  const [showSyncLog, setShowSyncLog] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/sync-log").then((r) => r.json()).then((d) => setSyncLog(d.log || [])).catch(() => {});
+  }, [refreshKey]);
+
+  async function handleQuickSync() {
+    setSyncing(true);
+    setSyncResult(null);
+    setSyncError("");
+    try {
+      const res = await fetch("/api/paylocity-sync", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { setSyncError(data.error || "Sync failed"); }
+      else {
+        setSyncResult(data);
+        if (data.applied > 0) await doRefresh();
+        // Refresh sync log
+        const logRes = await fetch("/api/sync-log");
+        const logData = await logRes.json();
+        setSyncLog(logData.log || []);
+      }
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : "Sync failed");
+    }
+    setSyncing(false);
   }
 
   const { data, loading, error } = useFetch<AuditData>(`/api/paylocity-audit?r=${refreshKey}`);
@@ -173,10 +208,45 @@ export default function PaylocityAuditPage() {
             Comparing Training sheet vs Paylocity Import — {summary.total} discrepancies found
           </p>
         </div>
-        <button onClick={doRefresh} disabled={refreshing} className="ml-auto px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-700 text-sm font-medium flex items-center gap-1.5">
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {syncLog.length > 0 && (
+            <span className="text-xs text-slate-400">
+              Last synced: {new Date(syncLog[0].timestamp).toLocaleDateString()} {new Date(syncLog[0].timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+          <button
+            onClick={handleQuickSync}
+            disabled={syncing}
+            className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium flex items-center gap-1.5 hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {syncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+            Quick Sync
+          </button>
+          <button onClick={doRefresh} disabled={refreshing} className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-700 text-sm font-medium flex items-center gap-1.5">
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
+          </button>
+        </div>
       </div>
+
+      {/* Quick Sync Result */}
+      {syncResult && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-center gap-3">
+          <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+          <div className="text-sm">
+            <span className="font-semibold text-emerald-700">{syncResult.applied} record(s) synced.</span>
+            {syncResult.skippedMismatches > 0 && <span className="text-slate-600"> {syncResult.skippedMismatches} date mismatches skipped (review below).</span>}
+            {syncResult.skippedNA > 0 && <span className="text-slate-600"> {syncResult.skippedNA} NA conflicts skipped.</span>}
+          </div>
+          <button onClick={() => setSyncResult(null)} className="ml-auto text-slate-400 hover:text-slate-600"><XCircle className="h-4 w-4" /></button>
+        </div>
+      )}
+      {syncError && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+          <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
+          <span className="text-sm text-red-700">{syncError}</span>
+          <button onClick={() => setSyncError("")} className="ml-auto text-slate-400 hover:text-slate-600"><XCircle className="h-4 w-4" /></button>
+        </div>
+      )}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -353,6 +423,53 @@ export default function PaylocityAuditPage() {
           </div>
         )}
       </div>
+
+      {/* Sync History */}
+      {syncLog.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <button
+            onClick={() => setShowSyncLog(!showSyncLog)}
+            className="w-full px-6 py-4 flex items-center justify-between hover:bg-slate-50"
+          >
+            <div className="flex items-center gap-2">
+              <History className="h-4 w-4 text-slate-400" />
+              <h2 className="font-semibold text-slate-900">Sync History</h2>
+              <span className="text-xs text-slate-400">({syncLog.length} entries)</span>
+            </div>
+            <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${showSyncLog ? "rotate-180" : ""}`} />
+          </button>
+          {showSyncLog && (
+            <div className="border-t border-slate-200">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-[11px] text-slate-400 uppercase tracking-wide border-b border-slate-100">
+                    <th className="px-5 py-3">Date</th>
+                    <th className="px-5 py-3">Source</th>
+                    <th className="px-5 py-3">Applied</th>
+                    <th className="px-5 py-3">Skipped</th>
+                    <th className="px-5 py-3">Errors</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {syncLog.slice(0, 20).map((entry, i) => (
+                    <tr key={i} className="hover:bg-blue-50/30">
+                      <td className="px-5 py-3 text-slate-600">
+                        {new Date(entry.timestamp).toLocaleDateString()} {new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </td>
+                      <td className="px-5 py-3">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-700 capitalize">{entry.source}</span>
+                      </td>
+                      <td className="px-5 py-3 font-medium text-emerald-700">{entry.applied}</td>
+                      <td className="px-5 py-3 text-slate-500">{entry.skipped}</td>
+                      <td className="px-5 py-3 text-red-600">{entry.errors || 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* No Match */}
       {noMatch.length > 0 && (

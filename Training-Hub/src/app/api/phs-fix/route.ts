@@ -13,9 +13,9 @@ export async function POST(request: Request) {
     const result = await applyFixes(fixes);
     return Response.json({
       success: true,
-      message: `Fixed ${result.matched} cell(s)${result.errors.length > 0 ? ". Errors: " + result.errors.slice(0, 3).join("; ") : ""}`,
+      message: `Imported ${result.matched} record(s)${result.errors.length > 0 ? ". Errors: " + result.errors.slice(0, 5).join("; ") : ""}`,
       matched: result.matched,
-      errors: result.errors.length,
+      errors: result.errors,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";

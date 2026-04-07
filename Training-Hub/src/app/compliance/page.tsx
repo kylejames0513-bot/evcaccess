@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { XCircle, Clock, AlertTriangle, UserPlus, Loader2, Check, X, CalendarPlus, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { XCircle, Clock, AlertTriangle, UserPlus, Loader2, Check, X, CalendarPlus, RefreshCw, Download, ChevronDown, ChevronRight } from "lucide-react";
 import StatCard from "@/components/ui/StatCard";
 import StatusBadge from "@/components/ui/StatusBadge";
 import EmployeeDetailModal from "@/components/EmployeeDetailModal";
@@ -12,15 +12,34 @@ import { trainingMatchesAny } from "@/lib/training-match";
 import { formatDivision } from "@/lib/format-utils";
 import type { ComplianceStatus } from "@/types/database";
 
+interface EnrichedIssue {
+  employee: string;
+  training: string;
+  status: ComplianceStatus;
+  date: string | null;
+  expirationDate: string | null;
+  division: string;
+  daysUntilExpiry: number | null;
+}
+
 interface ComplianceData {
-  issues: Array<{
-    employee: string;
-    training: string;
-    status: ComplianceStatus;
-    date: string | null;
-    expirationDate: string | null;
+  issues: EnrichedIssue[];
+  departmentSummary: Array<{
     division: string;
+    total: number;
+    expired: number;
+    expiring: number;
+    needed: number;
+    complianceRate: number;
   }>;
+  expirationTimeline: {
+    overdue: number;
+    critical: number;
+    warning: number;
+    notice: number;
+    safe: number;
+  };
+  thresholds: { notice: number; warning: number; critical: number };
 }
 
 interface ScheduleData {
@@ -37,6 +56,20 @@ interface ScheduleData {
   }>;
 }
 
+function DaysUntilBadge({ days }: { days: number | null }) {
+  if (days === null) return <span className="text-xs text-slate-400">—</span>;
+  let color = "bg-slate-100 text-slate-600";
+  if (days < 0) color = "bg-red-100 text-red-700";
+  else if (days <= 30) color = "bg-red-100 text-red-700";
+  else if (days <= 60) color = "bg-amber-100 text-amber-700";
+  else if (days <= 90) color = "bg-yellow-100 text-yellow-700";
+  return (
+    <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-bold tabular-nums ${color}`}>
+      {days < 0 ? `${Math.abs(days)}d overdue` : `${days}d`}
+    </span>
+  );
+}
+
 export default function CompliancePage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -48,8 +81,10 @@ export default function CompliancePage() {
   const [search, setSearch] = useState("");
   const [enrollPopup, setEnrollPopup] = useState<{ employee: string; training: string } | null>(null);
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(null);
+  const [groupByDivision, setGroupByDivision] = useState(false);
+  const [collapsedDivisions, setCollapsedDivisions] = useState<Set<string>>(new Set());
+  const [timelineBucket, setTimelineBucket] = useState<string | null>(null);
 
-  // Re-fetch schedule after enrollment
   const { data: freshSchedule } = useFetch<ScheduleData>(`/api/schedule?r=${refreshKey}`);
   const schedSessions = (freshSchedule || scheduleData)?.sessions || [];
 
@@ -57,22 +92,35 @@ export default function CompliancePage() {
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
 
-  const { issues } = data;
+  const { issues, departmentSummary, expirationTimeline, thresholds } = data;
   const expired = issues.filter((c) => c.status === "expired");
   const expiring = issues.filter((c) => c.status === "expiring_soon");
   const needed = issues.filter((c) => c.status === "needed");
+  const critical30 = issues.filter((c) => c.daysUntilExpiry !== null && c.daysUntilExpiry <= 30 && c.daysUntilExpiry >= 0);
   const trainings = [...new Set(issues.map((c) => c.training))].sort();
   const divisions = [...new Set(issues.map((c) => c.division).filter(Boolean))].sort();
+
+  // Timeline bucket filter
+  function matchesBucket(issue: EnrichedIssue): boolean {
+    if (!timelineBucket) return true;
+    const d = issue.daysUntilExpiry;
+    if (d === null) return timelineBucket === "needed";
+    if (timelineBucket === "overdue") return d < 0;
+    if (timelineBucket === "critical") return d >= 0 && d <= thresholds.critical;
+    if (timelineBucket === "warning") return d > thresholds.critical && d <= thresholds.warning;
+    if (timelineBucket === "notice") return d > thresholds.warning && d <= thresholds.notice;
+    return false;
+  }
 
   const filtered = issues.filter((c) => {
     const matchesStatus = statusFilter === "all" || c.status === statusFilter;
     const matchesTraining = trainingFilter === "all" || c.training === trainingFilter;
     const matchesDivision = divisionFilter === "all" || c.division === divisionFilter;
     const matchesSearch = !search || c.employee.toLowerCase().includes(search.toLowerCase());
-    return matchesStatus && matchesTraining && matchesDivision && matchesSearch;
+    const matchesTl = matchesBucket(c);
+    return matchesStatus && matchesTraining && matchesDivision && matchesSearch && matchesTl;
   });
 
-  // Check if there's an open session for a training
   function getOpenSessions(trainingName: string) {
     return schedSessions
       .filter(
@@ -83,20 +131,53 @@ export default function CompliancePage() {
       .sort((a, b) => (a.sortDateMs || 0) - (b.sortDateMs || 0));
   }
 
+  function exportCSV() {
+    const header = "Employee,Training,Last Completed,Expires,Days Until Expiry,Status,Division";
+    const rows = filtered.map((c) =>
+      `"${c.employee}","${c.training}","${c.date || ""}","${c.expirationDate || ""}","${c.daysUntilExpiry ?? ""}","${c.status}","${c.division || ""}"`
+    );
+    const csv = [header, ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `compliance-report-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function toggleDivisionCollapse(div: string) {
+    const next = new Set(collapsedDivisions);
+    if (next.has(div)) next.delete(div);
+    else next.add(div);
+    setCollapsedDivisions(next);
+  }
+
+  // Group filtered issues by division
+  const groupedByDiv = new Map<string, EnrichedIssue[]>();
+  if (groupByDivision) {
+    for (const item of filtered) {
+      const div = item.division || "Unknown";
+      if (!groupedByDiv.has(div)) groupedByDiv.set(div, []);
+      groupedByDiv.get(div)!.push(item);
+    }
+  }
+
+  // Timeline bar total for percentage calculation
+  const tlTotal = expirationTimeline.overdue + expirationTimeline.critical + expirationTimeline.warning + expirationTimeline.notice;
+  const tlPercent = (count: number) => tlTotal > 0 ? Math.max((count / tlTotal) * 100, count > 0 ? 3 : 0) : 0;
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Compliance Report</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{issues.length} total issues — sorted by date</p>
+          <p className="text-sm text-slate-500 mt-0.5">{issues.length} total issues — sorted by urgency</p>
         </div>
         <button
           onClick={async () => {
             setRefreshing(true);
-            try {
-              await fetch("/api/refresh", { method: "POST" });
-              setRefreshKey((k) => k + 1);
-            } catch {}
+            try { await fetch("/api/refresh", { method: "POST" }); setRefreshKey((k) => k + 1); } catch {}
             setRefreshing(false);
           }}
           disabled={refreshing}
@@ -107,11 +188,49 @@ export default function CompliancePage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard title="Expired" value={expired.length} subtitle="Immediate action" icon={XCircle} color="red" />
-        <StatCard title="Expiring" value={expiring.length} subtitle="Within 60 days" icon={Clock} color="yellow" />
+        <StatCard title="Expiring" value={expiring.length} subtitle={`Within ${thresholds.warning} days`} icon={Clock} color="yellow" />
         <StatCard title="Needed" value={needed.length} subtitle="Never completed" icon={AlertTriangle} color="purple" />
+        <StatCard title="Critical" value={critical30.length} subtitle="Within 30 days" icon={AlertTriangle} color="red" />
       </div>
+
+      {/* Expiration Timeline Bar */}
+      {tlTotal > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Expiration Timeline</h3>
+            {timelineBucket && (
+              <button onClick={() => setTimelineBucket(null)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Clear filter</button>
+            )}
+          </div>
+          <div className="flex rounded-lg overflow-hidden h-8">
+            {[
+              { key: "overdue", count: expirationTimeline.overdue, color: "bg-red-500", label: "Overdue" },
+              { key: "critical", count: expirationTimeline.critical, color: "bg-red-400", label: `0-${thresholds.critical}d` },
+              { key: "warning", count: expirationTimeline.warning, color: "bg-amber-400", label: `${thresholds.critical + 1}-${thresholds.warning}d` },
+              { key: "notice", count: expirationTimeline.notice, color: "bg-yellow-300", label: `${thresholds.warning + 1}-${thresholds.notice}d` },
+            ].map(({ key, count, color, label }) => count > 0 ? (
+              <button
+                key={key}
+                onClick={() => setTimelineBucket(timelineBucket === key ? null : key)}
+                className={`${color} flex items-center justify-center text-white text-[10px] font-bold transition-all hover:opacity-80 ${timelineBucket === key ? "ring-2 ring-offset-1 ring-slate-800" : ""}`}
+                style={{ width: `${tlPercent(count)}%` }}
+                title={`${label}: ${count}`}
+              >
+                {count > 0 && count}
+              </button>
+            ) : null)}
+          </div>
+          <div className="flex gap-4 mt-2 text-[10px] text-slate-500">
+            <span><span className="inline-block w-2 h-2 rounded bg-red-500 mr-1" />Overdue ({expirationTimeline.overdue})</span>
+            <span><span className="inline-block w-2 h-2 rounded bg-red-400 mr-1" />Critical ({expirationTimeline.critical})</span>
+            <span><span className="inline-block w-2 h-2 rounded bg-amber-400 mr-1" />Warning ({expirationTimeline.warning})</span>
+            <span><span className="inline-block w-2 h-2 rounded bg-yellow-300 mr-1" />Notice ({expirationTimeline.notice})</span>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center bg-white rounded-xl border border-slate-200 px-4 py-3">
@@ -136,10 +255,23 @@ export default function CompliancePage() {
           <option value="all">All divisions</option>
           {divisions.map((d) => <option key={d} value={d}>{formatDivision(d)}</option>)}
         </select>
-        <span className="ml-auto text-xs text-slate-400">{filtered.length} result{filtered.length !== 1 ? "s" : ""}</span>
+        <div className="flex items-center gap-2 ml-auto">
+          <button
+            onClick={() => setGroupByDivision(!groupByDivision)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${groupByDivision ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+          >
+            Group by Division
+          </button>
+          <button
+            onClick={exportCSV}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200"
+          >
+            <Download className="h-3 w-3" /> CSV
+          </button>
+          <span className="text-xs text-slate-400">{filtered.length} result{filtered.length !== 1 ? "s" : ""}</span>
+        </div>
       </div>
 
-      {/* Employee Detail Modal */}
       {selectedEmployee && (
         <EmployeeDetailModal
           name={selectedEmployee}
@@ -148,7 +280,6 @@ export default function CompliancePage() {
         />
       )}
 
-      {/* Quick Enroll Popup */}
       {enrollPopup && (
         <QuickEnrollPopup
           employee={enrollPopup.employee}
@@ -165,83 +296,164 @@ export default function CompliancePage() {
       {/* Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full table-striped">
-            <thead>
-              <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
-                <th className="px-5 py-3">Employee</th>
-                <th className="px-5 py-3">Training</th>
-                <th className="px-5 py-3">Last Completed</th>
-                <th className="px-5 py-3">Expires</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {filtered.map((item, i) => {
-                const openSessions = getOpenSessions(item.training);
-                const hasOpenSession = openSessions.length > 0;
-
-                // Check if employee is already enrolled in a session for this training
-                const enrolledSession = schedSessions.find(
-                  (s) => s.status === "scheduled" &&
-                    trainingMatchesAny(s.training, item.training) &&
-                    s.enrolled.some((n) => namesMatch(n, item.employee))
-                );
-
-                return (
-                  <tr key={i} className={`hover:bg-blue-50/30 group ${enrolledSession ? "bg-emerald-50/30" : ""}`}>
-                    <td className="px-5 py-3 text-sm font-medium text-blue-700 hover:text-blue-900 cursor-pointer" onClick={() => setSelectedEmployee(item.employee)}>{item.employee}</td>
-                    <td className="px-5 py-3 text-sm text-slate-600">{item.training}</td>
-                    <td className="px-5 py-3 text-sm text-slate-500">{item.date || "—"}</td>
-                    <td className="px-5 py-3 text-sm text-slate-500">{item.expirationDate || "—"}</td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <StatusBadge status={item.status} />
-                        {enrolledSession && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-100 text-blue-700 ring-1 ring-inset ring-blue-600/20">
-                            <CalendarPlus className="h-2.5 w-2.5" />
-                            Scheduled {enrolledSession.date}
+          {groupByDivision ? (
+            // Grouped view
+            <div>
+              {Array.from(groupedByDiv.entries())
+                .sort(([, a], [, b]) => b.length - a.length)
+                .map(([div, divIssues]) => {
+                  const isCollapsed = collapsedDivisions.has(div);
+                  const divSummary = departmentSummary.find((d) => d.division === div);
+                  return (
+                    <div key={div}>
+                      <button
+                        onClick={() => toggleDivisionCollapse(div)}
+                        className="w-full flex items-center gap-3 px-5 py-3 bg-slate-50 border-b border-slate-200 hover:bg-slate-100 text-left"
+                      >
+                        {isCollapsed ? <ChevronRight className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                        <span className="text-sm font-semibold text-slate-900">{formatDivision(div)}</span>
+                        <span className="text-xs text-slate-500">({divIssues.length} issues)</span>
+                        {divSummary && (
+                          <span className={`ml-auto text-xs font-semibold ${divSummary.complianceRate >= 80 ? "text-emerald-600" : divSummary.complianceRate >= 50 ? "text-amber-600" : "text-red-600"}`}>
+                            {divSummary.complianceRate}% compliance
                           </span>
                         )}
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      {enrolledSession ? (
-                        <span className="text-xs text-emerald-600 font-medium">Enrolled</span>
-                      ) : (
-                        <button
-                          onClick={() => setEnrollPopup({ employee: item.employee, training: item.training })}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                            hasOpenSession
-                              ? "bg-blue-50 text-blue-700 hover:bg-blue-100 ring-1 ring-inset ring-blue-600/20"
-                              : "bg-slate-50 text-slate-500 hover:bg-slate-100 ring-1 ring-inset ring-slate-500/10"
-                          }`}
-                        >
-                          {hasOpenSession ? (
-                            <>
-                              <UserPlus className="h-3 w-3" />
-                              Add to Class
-                            </>
-                          ) : (
-                            <>
-                              <CalendarPlus className="h-3 w-3" />
-                              Schedule
-                            </>
-                          )}
-                        </button>
+                      </button>
+                      {!isCollapsed && (
+                        <table className="w-full table-striped">
+                          <thead>
+                            <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
+                              <th className="px-5 py-3">Employee</th>
+                              <th className="px-5 py-3">Training</th>
+                              <th className="px-5 py-3">Last Completed</th>
+                              <th className="px-5 py-3">Expires</th>
+                              <th className="px-5 py-3">Urgency</th>
+                              <th className="px-5 py-3">Status</th>
+                              <th className="px-5 py-3 text-right">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {divIssues.map((item, i) => (
+                              <IssueRow
+                                key={i}
+                                item={item}
+                                schedSessions={schedSessions}
+                                onEmployeeClick={setSelectedEmployee}
+                                onEnrollClick={setEnrollPopup}
+                              />
+                            ))}
+                          </tbody>
+                        </table>
                       )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </div>
+                  );
+                })}
+            </div>
+          ) : (
+            // Flat view
+            <table className="w-full table-striped">
+              <thead>
+                <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
+                  <th className="px-5 py-3">Employee</th>
+                  <th className="px-5 py-3">Training</th>
+                  <th className="px-5 py-3">Last Completed</th>
+                  <th className="px-5 py-3">Expires</th>
+                  <th className="px-5 py-3">Urgency</th>
+                  <th className="px-5 py-3">Status</th>
+                  <th className="px-5 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {filtered.map((item, i) => (
+                  <IssueRow
+                    key={i}
+                    item={item}
+                    schedSessions={schedSessions}
+                    onEmployeeClick={setSelectedEmployee}
+                    onEnrollClick={setEnrollPopup}
+                  />
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
         {filtered.length === 0 && (
           <div className="text-center py-10 text-sm text-slate-400">No compliance issues match your filters.</div>
         )}
       </div>
     </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Issue Row Component
+// ────────────────────────────────────────────────────────────
+
+function IssueRow({
+  item,
+  schedSessions,
+  onEmployeeClick,
+  onEnrollClick,
+}: {
+  item: EnrichedIssue;
+  schedSessions: ScheduleData["sessions"];
+  onEmployeeClick: (name: string) => void;
+  onEnrollClick: (data: { employee: string; training: string }) => void;
+}) {
+  const openSessions = schedSessions
+    .filter(
+      (s) => s.status === "scheduled" &&
+        trainingMatchesAny(s.training, item.training) &&
+        s.enrolled.length < s.capacity
+    )
+    .sort((a, b) => (a.sortDateMs || 0) - (b.sortDateMs || 0));
+  const hasOpenSession = openSessions.length > 0;
+
+  const enrolledSession = schedSessions.find(
+    (s) => s.status === "scheduled" &&
+      trainingMatchesAny(s.training, item.training) &&
+      s.enrolled.some((n) => namesMatch(n, item.employee))
+  );
+
+  return (
+    <tr className={`hover:bg-blue-50/30 group ${enrolledSession ? "bg-emerald-50/30" : ""}`}>
+      <td className="px-5 py-3 text-sm font-medium text-blue-700 hover:text-blue-900 cursor-pointer" onClick={() => onEmployeeClick(item.employee)}>{item.employee}</td>
+      <td className="px-5 py-3 text-sm text-slate-600">{item.training}</td>
+      <td className="px-5 py-3 text-sm text-slate-500">{item.date || "—"}</td>
+      <td className="px-5 py-3 text-sm text-slate-500">{item.expirationDate || "—"}</td>
+      <td className="px-5 py-3"><DaysUntilBadge days={item.daysUntilExpiry} /></td>
+      <td className="px-5 py-3">
+        <div className="flex items-center gap-2">
+          <StatusBadge status={item.status} />
+          {enrolledSession && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-100 text-blue-700 ring-1 ring-inset ring-blue-600/20">
+              <CalendarPlus className="h-2.5 w-2.5" />
+              Scheduled {enrolledSession.date}
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="px-5 py-3 text-right">
+        {enrolledSession ? (
+          <span className="text-xs text-emerald-600 font-medium">Enrolled</span>
+        ) : (
+          <button
+            onClick={() => onEnrollClick({ employee: item.employee, training: item.training })}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+              hasOpenSession
+                ? "bg-blue-50 text-blue-700 hover:bg-blue-100 ring-1 ring-inset ring-blue-600/20"
+                : "bg-slate-50 text-slate-500 hover:bg-slate-100 ring-1 ring-inset ring-slate-500/10"
+            }`}
+          >
+            {hasOpenSession ? (
+              <><UserPlus className="h-3 w-3" /> Add to Class</>
+            ) : (
+              <><CalendarPlus className="h-3 w-3" /> Schedule</>
+            )}
+          </button>
+        )}
+      </td>
+    </tr>
   );
 }
 
@@ -273,7 +485,6 @@ function QuickEnrollPopup({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  // Check if already enrolled in any session
   const alreadyIn = sessions.find((s) =>
     s.enrolled.some((n) => namesMatch(n, employee))
   );

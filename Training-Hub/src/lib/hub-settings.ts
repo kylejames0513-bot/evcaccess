@@ -152,6 +152,81 @@ function getCapacityOverridesSync(settings: Array<{ type: string; key: string; v
 }
 
 // ────────────────────────────────────────────────────────────
+// Expiration thresholds — configurable alert levels
+// ────────────────────────────────────────────────────────────
+
+export interface ExpirationThresholds {
+  notice: number;   // days — e.g. 90
+  warning: number;  // days — e.g. 60
+  critical: number; // days — e.g. 30
+}
+
+const DEFAULT_THRESHOLDS: ExpirationThresholds = { notice: 90, warning: 60, critical: 30 };
+
+export async function getExpirationThresholds(): Promise<ExpirationThresholds> {
+  const settings = await readSettings();
+  const thresholds = { ...DEFAULT_THRESHOLDS };
+  for (const s of settings) {
+    if (s.type === "expiration_threshold") {
+      const val = parseInt(s.value);
+      if (!isNaN(val) && val > 0) {
+        if (s.key === "notice") thresholds.notice = val;
+        else if (s.key === "warning") thresholds.warning = val;
+        else if (s.key === "critical") thresholds.critical = val;
+      }
+    }
+  }
+  return thresholds;
+}
+
+export async function setExpirationThresholds(thresholds: ExpirationThresholds): Promise<ExpirationThresholds> {
+  const settings = await readSettings();
+  // Remove existing threshold entries
+  const filtered = settings.filter((s) => s.type !== "expiration_threshold");
+  filtered.push({ type: "expiration_threshold", key: "notice", value: thresholds.notice.toString() });
+  filtered.push({ type: "expiration_threshold", key: "warning", value: thresholds.warning.toString() });
+  filtered.push({ type: "expiration_threshold", key: "critical", value: thresholds.critical.toString() });
+  await writeSettings(filtered);
+  return thresholds;
+}
+
+// ────────────────────────────────────────────────────────────
+// Sync log — track import/sync operations
+// ────────────────────────────────────────────────────────────
+
+export interface SyncLogEntry {
+  timestamp: string;
+  source: string;
+  applied: number;
+  skipped: number;
+  errors: number;
+}
+
+export async function getSyncLog(): Promise<SyncLogEntry[]> {
+  const settings = await readSettings();
+  return settings
+    .filter((s) => s.type === "sync_log")
+    .map((s) => {
+      try {
+        return JSON.parse(s.value) as SyncLogEntry;
+      } catch {
+        return null;
+      }
+    })
+    .filter((e): e is SyncLogEntry => e !== null)
+    .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+}
+
+export async function addSyncLogEntry(entry: SyncLogEntry): Promise<void> {
+  const settings = await readSettings();
+  settings.push({ type: "sync_log", key: entry.timestamp, value: JSON.stringify(entry) });
+  // Keep only last 50 sync log entries
+  const nonLogSettings = settings.filter((s) => s.type !== "sync_log");
+  const logSettings = settings.filter((s) => s.type === "sync_log").slice(-50);
+  await writeSettings([...nonLogSettings, ...logSettings]);
+}
+
+// ────────────────────────────────────────────────────────────
 // Compliance tracks — which trainings to track on compliance page
 // ────────────────────────────────────────────────────────────
 

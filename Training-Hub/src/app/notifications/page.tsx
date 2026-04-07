@@ -20,6 +20,8 @@ interface ComplianceIssue {
   status: "expired" | "expiring_soon" | "needed";
   date: string | null;
   expirationDate: string | null;
+  division?: string;
+  daysUntilExpiry?: number | null;
 }
 
 interface ScheduledSession {
@@ -87,12 +89,16 @@ function AlertRow({
   training,
   detail,
   status,
+  division,
+  daysUntilExpiry,
 }: {
   icon: React.ReactNode;
   employee?: string;
   training: string;
   detail: string;
   status: string;
+  division?: string;
+  daysUntilExpiry?: number | null;
 }) {
   return (
     <div className="px-6 py-4 flex items-center justify-between">
@@ -102,13 +108,23 @@ function AlertRow({
           {employee && (
             <p className="text-sm font-medium text-slate-900 truncate">
               {employee}
+              {division && <span className="text-xs text-slate-400 font-normal ml-2">{division}</span>}
             </p>
           )}
           <p className="text-sm text-slate-600 truncate">{training}</p>
           <p className="text-xs text-slate-400 mt-0.5">{detail}</p>
         </div>
       </div>
-      <StatusBadge status={status} />
+      <div className="flex items-center gap-2 shrink-0">
+        {daysUntilExpiry !== undefined && daysUntilExpiry !== null && (
+          <span className={`text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded ${
+            daysUntilExpiry < 0 ? "bg-red-100 text-red-700" : daysUntilExpiry <= 30 ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+          }`}>
+            {daysUntilExpiry < 0 ? `${Math.abs(daysUntilExpiry)}d overdue` : `${daysUntilExpiry}d`}
+          </span>
+        )}
+        <StatusBadge status={status} />
+      </div>
     </div>
   );
 }
@@ -197,8 +213,44 @@ function AlertsTab() {
     );
   }
 
+  // Division summary
+  const divCounts = new Map<string, { expired: number; expiring: number; needed: number }>();
+  for (const issue of issues) {
+    const div = issue.division || "Unknown";
+    if (!divCounts.has(div)) divCounts.set(div, { expired: 0, expiring: 0, needed: 0 });
+    const entry = divCounts.get(div)!;
+    if (issue.status === "expired") entry.expired++;
+    else if (issue.status === "expiring_soon") entry.expiring++;
+    else if (issue.status === "needed") entry.needed++;
+  }
+  const divSummary = Array.from(divCounts.entries())
+    .map(([div, counts]) => ({ division: div, ...counts, total: counts.expired + counts.expiring + counts.needed }))
+    .sort((a, b) => b.total - a.total);
+
   return (
     <div className="space-y-4">
+      {/* Division Summary */}
+      {divSummary.length > 1 && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-slate-50 px-6 py-3">
+            <h3 className="text-sm font-semibold text-slate-700">Alerts by Division</h3>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 p-4">
+            {divSummary.slice(0, 8).map((d) => (
+              <div key={d.division} className="bg-slate-50 rounded-lg p-3">
+                <p className="text-xs font-medium text-slate-700 truncate">{d.division}</p>
+                <p className="text-lg font-bold text-slate-900 mt-1">{d.total}</p>
+                <div className="flex gap-2 mt-1 text-[10px]">
+                  {d.expired > 0 && <span className="text-red-600">{d.expired} expired</span>}
+                  {d.expiring > 0 && <span className="text-amber-600">{d.expiring} expiring</span>}
+                  {d.needed > 0 && <span className="text-purple-600">{d.needed} needed</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {expired.length > 0 && (
         <Section title="Expired / Needed" count={expired.length} color="red">
           {expired.map((issue, i) => (
@@ -219,6 +271,8 @@ function AlertsTab() {
                     : "Never completed"
               }
               status={issue.status}
+              division={issue.division}
+              daysUntilExpiry={issue.daysUntilExpiry}
             />
           ))}
         </Section>
@@ -242,6 +296,8 @@ function AlertsTab() {
                   : "Expiring soon"
               }
               status="expiring_soon"
+              division={issue.division}
+              daysUntilExpiry={issue.daysUntilExpiry}
             />
           ))}
         </Section>

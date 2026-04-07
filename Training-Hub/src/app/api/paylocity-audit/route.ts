@@ -1,8 +1,9 @@
 import { readRange } from "@/lib/google-sheets";
 import { namesMatch } from "@/lib/name-utils";
+import { normalizeDate, datesEqual, loadNameMappings } from "@/lib/import-utils";
 
 // Same mapping as Core.gs PAYLOCITY_SKILL_MAP
-const SKILL_MAP: Record<string, string> = {
+export const PAYLOCITY_SKILL_MAP: Record<string, string> = {
   "cpr.fa": "CPR",
   "cpr/fa": "CPR",
   "ukeru": "Ukeru",
@@ -25,52 +26,6 @@ const SKILL_MAP: Record<string, string> = {
   "asl": "ASL",
   "shift": "SHIFT",
 };
-
-function normalizeDate(val: string): string {
-  const s = val.trim();
-  // M/D/YY → M/D/YYYY
-  const short = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
-  if (short) {
-    let yr = parseInt(short[3]);
-    yr += yr < 50 ? 2000 : 1900;
-    return `${parseInt(short[1])}/${parseInt(short[2])}/${yr}`;
-  }
-  // M/D/YYYY — strip leading zeros
-  const full = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (full) return `${parseInt(full[1])}/${parseInt(full[2])}/${full[3]}`;
-  // MM-DD-YY or MM-DD-YYYY (dashes)
-  const dash = s.match(/^(\d{1,2})-(\d{1,2})-(\d{2,4})$/);
-  if (dash) {
-    let yr = parseInt(dash[3]);
-    if (yr < 100) yr += yr < 50 ? 2000 : 1900;
-    return `${parseInt(dash[1])}/${parseInt(dash[2])}/${yr}`;
-  }
-  // Try Date parse
-  try {
-    const d = new Date(s);
-    if (!isNaN(d.getTime()) && d.getFullYear() >= 1990) {
-      return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-    }
-  } catch {}
-  return s;
-}
-
-function parseToTimestamp(dateStr: string): number {
-  const m = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return new Date(parseInt(m[3]), parseInt(m[1]) - 1, parseInt(m[2])).getTime();
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? 0 : d.getTime();
-}
-
-function datesEqual(a: string, b: string): boolean {
-  // String compare first (fast path)
-  if (a === b) return true;
-  // Parse to timestamps and compare (handles format differences)
-  const ta = parseToTimestamp(a);
-  const tb = parseToTimestamp(b);
-  if (ta && tb) return ta === tb;
-  return false;
-}
 
 interface Discrepancy {
   employee: string;
@@ -100,14 +55,7 @@ export async function GET() {
     }
 
     // Load name mappings from Hub Settings
-    const nameMappings = new Map<string, string>(); // paylocity name lowercase → training name
-    for (let i = 1; i < settingsRows.length; i++) {
-      if ((settingsRows[i][0] || "").trim() === "name_map") {
-        const pName = (settingsRows[i][1] || "").trim().toLowerCase();
-        const tName = (settingsRows[i][2] || "").trim();
-        if (pName && tName) nameMappings.set(pName, tName);
-      }
-    }
+    const nameMappings = loadNameMappings(settingsRows);
 
     if (trainingRows.length < 2) return Response.json({ error: "Training sheet empty" }, { status: 400 });
     if (paylocityRows.length < 2) return Response.json({ error: "Paylocity Import tab empty" }, { status: 400 });
@@ -149,7 +97,7 @@ export async function GET() {
       if (active !== "Y") continue;
 
       const values: Record<string, string> = {};
-      for (const colKey of Object.values(SKILL_MAP)) {
+      for (const colKey of Object.values(PAYLOCITY_SKILL_MAP)) {
         const colIdx = tHeaders.findIndex((h) => h.trim() === colKey);
         if (colIdx >= 0) {
           values[colKey] = (trainingRows[i][colIdx] || "").toString().trim();
@@ -174,7 +122,7 @@ export async function GET() {
       if (!pLastName || !pFirstName || !skill || !dateVal) continue;
 
       const skillLower = skill.toLowerCase();
-      const targetCol = SKILL_MAP[skillLower];
+      const targetCol = PAYLOCITY_SKILL_MAP[skillLower];
       if (!targetCol) continue; // Not a tracked training
 
       const payDate = normalizeDate(dateVal);
