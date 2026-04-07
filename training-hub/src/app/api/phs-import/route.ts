@@ -1,24 +1,31 @@
 import { readRange } from "@/lib/google-sheets";
 import { namesMatch } from "@/lib/name-utils";
-import { normalizeDate, parseCSV, loadNameMappings } from "@/lib/import-utils";
+import { normalizeDate, datesEqual, loadNameMappings } from "@/lib/import-utils";
 
-// PHS skill/column mapping — maps PHS export column headers to Training sheet columns
-const PHS_SKILL_MAP: Record<string, string> = {
-  "cpr": "CPR",
+// All known Training column keys from PHS data
+// Maps (Upload Category, Upload Type) → Training sheet column key
+// For "Additional Training", Upload Type itself is the training name — use keyword matching below
+const CATEGORY_TYPE_MAP: Record<string, string> = {
+  "med admin": "MED_TRAIN",
   "cpr/fa": "CPR",
-  "cpr/first aid": "CPR",
-  "first aid": "CPR",
+  "drivers license": "VR",
+  "driver's license": "VR",
+  "drivers licence": "VR",
+};
+
+// For "Additional Training" rows, match the Upload Type against known training names
+const ADDITIONAL_TRAINING_MAP: Record<string, string | null> = {
   "ukeru": "Ukeru",
+  "safety care": "Safety Care",
+  "behavior training": "Ukeru",
   "mealtime": "Mealtime",
   "mealtime instructions": "Mealtime",
   "med training": "MED_TRAIN",
   "medication training": "MED_TRAIN",
-  "med cert": "MED_TRAIN",
   "post med": "POST MED",
   "pom": "POM",
   "person centered": "Pers Cent Thnk",
   "person centered thinking": "Pers Cent Thnk",
-  "safety care": "Safety Care",
   "meaningful day": "Meaningful Day",
   "rights training": "Rights Training",
   "rights": "Rights Training",
@@ -33,220 +40,234 @@ const PHS_SKILL_MAP: Record<string, string> = {
   "asl": "ASL",
   "shift": "SHIFT",
   "van/lift": "VR",
-  "van": "VR",
   "gerd": "GERD",
   "dysphagia": "Dysphagia",
   "diabetes": "Diabetes",
   "falls": "Falls",
   "health passport": "Health Passport",
   "hco": "HCO",
+  "in-service": null, // too generic — skip unless matched by keyword below
+  "general training": null, // too generic
 };
 
-function matchTraining(header: string): string | null {
-  const lower = header.toLowerCase().trim();
-  if (PHS_SKILL_MAP[lower]) return PHS_SKILL_MAP[lower];
-  // Partial match
-  for (const [key, val] of Object.entries(PHS_SKILL_MAP)) {
-    if (lower.includes(key) || key.includes(lower)) return val;
+function resolveTrainingColumn(category: string, uploadType: string): string | null {
+  const catLower = category.toLowerCase().trim();
+  const typeLower = uploadType.toLowerCase().trim();
+
+  // Direct category mapping (non-Additional Training)
+  if (CATEGORY_TYPE_MAP[catLower]) return CATEGORY_TYPE_MAP[catLower];
+
+  // Additional Training: match on Upload Type value
+  if (catLower === "additional training") {
+    if (ADDITIONAL_TRAINING_MAP[typeLower] !== undefined) {
+      return ADDITIONAL_TRAINING_MAP[typeLower]; // may be null for generic types
+    }
+    // Partial match
+    for (const [key, val] of Object.entries(ADDITIONAL_TRAINING_MAP)) {
+      if (val && (typeLower.includes(key) || key.includes(typeLower))) return val;
+    }
   }
+
   return null;
 }
 
-interface ParsedRow {
-  name: string;
-  skill: string;
-  date: string;
-  matchedEmployee: string | null;
-  matchedTraining: string | null;
-  status: "matched" | "no_employee" | "no_training" | "no_date";
+interface Discrepancy {
+  employee: string;
+  training: string;
+  trainingSheetDate: string;
+  phsDate: string;
+  issue: "mismatch" | "missing_on_training" | "na_but_has_date";
 }
 
-export async function POST(request: Request) {
+export async function GET() {
   try {
-    const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-
-    if (!file) {
-      return Response.json({ error: "No file uploaded" }, { status: 400 });
-    }
-
-    // Parse file content
-    let fileRows: string[][];
-    const fileName = file.name.toLowerCase();
-
-    if (fileName.endsWith(".csv")) {
-      const text = await file.text();
-      fileRows = parseCSV(text);
-    } else if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
-      // Dynamic import for xlsx
-      const XLSX = await import("xlsx");
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array" });
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json<string[]>(firstSheet, { header: 1, raw: false });
-      fileRows = data.map((row) => row.map((cell) => String(cell ?? "")));
-    } else {
-      return Response.json({ error: "Unsupported file type. Upload a .csv or .xlsx file." }, { status: 400 });
-    }
-
-    if (fileRows.length < 2) {
-      return Response.json({ error: "File is empty or has no data rows" }, { status: 400 });
-    }
-
-    // Load Training sheet for employee matching
     let trainingRows: string[][] = [];
+    let phsRows: string[][] = [];
     let settingsRows: string[][] = [];
-    [trainingRows, settingsRows] = await Promise.all([
-      readRange("Training"),
-      readRange("'Hub Settings'").catch(() => [] as string[][]),
-    ]);
+
+    try {
+      [trainingRows, phsRows, settingsRows] = await Promise.all([
+        readRange("Training"),
+        readRange("PHS Import"),
+        readRange("'Hub Settings'").catch(() => [] as string[][]),
+      ]);
+    } catch {
+      return Response.json({
+        error: "Could not read sheets. Make sure both 'Training' and 'PHS Import' tabs exist.",
+        discrepancies: [],
+        noMatch: [],
+        summary: { total: 0, mismatches: 0, missingOnTraining: 0, naButHasDate: 0, noMatchCount: 0 },
+      });
+    }
 
     const nameMappings = loadNameMappings(settingsRows);
 
-    // Build employee lookup from Training sheet
-    const tHeaders = trainingRows[0] || [];
+    if (trainingRows.length < 2) return Response.json({ error: "Training sheet is empty" }, { status: 400 });
+    if (phsRows.length < 2) return Response.json({ error: "PHS Import tab is empty" }, { status: 400 });
+
+    // Parse Training sheet
+    const tHeaders = trainingRows[0];
     const tHdr = (label: string) => tHeaders.findIndex((h) => h.trim().toUpperCase() === label.toUpperCase());
     const tLName = tHdr("L NAME");
     const tFName = tHdr("F NAME");
     const tActive = tHdr("ACTIVE");
 
-    const employees: Array<{ name: string; row: number }> = [];
-    if (tLName >= 0 && tFName >= 0) {
-      for (let i = 1; i < trainingRows.length; i++) {
-        const last = (trainingRows[i][tLName] || "").trim();
-        const first = (trainingRows[i][tFName] || "").trim();
-        if (!last) continue;
-        const active = tActive >= 0 ? (trainingRows[i][tActive] || "").toString().trim().toUpperCase() : "Y";
-        if (active !== "Y") continue;
-        const name = first ? `${last}, ${first}` : last;
-        employees.push({ name, row: i + 1 });
-      }
+    if (tLName < 0 || tFName < 0) {
+      return Response.json({ error: "Training sheet missing L NAME / F NAME columns" }, { status: 400 });
     }
 
-    // Parse PHS file headers — detect name and training columns
-    const headers = fileRows[0].map((h) => h.trim());
+    // Collect all known training column keys for lookup
+    const allTrainingCols = new Set<string>([
+      ...Object.values(CATEGORY_TYPE_MAP).filter(Boolean),
+      ...Object.values(ADDITIONAL_TRAINING_MAP).filter((v): v is string => !!v),
+    ]);
 
-    // Try to find name columns
-    const lastNameIdx = headers.findIndex((h) => /^last\s*name$/i.test(h));
-    const firstNameIdx = headers.findIndex((h) => /^first\s*name$/i.test(h));
-    const fullNameIdx = headers.findIndex((h) => /^(name|employee|full\s*name)$/i.test(h));
+    // Build Training sheet lookup: active employees with their current training dates
+    const trainingLookup: Array<{
+      name: string;
+      row: number;
+      values: Record<string, string>;
+    }> = [];
 
-    // Map header columns to training types
-    const trainingColumns: Array<{ colIdx: number; header: string; trainingKey: string }> = [];
-    const dateColumns: Array<{ colIdx: number; header: string }> = [];
+    for (let i = 1; i < trainingRows.length; i++) {
+      const last = (trainingRows[i][tLName] || "").trim();
+      const first = (trainingRows[i][tFName] || "").trim();
+      if (!last) continue;
+      const active = tActive >= 0 ? (trainingRows[i][tActive] || "").toString().trim().toUpperCase() : "Y";
+      if (active !== "Y") continue;
 
-    for (let c = 0; c < headers.length; c++) {
-      if (c === lastNameIdx || c === firstNameIdx || c === fullNameIdx) continue;
-      const matched = matchTraining(headers[c]);
-      if (matched) {
-        trainingColumns.push({ colIdx: c, header: headers[c], trainingKey: matched });
+      const values: Record<string, string> = {};
+      for (const colKey of allTrainingCols) {
+        const colIdx = tHeaders.findIndex((h) => h.trim() === colKey);
+        if (colIdx >= 0) {
+          values[colKey] = (trainingRows[i][colIdx] || "").toString().trim();
+        }
       }
+      const name = first ? `${last}, ${first}` : last;
+      trainingLookup.push({ name, row: i + 1, values });
     }
 
-    // If no training columns found, try date column detection (skill + date columns)
-    const skillIdx = headers.findIndex((h) => /^(skill|training|course|type)$/i.test(h));
-    const dateIdx = headers.findIndex((h) => /^(date|effective|completion|completed|issue\s*date|effective.*(date|issue))$/i.test(h));
+    // Parse PHS Import headers
+    const pHeaders = phsRows[0];
+    const pHdr = (label: string) => pHeaders.findIndex((h) => h.trim().toLowerCase() === label.toLowerCase());
 
-    const parsedRows: ParsedRow[] = [];
+    const pName = pHdr("employee name");
+    const pCategory = pHdr("upload category");
+    const pType = pHdr("upload type");
+    const pEffective = pHdr("effective date");
+    const pTermination = pHdr("termination date");
 
-    if (trainingColumns.length > 0) {
-      // Wide format: each training is a column with date values
-      for (let r = 1; r < fileRows.length; r++) {
-        const row = fileRows[r];
-        let name = "";
-        if (lastNameIdx >= 0 && firstNameIdx >= 0) {
-          const last = (row[lastNameIdx] || "").trim();
-          const first = (row[firstNameIdx] || "").trim();
-          name = last && first ? `${last}, ${first}` : last || first;
-        } else if (fullNameIdx >= 0) {
-          name = (row[fullNameIdx] || "").trim();
-        }
-        if (!name) continue;
-
-        for (const tc of trainingColumns) {
-          const dateVal = (row[tc.colIdx] || "").toString().trim();
-          if (!dateVal) continue;
-
-          const normalizedDate = normalizeDate(dateVal);
-
-          // Try to match employee
-          const mappedName = nameMappings.get(name.toLowerCase());
-          let matchedEmp = mappedName ? employees.find((e) => namesMatch(e.name, mappedName)) : null;
-          if (!matchedEmp) {
-            matchedEmp = employees.find((e) => namesMatch(e.name, name));
-          }
-
-          parsedRows.push({
-            name,
-            skill: tc.header,
-            date: normalizedDate,
-            matchedEmployee: matchedEmp?.name || null,
-            matchedTraining: tc.trainingKey,
-            status: matchedEmp ? "matched" : "no_employee",
-          });
-        }
-      }
-    } else if (skillIdx >= 0 && dateIdx >= 0) {
-      // Long format: each row has a skill and date
-      for (let r = 1; r < fileRows.length; r++) {
-        const row = fileRows[r];
-        let name = "";
-        if (lastNameIdx >= 0 && firstNameIdx >= 0) {
-          const last = (row[lastNameIdx] || "").trim();
-          const first = (row[firstNameIdx] || "").trim();
-          name = last && first ? `${last}, ${first}` : last || first;
-        } else if (fullNameIdx >= 0) {
-          name = (row[fullNameIdx] || "").trim();
-        }
-        if (!name) continue;
-
-        const skill = (row[skillIdx] || "").trim();
-        const dateVal = (row[dateIdx] || "").toString().trim();
-        if (!skill) continue;
-
-        const trainingKey = matchTraining(skill);
-        const normalizedDate = dateVal ? normalizeDate(dateVal) : "";
-
-        const mappedName = nameMappings.get(name.toLowerCase());
-        let matchedEmp = mappedName ? employees.find((e) => namesMatch(e.name, mappedName)) : null;
-        if (!matchedEmp) {
-          matchedEmp = employees.find((e) => namesMatch(e.name, name));
-        }
-
-        let status: ParsedRow["status"] = "matched";
-        if (!matchedEmp) status = "no_employee";
-        else if (!trainingKey) status = "no_training";
-        else if (!normalizedDate) status = "no_date";
-
-        parsedRows.push({
-          name,
-          skill,
-          date: normalizedDate,
-          matchedEmployee: matchedEmp?.name || null,
-          matchedTraining: trainingKey,
-          status,
-        });
-      }
-    } else {
+    if (pName < 0 || pCategory < 0 || pType < 0 || pEffective < 0) {
       return Response.json({
-        error: "Could not detect file format. Expected columns: Last Name + First Name (or Name), and either training columns (CPR, Ukeru, etc.) or Skill + Date columns.",
-        rows: [],
-        summary: { total: 0, matched: 0, unmatched: 0 },
+        error: "PHS Import tab missing required columns. Expected: Employee Name, Upload Category, Upload Type, Effective Date.",
       }, { status: 400 });
     }
 
-    const matched = parsedRows.filter((r) => r.status === "matched").length;
+    // Step 1: Deduplicate — for each (employee, training column), keep most recent valid record
+    // Valid = not Fail/No Show, no Termination Date, with an Effective Date
+    type BestRecord = { name: string; category: string; uploadType: string; date: string; timestamp: number };
+    const bestRecords = new Map<string, BestRecord>(); // key = "name_lower|training_col"
+
+    for (let i = 1; i < phsRows.length; i++) {
+      const row = phsRows[i];
+      const empName = (row[pName] || "").trim();
+      const category = (row[pCategory] || "").trim();
+      const uploadType = (row[pType] || "").trim();
+      const effectiveDateRaw = (row[pEffective] || "").toString().trim();
+      const terminationDateRaw = pTermination >= 0 ? (row[pTermination] || "").toString().trim() : "";
+
+      if (!empName || !category || !uploadType || !effectiveDateRaw) continue;
+
+      // Skip invalid records
+      const typeLower = uploadType.toLowerCase();
+      if (typeLower === "fail" || typeLower === "no show") continue;
+      if (terminationDateRaw) continue; // terminated cert
+
+      const trainingCol = resolveTrainingColumn(category, uploadType);
+      if (!trainingCol) continue; // can't map to a Training column
+
+      const normalizedDate = normalizeDate(effectiveDateRaw);
+      if (!normalizedDate) continue;
+
+      // Parse date to timestamp for comparison
+      const parts = normalizedDate.split("/");
+      let ts = 0;
+      if (parts.length === 3) {
+        const [m, d, y] = parts.map(Number);
+        ts = new Date(y, m - 1, d).getTime();
+      }
+
+      const dedupeKey = `${empName.toLowerCase()}|${trainingCol}`;
+      const existing = bestRecords.get(dedupeKey);
+      if (!existing || ts > existing.timestamp) {
+        bestRecords.set(dedupeKey, { name: empName, category, uploadType, date: normalizedDate, timestamp: ts });
+      }
+    }
+
+    // Step 2: Compare each best record against Training sheet
+    const discrepancies: Discrepancy[] = [];
+    const noMatch: Array<{ name: string; category: string; date: string }> = [];
+
+    for (const [dedupeKey, record] of bestRecords) {
+      const trainingCol = dedupeKey.split("|").slice(1).join("|"); // everything after first pipe
+
+      // Find employee on Training sheet
+      const mappedName = nameMappings.get(record.name.toLowerCase());
+      let match = mappedName
+        ? trainingLookup.find((t) => namesMatch(t.name, mappedName))
+        : null;
+      if (!match) {
+        match = trainingLookup.find((t) => namesMatch(t.name, record.name));
+      }
+
+      if (!match) {
+        noMatch.push({ name: record.name, category: `${record.category} / ${record.uploadType}`, date: record.date });
+        continue;
+      }
+
+      const trainingVal = match.values[trainingCol] || "";
+      const trainingDate = trainingVal ? normalizeDate(trainingVal) : "";
+
+      if (!trainingVal) {
+        discrepancies.push({
+          employee: match.name,
+          training: trainingCol,
+          trainingSheetDate: "(empty)",
+          phsDate: record.date,
+          issue: "missing_on_training",
+        });
+      } else if (trainingVal.toUpperCase() === "NA" || trainingVal.toUpperCase() === "N/A") {
+        discrepancies.push({
+          employee: match.name,
+          training: trainingCol,
+          trainingSheetDate: trainingVal,
+          phsDate: record.date,
+          issue: "na_but_has_date",
+        });
+      } else if (trainingDate && record.date && !datesEqual(trainingDate, record.date)) {
+        discrepancies.push({
+          employee: match.name,
+          training: trainingCol,
+          trainingSheetDate: trainingDate,
+          phsDate: record.date,
+          issue: "mismatch",
+        });
+      }
+    }
+
+    // Sort: mismatches first, then missing, then NA
+    const priority: Record<string, number> = { mismatch: 0, na_but_has_date: 1, missing_on_training: 2 };
+    discrepancies.sort((a, b) => (priority[a.issue] ?? 3) - (priority[b.issue] ?? 3));
 
     return Response.json({
-      rows: parsedRows,
-      headers: headers,
-      trainingColumns: trainingColumns.map((tc) => ({ header: tc.header, trainingKey: tc.trainingKey })),
+      discrepancies,
+      noMatch: noMatch.slice(0, 50),
       summary: {
-        total: parsedRows.length,
-        matched,
-        noEmployee: parsedRows.filter((r) => r.status === "no_employee").length,
-        noTraining: parsedRows.filter((r) => r.status === "no_training").length,
-        noDate: parsedRows.filter((r) => r.status === "no_date").length,
+        total: discrepancies.length,
+        mismatches: discrepancies.filter((d) => d.issue === "mismatch").length,
+        missingOnTraining: discrepancies.filter((d) => d.issue === "missing_on_training").length,
+        naButHasDate: discrepancies.filter((d) => d.issue === "na_but_has_date").length,
+        noMatchCount: noMatch.length,
       },
     });
   } catch (error) {
