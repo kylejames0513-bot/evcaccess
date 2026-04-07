@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { UserPlus, X, Loader2, Check, Clock, XCircle, AlertTriangle, CheckCircle, CalendarPlus, ShieldOff, ShieldCheck, Ban, PenLine } from "lucide-react";
+import { UserPlus, X, Loader2, Check, Clock, XCircle, AlertTriangle, CheckCircle, CalendarPlus, ShieldOff, ShieldCheck, Ban, PenLine, MessageSquare } from "lucide-react";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import StatusBadge from "@/components/ui/StatusBadge";
 
@@ -98,15 +98,37 @@ export default function EmployeeDetailModal({ name, onClose, onEnrolled }: { nam
   const [savingDate, setSavingDate] = useState(false);
   const [success, setSuccess] = useState("");
   const [detailRefresh, setDetailRefresh] = useState(0);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [editingNote, setEditingNote] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
 
   useEffect(() => {
     setLoadingDetail(true);
-    fetch(`/api/employee-detail?name=${encodeURIComponent(name)}&r=${detailRefresh}`)
-      .then((r) => r.json())
-      .then((d) => { if (!d.error) setDetail(d); })
-      .catch(() => {})
-      .finally(() => setLoadingDetail(false));
+    // Load employee detail and notes in parallel
+    Promise.all([
+      fetch(`/api/employee-detail?name=${encodeURIComponent(name)}&r=${detailRefresh}`).then((r) => r.json()),
+      fetch(`/api/training-notes?employee=${encodeURIComponent(name)}`).then((r) => r.json()).catch(() => ({ notes: {} })),
+    ]).then(([detailData, notesData]) => {
+      if (!detailData.error) setDetail(detailData);
+      setNotes(notesData.notes || {});
+    }).catch(() => {}).finally(() => setLoadingDetail(false));
   }, [name, detailRefresh]);
+
+  async function handleSaveNote(columnKey: string) {
+    setSavingNote(true);
+    try {
+      await fetch("/api/training-notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee: name, training: columnKey, note: noteText.trim() }),
+      });
+      setNotes({ ...notes, [columnKey]: noteText.trim() });
+      setEditingNote(null);
+      setNoteText("");
+    } catch {}
+    setSavingNote(false);
+  }
 
   async function handleEnroll(sessionRowIndex: number, trainingName: string) {
     setEnrolling(trainingName);
@@ -260,6 +282,36 @@ export default function EmployeeDetailModal({ name, onClose, onEnrolled }: { nam
                           <p className="text-xs text-slate-400 mt-0.5">
                             {t.isExcused ? `Excused (${t.value})` : t.date ? `Completed ${t.date}` : "No date on file"}
                           </p>
+                          {/* Note */}
+                          {notes[t.columnKey] && editingNote !== t.columnKey && (
+                            <button
+                              onClick={() => { setEditingNote(t.columnKey); setNoteText(notes[t.columnKey]); }}
+                              className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 text-[10px] font-medium rounded-md border border-amber-200 hover:bg-amber-100"
+                            >
+                              <MessageSquare className="h-2.5 w-2.5" />
+                              {notes[t.columnKey]}
+                            </button>
+                          )}
+                          {editingNote === t.columnKey && (
+                            <div className="mt-1 flex items-center gap-1">
+                              <input
+                                type="text"
+                                value={noteText}
+                                onChange={(e) => setNoteText(e.target.value)}
+                                placeholder="e.g., Waiting on CPR card"
+                                autoFocus
+                                className="w-48 px-2 py-1 border border-slate-200 rounded text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                              <button
+                                onClick={() => handleSaveNote(t.columnKey)}
+                                disabled={savingNote}
+                                className="px-2 py-1 text-[10px] font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                              >
+                                {savingNote ? "..." : "Save"}
+                              </button>
+                              <button onClick={() => { setEditingNote(null); setNoteText(""); }} className="px-1 py-1 text-[10px] text-slate-400">Cancel</button>
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -296,6 +348,16 @@ export default function EmployeeDetailModal({ name, onClose, onEnrolled }: { nam
                             title="Record or edit completion date"
                           >
                             <PenLine className="h-3 w-3" /> Log Date
+                          </button>
+                        )}
+                        {/* Add Note button */}
+                        {!notes[t.columnKey] && editingNote !== t.columnKey && (
+                          <button
+                            onClick={() => { setEditingNote(t.columnKey); setNoteText(""); }}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-slate-50 text-slate-400 hover:bg-amber-50 hover:text-amber-600 transition-colors"
+                            title="Add a note"
+                          >
+                            <MessageSquare className="h-3 w-3" /> Note
                           </button>
                         )}
                       </div>
