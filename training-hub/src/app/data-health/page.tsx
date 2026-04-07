@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   RefreshCw,
   AlertTriangle,
@@ -15,6 +15,7 @@ import {
   Loader2,
   Trash2,
   Wrench,
+  MessageSquare,
 } from "lucide-react";
 import StatCard from "@/components/ui/StatCard";
 import { Loading, ErrorState } from "@/components/ui/DataState";
@@ -78,6 +79,41 @@ export default function DataHealthPage() {
   const [fixingCpr, setFixingCpr] = useState(false);
   const [fixingCprRow, setFixingCprRow] = useState<number | null>(null);
   const [cprFixResult, setCprFixResult] = useState("");
+
+  // Training notes state
+  const [allNotes, setAllNotes] = useState<Record<string, string>>({});
+  const [editingNoteKey, setEditingNoteKey] = useState<string | null>(null);
+  const [noteText, setNoteText] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+
+  const loadNotes = useCallback(() => {
+    fetch("/api/training-notes")
+      .then((r) => r.json())
+      .then((d) => setAllNotes(d.notes || {}))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { loadNotes(); }, [loadNotes]);
+
+  async function handleSaveNote(employee: string, training: string) {
+    setSavingNote(true);
+    try {
+      await fetch("/api/training-notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employee, training, note: noteText.trim() }),
+      });
+      const key = `${employee}|${training}`;
+      if (noteText.trim()) {
+        setAllNotes((prev) => ({ ...prev, [key]: noteText.trim() }));
+      } else {
+        setAllNotes((prev) => { const next = { ...prev }; delete next[key]; return next; });
+      }
+      setEditingNoteKey(null);
+      setNoteText("");
+    } catch {}
+    setSavingNote(false);
+  }
 
   if (loading) return <Loading message="Scanning training data..." />;
   if (error) return <ErrorState message={error} />;
@@ -385,14 +421,17 @@ export default function DataHealthPage() {
                         {garbledColFilter === "all" && <th className="pb-2 pr-4">Column</th>}
                         {garbledCatFilter === "all" && <th className="pb-2 pr-4">Type</th>}
                         <th className="pb-2 pr-4">Current Value</th>
-                        <th className="pb-2">Fix To</th>
+                        <th className="pb-2 pr-4">Fix To</th>
+                        <th className="pb-2 w-8"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {filtered.map((d, i) => {
                         const key = `${d.row}|${d.column}`;
+                        const noteKey = `${d.name}|${d.column}`;
                         const checked = selectedGarbled.has(key);
                         const editValue = garbledEdits[key] ?? d.suggestion ?? "";
+                        const existingNote = allNotes[noteKey];
                         return (
                           <tr key={i} className={`border-b border-slate-50 last:border-0 ${checked ? "bg-blue-50/50" : ""}`}>
                             <td className="py-2 pr-2"><input type="checkbox" checked={checked} onChange={() => toggleGarbled(key)} className="rounded border-slate-300" /></td>
@@ -401,7 +440,7 @@ export default function DataHealthPage() {
                             {garbledColFilter === "all" && <td className="py-2 pr-4 text-slate-600 font-mono text-xs">{d.column}</td>}
                             {garbledCatFilter === "all" && <td className="py-2 pr-4"><span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${CATEGORY_COLORS[d.category] || "bg-slate-100 text-slate-600"}`}>{CATEGORY_LABELS[d.category] || d.category}</span></td>}
                             <td className="py-2 pr-4"><span className="bg-red-50 text-red-700 px-2 py-0.5 rounded text-xs font-mono">{d.value.substring(0, 35)}</span></td>
-                            <td className="py-2">
+                            <td className="py-2 pr-4">
                               <input
                                 type="text"
                                 value={editValue}
@@ -409,6 +448,41 @@ export default function DataHealthPage() {
                                 placeholder={d.suggestion || "M/D/YYYY or empty"}
                                 className={`w-28 px-2 py-1 border rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 ${d.suggestion && !garbledEdits[key] ? "border-emerald-300 bg-emerald-50/50 text-emerald-700" : "border-slate-200 text-slate-700"}`}
                               />
+                            </td>
+                            <td className="py-2">
+                              {editingNoteKey === noteKey ? (
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="text"
+                                    value={noteText}
+                                    onChange={(e) => setNoteText(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === "Enter") handleSaveNote(d.name, d.column); if (e.key === "Escape") { setEditingNoteKey(null); setNoteText(""); } }}
+                                    placeholder="Add note..."
+                                    className="w-32 px-1.5 py-0.5 border border-slate-200 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                    autoFocus
+                                  />
+                                  <button onClick={() => handleSaveNote(d.name, d.column)} disabled={savingNote} className="text-amber-600 hover:text-amber-800 disabled:opacity-40">
+                                    {savingNote ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+                                  </button>
+                                </div>
+                              ) : existingNote ? (
+                                <button
+                                  onClick={() => { setEditingNoteKey(noteKey); setNoteText(existingNote); }}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-700 text-[10px] font-medium rounded border border-amber-200 hover:bg-amber-100 max-w-[140px] truncate"
+                                  title={existingNote}
+                                >
+                                  <MessageSquare className="h-2.5 w-2.5 shrink-0" />
+                                  {existingNote}
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => { setEditingNoteKey(noteKey); setNoteText(""); }}
+                                  className="text-slate-300 hover:text-amber-500 transition-colors"
+                                  title="Add note"
+                                >
+                                  <MessageSquare className="h-3 w-3" />
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );
