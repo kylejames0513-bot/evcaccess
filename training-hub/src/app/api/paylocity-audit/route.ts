@@ -4,27 +4,67 @@ import { normalizeDate, datesEqual, loadNameMappings } from "@/lib/import-utils"
 
 // Same mapping as Core.gs PAYLOCITY_SKILL_MAP
 export const PAYLOCITY_SKILL_MAP: Record<string, string> = {
+  // CPR / First Aid
   "cpr.fa": "CPR",
   "cpr/fa": "CPR",
-  "ukeru": "Ukeru",
-  "mealtime instructions": "Mealtime",
+  "cpr": "CPR",
+  "first aid": "FIRSTAID",
+  "firstaid": "FIRSTAID",
+  "cpr/first aid": "CPR",
+  // Med
   "med training": "MED_TRAIN",
+  "med cert": "MED_TRAIN",
+  "med recert": "MED_TRAIN",
+  "medication training": "MED_TRAIN",
+  "initial med training": "MED_TRAIN",
   "post med": "POST MED",
+  // Core trainings
+  "ukeru": "Ukeru",
+  "safety care": "Safety Care",
+  "mealtime instructions": "Mealtime",
+  "mealtime": "Mealtime",
   "pom": "POM",
+  "poms": "POM",
   "pers cent thnk": "Pers Cent Thnk",
   "person centered thinking": "Pers Cent Thnk",
-  "safety care": "Safety Care",
+  "person centered": "Pers Cent Thnk",
   "meaningful day": "Meaningful Day",
+  "md refresh": "MD refresh",
   "rights training": "Rights Training",
   "title vi": "Title VI",
   "active shooter": "Active Shooter",
   "skills system": "Skills System",
+  "cpi": "CPI",
   "cpm": "CPM",
   "pfh/didd": "PFH/DIDD",
+  // VCRM
   "basic vcrm": "Basic VCRM",
+  "advanced vcrm": "Advanced VCRM",
+  "adv vcrm": "Advanced VCRM",
+  // Other
   "trn": "TRN",
   "asl": "ASL",
   "shift": "SHIFT",
+  "adv shift": "ADV SHIFT",
+  "advanced shift": "ADV SHIFT",
+  "mc": "MC",
+  "skills online": "Skills Online",
+  "etis": "ETIS",
+  // Health / clinical
+  "gerd": "GERD",
+  "dysphagia": "Dysphagia Overview",
+  "dysphagia overview": "Dysphagia Overview",
+  "diabetes": "Diabetes",
+  "falls": "Falls",
+  "health passport": "Health Passport",
+  "hco": "HCO Training",
+  "hco training": "HCO Training",
+  // Van / driving
+  "van/lift": "VR",
+  "van lift": "VR",
+  "van": "VR",
+  "drivers license": "VR",
+  "driver's license": "VR",
 };
 
 interface Discrepancy {

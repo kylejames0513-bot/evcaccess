@@ -1,10 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { CheckCircle, UserPlus, Loader2, AlertCircle, Users, Search } from "lucide-react";
+import { useState, useRef } from "react";
+import {
+  CheckCircle2, UserPlus, Loader2, AlertCircle, Users, Search,
+  Zap, CheckCheck, X, ClipboardList, Calendar,
+} from "lucide-react";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
-import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { TRAINING_DEFINITIONS, AUTO_FILL_RULES } from "@/config/trainings";
 
 // ── Types ──────────────────────────────────────────────────────────
 interface SessionData {
@@ -19,13 +22,9 @@ interface SessionData {
   status: "scheduled" | "completed";
 }
 
-interface ScheduleData {
-  sessions: SessionData[];
-}
+interface ScheduleData { sessions: SessionData[] }
 
 // ── Helpers ────────────────────────────────────────────────────────
-
-/** Find the TRAINING_DEFINITIONS entry whose name (or aliases) match a session training string */
 function findTrainingDef(trainingName: string) {
   const lower = trainingName.toLowerCase();
   return TRAINING_DEFINITIONS.find((td) => {
@@ -34,55 +33,60 @@ function findTrainingDef(trainingName: string) {
   });
 }
 
-/** Convert a session date like "2026-04-03" to YYYY-MM-DD (pass-through) */
 function toISODate(dateStr: string): string {
-  // The API already returns dates in a parseable format.
   const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  return d.toISOString().slice(0, 10);
+  return isNaN(d.getTime()) ? dateStr : d.toISOString().slice(0, 10);
 }
 
-/** Format a date string for display */
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+}
+
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function getLinkedNote(columnKey: string): string {
+  return AUTO_FILL_RULES
+    .filter((r) => r.source.toUpperCase() === columnKey.toUpperCase())
+    .map((r) => r.offsetDays === 0 ? `Also records ${r.target}` : `Also records ${r.target} (${r.offsetDays > 0 ? "+" : ""}${r.offsetDays}d)`)
+    .join(" · ");
 }
 
 // ── Component ──────────────────────────────────────────────────────
 export default function AttendancePage() {
-  // Fetch sessions
   const [refreshKey, setRefreshKey] = useState(0);
   const { data, loading, error } = useFetch<ScheduleData>(`/api/schedule?r=${refreshKey}`);
 
-  // Session selection
   const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
-
-  // Attendance tracking (local state: set of names marked present)
   const [presentNames, setPresentNames] = useState<Set<string>>(new Set());
-
-  // Manual entry
-  const [manualName, setManualName] = useState("");
-  const [enrolling, setEnrolling] = useState(false);
-  const [enrollError, setEnrollError] = useState<string | null>(null);
-  const [enrollSuccess, setEnrollSuccess] = useState<string | null>(null);
-
-  // No-show processing
   const [processingNoShow, setProcessingNoShow] = useState<string | null>(null);
-
-  // Complete session
   const [completing, setCompleting] = useState(false);
   const [completeMessage, setCompleteMessage] = useState<string | null>(null);
   const [completeError, setCompleteError] = useState<string | null>(null);
 
-  // Tab: "session" or "manual"
-  const [mode, setMode] = useState<"session" | "manual">("session");
+  // Enroll (manual into session)
+  const [manualName, setManualName] = useState("");
+  const [enrolling, setEnrolling] = useState(false);
+  const [enrollMsg, setEnrollMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // Derive scheduled sessions only
+  // Direct record mode (no session needed)
+  const [directEmployee, setDirectEmployee] = useState("");
+  const [directTraining, setDirectTraining] = useState("");
+  const [directDate, setDirectDate] = useState(todayISO());
+  const [directRecording, setDirectRecording] = useState(false);
+  const [directMsg, setDirectMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [recentDirect, setRecentDirect] = useState<Array<{ employee: string; training: string; date: string; msg: string }>>([]);
+
+  const [mode, setMode] = useState<"session" | "manual">("session");
+  const directInputRef = useRef<HTMLInputElement>(null);
+
   const sessions = (data?.sessions ?? []).filter((s) => s.status === "scheduled");
   const selectedSession = sessions.find((s) => s.rowIndex === selectedRowIndex) ?? null;
 
-  // When selection changes, reset attendance state
   function handleSelectSession(rowIndex: number | null) {
     setSelectedRowIndex(rowIndex);
     setPresentNames(new Set());
@@ -90,40 +94,33 @@ export default function AttendancePage() {
     setCompleteError(null);
   }
 
-  // ── Mark present ───────────────────────────────────────────────
-  function markPresent(name: string) {
-    setPresentNames((prev) => new Set(prev).add(name));
+  function togglePresent(name: string) {
+    setPresentNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
   }
 
-  // ── Mark no-show ───────────────────────────────────────────────
   async function markNoShow(name: string) {
     if (!selectedSession) return;
     setProcessingNoShow(name);
     try {
-      const res = await fetch("/api/no-shows", {
+      await fetch("/api/no-shows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionRowIndex: selectedSession.rowIndex, names: [name] }),
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `HTTP ${res.status}`);
-      }
-      // Refresh data so the enrolled list updates
       setRefreshKey((k) => k + 1);
-    } catch (err) {
-      console.error("No-show error:", err);
-    } finally {
-      setProcessingNoShow(null);
-    }
+    } catch {}
+    setProcessingNoShow(null);
   }
 
-  // ── Manual enroll ──────────────────────────────────────────────
   async function handleManualEnroll() {
     if (!selectedSession || !manualName.trim()) return;
     setEnrolling(true);
-    setEnrollError(null);
-    setEnrollSuccess(null);
+    setEnrollMsg(null);
     try {
       const res = await fetch("/api/enroll", {
         method: "POST",
@@ -131,18 +128,19 @@ export default function AttendancePage() {
         body: JSON.stringify({ sessionRowIndex: selectedSession.rowIndex, names: [manualName.trim()] }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-      setEnrollSuccess(`Added "${manualName.trim()}" to session.`);
-      setManualName("");
-      setRefreshKey((k) => k + 1);
-    } catch (err) {
-      setEnrollError(err instanceof Error ? err.message : "Failed to enroll");
-    } finally {
-      setEnrolling(false);
+      if (!res.ok) {
+        setEnrollMsg({ ok: false, text: body.error || "Failed to enroll" });
+      } else {
+        setEnrollMsg({ ok: true, text: `Added "${manualName.trim()}" to session` });
+        setManualName("");
+        setRefreshKey((k) => k + 1);
+      }
+    } catch {
+      setEnrollMsg({ ok: false, text: "Network error" });
     }
+    setEnrolling(false);
   }
 
-  // ── Complete session ───────────────────────────────────────────
   async function handleCompleteSession() {
     if (!selectedSession || presentNames.size === 0) return;
     setCompleting(true);
@@ -150,342 +148,425 @@ export default function AttendancePage() {
     setCompleteError(null);
 
     try {
-      // 1. Resolve the training column key
       const trainingDef = findTrainingDef(selectedSession.training);
-      if (!trainingDef) {
-        throw new Error(`Could not find training definition for "${selectedSession.training}"`);
-      }
+      if (!trainingDef) throw new Error(`No training definition found for "${selectedSession.training}"`);
 
       const completionDate = toISODate(selectedSession.date);
       const presentList = Array.from(presentNames);
-
-      // 2. Record completion for each present employee
       const failures: string[] = [];
+
       for (const name of presentList) {
-        try {
-          const res = await fetch("/api/record-completion", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              employeeName: name,
-              trainingColumnKey: trainingDef.columnKey,
-              completionDate,
-            }),
-          });
-          if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            failures.push(`${name}: ${body.error || `HTTP ${res.status}`}`);
-          }
-        } catch {
-          failures.push(`${name}: network error`);
+        const res = await fetch("/api/record-completion", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ employeeName: name, trainingColumnKey: trainingDef.columnKey, completionDate }),
+        });
+        if (!res.ok) {
+          const b = await res.json().catch(() => ({}));
+          failures.push(`${name}: ${b.error || `HTTP ${res.status}`}`);
         }
       }
 
-      // 3. Archive the session
       const archiveRes = await fetch("/api/archive-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sessionRowIndex: selectedSession.rowIndex }),
       });
       if (!archiveRes.ok) {
-        const body = await archiveRes.json().catch(() => ({}));
-        throw new Error(body.error || "Failed to archive session");
+        const b = await archiveRes.json().catch(() => ({}));
+        throw new Error(b.error || "Failed to archive session");
       }
 
-      // 4. Auto-enroll in next training if configured (e.g., Initial Med → Post Med)
+      // Auto-enroll in next training if configured
       let autoEnrolled = 0;
       if (trainingDef.autoEnrollNext) {
         try {
           const schedRes = await fetch("/api/schedule");
           const schedData = await schedRes.json();
-          const sessions = schedData.sessions || [];
-          // Find next scheduled session for the target training
           const targetDef = TRAINING_DEFINITIONS.find(
             (d) => d.name.toLowerCase() === trainingDef.autoEnrollNext!.toLowerCase()
           );
           if (targetDef) {
-            const nextSession = sessions.find(
+            const nextSess = (schedData.sessions || []).find(
               (s: { status: string; training: string; enrolled: string[]; capacity: number }) =>
                 s.status === "scheduled" &&
                 (s.training.toLowerCase() === targetDef.name.toLowerCase() ||
-                 targetDef.aliases?.some((a) => a.toLowerCase() === s.training.toLowerCase())) &&
+                  targetDef.aliases?.some((a) => a.toLowerCase() === s.training.toLowerCase())) &&
                 s.enrolled.length < s.capacity
             );
-            if (nextSession) {
-              const enrollRes = await fetch("/api/enroll", {
+            if (nextSess) {
+              const er = await fetch("/api/enroll", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ sessionRowIndex: nextSession.rowIndex, names: presentList }),
+                body: JSON.stringify({ sessionRowIndex: nextSess.rowIndex, names: presentList }),
               });
-              if (enrollRes.ok) {
-                const enrollData = await enrollRes.json();
-                autoEnrolled = presentList.length;
-              }
+              if (er.ok) autoEnrolled = presentList.length;
             }
           }
         } catch {}
       }
 
-      let msg = "";
-      if (failures.length > 0) {
-        msg = `Session archived. ${presentList.length - failures.length} of ${presentList.length} completions recorded. Some failures:\n${failures.join("\n")}`;
-      } else {
-        msg = `Session completed! ${presentList.length} completion${presentList.length === 1 ? "" : "s"} recorded and session archived.`;
-      }
-      if (autoEnrolled > 0) {
-        msg += `\n\n${autoEnrolled} employee${autoEnrolled !== 1 ? "s" : ""} auto-enrolled in next ${trainingDef.autoEnrollNext} session.`;
-      }
-      setCompleteMessage(msg);
+      const linked = getLinkedNote(trainingDef.columnKey);
+      let msg = failures.length > 0
+        ? `Completed. ${presentList.length - failures.length}/${presentList.length} recorded. Failures: ${failures.join("; ")}`
+        : `✓ ${presentList.length} completion${presentList.length !== 1 ? "s" : ""} recorded for ${selectedSession.training}.`;
+      if (linked) msg += `\n${linked}.`;
+      if (autoEnrolled > 0) msg += `\n${autoEnrolled} auto-enrolled in ${trainingDef.autoEnrollNext}.`;
 
-      // Refresh and clear selection
+      setCompleteMessage(msg);
       setRefreshKey((k) => k + 1);
       setSelectedRowIndex(null);
       setPresentNames(new Set());
     } catch (err) {
       setCompleteError(err instanceof Error ? err.message : "Failed to complete session");
-    } finally {
-      setCompleting(false);
     }
+    setCompleting(false);
   }
 
-  // ── Render ─────────────────────────────────────────────────────
-  if (loading) return <Loading message="Loading scheduled sessions..." />;
+  // Direct record (no session)
+  async function handleDirectRecord(e: React.FormEvent) {
+    e.preventDefault();
+    if (!directEmployee.trim() || !directTraining || !directDate) return;
+    setDirectRecording(true);
+    setDirectMsg(null);
+
+    const [y, m, d] = directDate.split("-");
+    const formattedDate = `${parseInt(m)}/${parseInt(d)}/${y}`;
+
+    try {
+      const res = await fetch("/api/record-completion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeName: directEmployee.trim(), trainingColumnKey: directTraining, completionDate: formattedDate }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDirectMsg({ ok: false, text: body.error || "Failed to record" });
+      } else {
+        const trainingName = TRAINING_DEFINITIONS.find((t) => t.columnKey === directTraining)?.name || directTraining;
+        setDirectMsg({ ok: true, text: body.message || "Recorded" });
+        setRecentDirect((prev) => [
+          { employee: directEmployee.trim(), training: trainingName, date: formattedDate, msg: body.message || "Recorded" },
+          ...prev.slice(0, 4),
+        ]);
+        setDirectEmployee("");
+        setDirectTraining("");
+        setDirectDate(todayISO());
+        setTimeout(() => directInputRef.current?.focus(), 50);
+      }
+    } catch {
+      setDirectMsg({ ok: false, text: "Network error" });
+    }
+    setDirectRecording(false);
+  }
+
+  if (loading) return <Loading message="Loading sessions…" />;
   if (error) return <ErrorState message={error} />;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-6 max-w-5xl mx-auto">
+      {/* ── Header ── */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Session Management</h1>
-        <p className="text-slate-500 mt-1">
-          Track attendance and complete training sessions
-        </p>
+        <h1 className="text-2xl font-bold text-slate-900">Attendance & Entry</h1>
+        <p className="text-sm text-slate-500 mt-0.5">Track session attendance or record individual completions directly</p>
       </div>
 
-      {/* Mode selector */}
-      <div className="flex bg-slate-100 rounded-lg p-0.5 w-fit">
-        {(["session", "manual"] as const).map((m) => (
+      {/* ── Mode toggle ── */}
+      <div className="flex bg-slate-100 rounded-xl p-1 w-fit gap-1">
+        {([
+          { id: "session", label: "Session View", icon: ClipboardList },
+          { id: "manual", label: "Direct Entry", icon: Zap },
+        ] as const).map(({ id, label, icon: Icon }) => (
           <button
-            key={m}
-            onClick={() => setMode(m)}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-              mode === m ? "bg-white shadow text-slate-900" : "text-slate-600"
+            key={id}
+            onClick={() => setMode(id)}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+              mode === id
+                ? "bg-white shadow text-slate-900"
+                : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            {m === "session" ? "Session View" : "Manual Entry"}
+            <Icon className="h-4 w-4" />
+            {label}
           </button>
         ))}
       </div>
 
-      {/* Success / error banners */}
+      {/* ── Success / error banners ── */}
       {completeMessage && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-start gap-3">
-          <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
-          <p className="text-sm text-green-800 whitespace-pre-line">{completeMessage}</p>
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start gap-3">
+          <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5 shrink-0" />
+          <p className="text-sm text-emerald-800 whitespace-pre-line">{completeMessage}</p>
+          <button onClick={() => setCompleteMessage(null)} className="ml-auto text-emerald-400 hover:text-emerald-600">
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
       {completeError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
           <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
           <p className="text-sm text-red-800">{completeError}</p>
+          <button onClick={() => setCompleteError(null)} className="ml-auto text-red-400 hover:text-red-600">
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
-      {/* ── Session View ─────────────────────────────────────── */}
+      {/* ═══════════════════════════════════════════════════════════
+          SESSION VIEW
+      ═══════════════════════════════════════════════════════════ */}
       {mode === "session" && (
-        <div className="space-y-6">
+        <div className="space-y-5">
           {/* Session selector */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
             <label className="block text-sm font-medium text-slate-700 mb-2">
-              Select Session
+              Select a Scheduled Session
             </label>
-            <select
-              value={selectedRowIndex ?? ""}
-              onChange={(e) =>
-                handleSelectSession(e.target.value ? Number(e.target.value) : null)
-              }
-              className="w-full max-w-xl px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Choose a scheduled session...</option>
-              {sessions.map((s) => (
-                <option key={s.rowIndex} value={s.rowIndex}>
-                  {s.training} — {formatDate(s.date)}{s.time ? ` at ${s.time}` : ""} ({s.enrolled.length}/{s.capacity} enrolled)
-                </option>
-              ))}
-            </select>
-            {sessions.length === 0 && (
-              <p className="text-sm text-slate-500 mt-2">No scheduled sessions found.</p>
-            )}
-          </div>
-
-          {/* Enrolled list */}
-          {selectedSession && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-              <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900">
-                    {selectedSession.training}
-                  </h2>
-                  <p className="text-sm text-slate-500">
-                    {formatDate(selectedSession.date)}{selectedSession.time ? ` at ${selectedSession.time}` : ""}
-                    {selectedSession.location ? ` — ${selectedSession.location}` : ""}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 text-sm text-slate-600">
-                  <Users className="h-4 w-4" />
-                  <span>{selectedSession.enrolled.length}/{selectedSession.capacity} enrolled</span>
-                </div>
-              </div>
-
-              {selectedSession.enrolled.length === 0 ? (
-                <div className="px-6 py-8 text-center text-slate-500 text-sm">
-                  No employees enrolled in this session yet.
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {selectedSession.enrolled.map((name) => {
-                    const isPresent = presentNames.has(name);
-                    const isProcessingNoShow = processingNoShow === name;
-                    return (
-                      <div
-                        key={name}
-                        className="flex items-center justify-between px-6 py-3"
-                      >
-                        <span className="text-sm text-slate-900">{name}</span>
-                        <div className="flex items-center gap-2">
-                          {isPresent ? (
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-green-700 bg-green-50 rounded-md">
-                              <CheckCircle className="h-3.5 w-3.5" />
-                              Present
-                            </span>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => markPresent(name)}
-                                className="px-3 py-1 text-xs font-medium bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors"
-                              >
-                                Present
-                              </button>
-                              <button
-                                onClick={() => markNoShow(name)}
-                                disabled={isProcessingNoShow}
-                                className="px-3 py-1 text-xs font-medium bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors disabled:opacity-50"
-                              >
-                                {isProcessingNoShow ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  "No Show"
-                                )}
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Summary bar */}
-              {selectedSession.enrolled.length > 0 && (
-                <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between bg-slate-50 rounded-b-xl">
-                  <span className="text-sm font-medium text-slate-700">
-                    {presentNames.size} of {selectedSession.enrolled.length} Present
-                  </span>
-                  <button
-                    onClick={handleCompleteSession}
-                    disabled={completing || presentNames.size === 0}
-                    className="px-5 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
-                  >
-                    {completing ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Completing...
-                      </>
-                    ) : (
-                      "Complete Session"
-                    )}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Manual Entry ─────────────────────────────────────── */}
-      {mode === "manual" && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 max-w-xl">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">
-            Add Employee to Session
-          </h2>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Training Session
-              </label>
+            {sessions.length === 0 ? (
+              <p className="text-sm text-slate-500">No scheduled sessions found.</p>
+            ) : (
               <select
                 value={selectedRowIndex ?? ""}
-                onChange={(e) =>
-                  handleSelectSession(e.target.value ? Number(e.target.value) : null)
-                }
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onChange={(e) => handleSelectSession(e.target.value ? Number(e.target.value) : null)}
+                className="w-full max-w-xl px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">Select a session...</option>
+                <option value="">Choose a session…</option>
                 {sessions.map((s) => (
                   <option key={s.rowIndex} value={s.rowIndex}>
                     {s.training} — {formatDate(s.date)}{s.time ? ` at ${s.time}` : ""} ({s.enrolled.length}/{s.capacity})
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Employee Name
-              </label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="First Last or Last, First"
-                  value={manualName}
-                  onChange={(e) => {
-                    setManualName(e.target.value);
-                    setEnrollError(null);
-                    setEnrollSuccess(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleManualEnroll();
-                  }}
-                  className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+            )}
+          </div>
+
+          {selectedSession && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              {/* Session header */}
+              <div className="px-6 py-4 border-b border-slate-100 flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">
+                      {selectedSession.training}
+                    </span>
+                  </div>
+                  <p className="text-sm text-slate-500 mt-1 flex items-center gap-1.5">
+                    <Calendar className="h-3.5 w-3.5" />
+                    {formatDate(selectedSession.date)}
+                    {selectedSession.time && ` at ${selectedSession.time}`}
+                    {selectedSession.location && ` — ${selectedSession.location}`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-sm text-slate-600 shrink-0">
+                  <Users className="h-4 w-4" />
+                  {selectedSession.enrolled.length}/{selectedSession.capacity}
+                </div>
+              </div>
+
+              {/* Add to session */}
+              <div className="px-6 py-3 border-b border-slate-100 flex gap-2">
+                <div className="relative flex-1 max-w-xs">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Add name to session…"
+                    value={manualName}
+                    onChange={(e) => { setManualName(e.target.value); setEnrollMsg(null); }}
+                    onKeyDown={(e) => e.key === "Enter" && handleManualEnroll()}
+                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <button
+                  onClick={handleManualEnroll}
+                  disabled={enrolling || !manualName.trim()}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                >
+                  {enrolling ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                  Add
+                </button>
+                {enrollMsg && (
+                  <span className={`text-xs self-center ${enrollMsg.ok ? "text-emerald-600" : "text-red-500"}`}>
+                    {enrollMsg.text}
+                  </span>
+                )}
+              </div>
+
+              {/* Enrolled list */}
+              {selectedSession.enrolled.length === 0 ? (
+                <div className="py-10 text-center text-slate-400 text-sm">
+                  No employees enrolled. Add names above.
+                </div>
+              ) : (
+                <div className="px-6 py-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {selectedSession.enrolled.map((name) => {
+                    const isPresent = presentNames.has(name);
+                    const isNoShowing = processingNoShow === name;
+                    return (
+                      <div
+                        key={name}
+                        className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all cursor-pointer select-none ${
+                          isPresent
+                            ? "border-emerald-400 bg-emerald-50"
+                            : "border-slate-200 bg-white hover:border-slate-300"
+                        }`}
+                        onClick={() => togglePresent(name)}
+                      >
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${isPresent ? "bg-emerald-500" : "bg-slate-200"}`}>
+                          {isPresent && <CheckCircle2 className="h-4 w-4 text-white" />}
+                        </div>
+                        <span className={`text-sm font-medium flex-1 ${isPresent ? "text-emerald-800" : "text-slate-700"}`}>
+                          {name}
+                        </span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); markNoShow(name); }}
+                          disabled={isNoShowing}
+                          className="ml-auto text-xs px-2 py-0.5 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 opacity-0 group-hover:opacity-100 transition-all"
+                          title="No Show"
+                        >
+                          {isNoShowing ? <Loader2 className="h-3 w-3 animate-spin" /> : "NS"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between rounded-b-2xl">
+                <span className="text-sm text-slate-600">
+                  <strong className="text-slate-900">{presentNames.size}</strong> of {selectedSession.enrolled.length} marked present
+                </span>
+                <button
+                  onClick={handleCompleteSession}
+                  disabled={completing || presentNames.size === 0}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 transition-colors"
+                >
+                  {completing
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Completing…</>
+                    : <><CheckCheck className="h-4 w-4" /> Complete Session ({presentNames.size})</>
+                  }
+                </button>
               </div>
             </div>
+          )}
+        </div>
+      )}
 
-            {enrollError && (
-              <p className="text-sm text-red-600">{enrollError}</p>
-            )}
-            {enrollSuccess && (
-              <p className="text-sm text-green-600">{enrollSuccess}</p>
-            )}
+      {/* ═══════════════════════════════════════════════════════════
+          DIRECT ENTRY
+      ═══════════════════════════════════════════════════════════ */}
+      {mode === "manual" && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Entry form */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
+              <Zap className="h-4 w-4 text-emerald-600" />
+              <h2 className="text-sm font-semibold text-slate-900">Record Training Completion</h2>
+            </div>
+            <form onSubmit={handleDirectRecord} className="px-6 py-5 space-y-4">
+              <p className="text-xs text-slate-500">
+                Records directly to the Training sheet. CPR and First Aid always sync together. Med training auto-fills Post Med.
+              </p>
 
-            <button
-              onClick={handleManualEnroll}
-              disabled={enrolling || !selectedRowIndex || !manualName.trim()}
-              className="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-            >
-              {enrolling ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Adding...
-                </>
-              ) : (
-                <>
-                  <UserPlus className="h-4 w-4" />
-                  Add to Session
-                </>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+                  Employee Name
+                </label>
+                <input
+                  ref={directInputRef}
+                  type="text"
+                  value={directEmployee}
+                  onChange={(e) => setDirectEmployee(e.target.value)}
+                  placeholder="Last, First or First Last"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+                  Training
+                </label>
+                <select
+                  value={directTraining}
+                  onChange={(e) => { setDirectTraining(e.target.value); setDirectMsg(null); }}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                >
+                  <option value="">Select training…</option>
+                  {Array.from(
+                    new Map(TRAINING_DEFINITIONS.map((t) => [t.columnKey, t])).values()
+                  ).map((t) => (
+                    <option key={t.columnKey} value={t.columnKey}>{t.name}</option>
+                  ))}
+                </select>
+                {directTraining && getLinkedNote(directTraining) && (
+                  <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1">
+                    <Zap className="h-3 w-3" /> {getLinkedNote(directTraining)}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={directDate}
+                  onChange={(e) => setDirectDate(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {directMsg && (
+                <div className={`rounded-xl p-3 text-sm flex items-start gap-2 ${directMsg.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
+                  {directMsg.ok
+                    ? <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
+                    : <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />}
+                  {directMsg.text}
+                </div>
               )}
-            </button>
+
+              <button
+                type="submit"
+                disabled={directRecording || !directEmployee.trim() || !directTraining || !directDate}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 transition-colors"
+              >
+                {directRecording
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Recording…</>
+                  : <><Zap className="h-4 w-4" /> Record Completion</>
+                }
+              </button>
+            </form>
+          </div>
+
+          {/* Recent entries */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-slate-400" />
+              <h2 className="text-sm font-semibold text-slate-900">This Session</h2>
+            </div>
+            {recentDirect.length === 0 ? (
+              <div className="py-12 text-center">
+                <CheckCircle2 className="h-10 w-10 mx-auto text-slate-200 mb-3" />
+                <p className="text-sm text-slate-400">No entries yet this session</p>
+                <p className="text-xs text-slate-300 mt-1">Records appear here as you add them</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-50">
+                {recentDirect.map((r, i) => (
+                  <div key={i} className="px-6 py-3 flex items-start gap-3">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-900">{r.employee}</p>
+                      <p className="text-xs text-slate-500 truncate">{r.training} — {r.date}</p>
+                      {r.msg.includes("auto-filled") && (
+                        <p className="text-xs text-emerald-600 mt-0.5">{r.msg.split("—").slice(1).join("—").trim()}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

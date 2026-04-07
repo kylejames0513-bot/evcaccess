@@ -1,5 +1,5 @@
 import { readRange, readSheetAsObjects, appendRows, findRow, updateCell, writeRange, clearCell } from "./google-sheets";
-import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { TRAINING_DEFINITIONS, AUTO_FILL_RULES } from "@/config/trainings";
 import { toFirstLast as toFirstLastUtil, namesMatch } from "@/lib/name-utils";
 import { getExcludedEmployees, getCapacity } from "@/lib/hub-settings";
 import { cached, invalidateAll } from "@/lib/cache";
@@ -596,8 +596,35 @@ export async function recordCompletion(
   }
 
   await updateCell(TRAINING_SHEET, empRow + 1, colIndex, completionDate);
+
+  // Apply AUTO_FILL_RULES — e.g. CPR↔FIRSTAID same date, MED_TRAIN→POST MED +1 day
+  const linkedApplied: string[] = [];
+  for (const rule of AUTO_FILL_RULES) {
+    if (rule.source.toUpperCase() !== trainingColumnKey.toUpperCase()) continue;
+    const linkedColIdx = headers.findIndex(
+      (h) => h.trim().toUpperCase() === rule.target.toUpperCase()
+    );
+    if (linkedColIdx === -1) continue;
+
+    // Compute linked date by offset
+    const baseDateObj = parseDate(completionDate);
+    if (!baseDateObj) continue;
+    const linkedDateObj = new Date(baseDateObj);
+    linkedDateObj.setDate(linkedDateObj.getDate() + rule.offsetDays);
+    const linkedDate = `${linkedDateObj.getMonth() + 1}/${linkedDateObj.getDate()}/${linkedDateObj.getFullYear()}`;
+
+    // Only write if target cell is empty or older than the new date
+    const currentVal = (rows[empRow][linkedColIdx] || "").trim();
+    const currentDateObj = parseDate(currentVal);
+    if (!currentDateObj || linkedDateObj > currentDateObj) {
+      await updateCell(TRAINING_SHEET, empRow + 1, linkedColIdx, linkedDate);
+      linkedApplied.push(rule.target);
+    }
+  }
+
   invalidateAll();
-  return { success: true, message: `Recorded ${completionDate} for ${employeeName} — ${trainingColumnKey}` };
+  const linkedNote = linkedApplied.length > 0 ? ` + auto-filled ${linkedApplied.join(", ")}` : "";
+  return { success: true, message: `Recorded ${completionDate} for ${employeeName} — ${trainingColumnKey}${linkedNote}` };
 }
 
 /**
