@@ -2624,10 +2624,15 @@ function syncEmployeesSheet() {
       var tLast = trainingData[matchRow][tLNameCol] ? trainingData[matchRow][tLNameCol].toString().trim() : "";
       var tFirst = trainingData[matchRow][tFNameCol] ? trainingData[matchRow][tFNameCol].toString().trim() : "";
 
-      // Check if this pair was marked as "different people" — don't fix names
-      var sheetFullName = tFirst + " " + tLast;
-      var empFullName = displayFirst + " " + lastName;
-      var isIgnored = isIgnoredPair_(syncIgnoredPairs_, sheetFullName, empFullName);
+      // If matched by ID, always trust the Employees sheet name
+      // If matched by name, check the ignore list
+      var matchedById = (empId && existingId === empId);
+      var isIgnored = false;
+      if (!matchedById) {
+        var sheetFullName = tFirst + " " + tLast;
+        var empFullName = displayFirst + " " + lastName;
+        isIgnored = isIgnoredPair_(syncIgnoredPairs_, sheetFullName, empFullName);
+      }
 
       // Fix last name
       if (!isIgnored && tLast !== lastName) {
