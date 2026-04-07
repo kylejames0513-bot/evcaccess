@@ -2577,15 +2577,34 @@ function syncEmployeesSheet() {
       matchRow = trainingIdMap[empId];
     }
 
-    // ── Fall back to name matching ──
+    // ── Fall back to name matching (only if no ID, or first-run backfill) ──
     if (matchRow < 0) {
-      matchRow = findTrainingRow(trainingData, displayFirst, lastName, {
-        idCol: tIdCol, id: empId, lNameCol: tLNameCol, fNameCol: tFNameCol
-      });
-      if (matchRow < 0 && preferred && preferred !== firstName) {
-        matchRow = findTrainingRow(trainingData, firstName, lastName, {
-          idCol: tIdCol, id: empId, lNameCol: tLNameCol, fNameCol: tFNameCol
+      // If employee has an ID and we already checked the ID map, only use
+      // EXACT name matching — no fuzzy. This prevents false matches.
+      if (empId) {
+        // Exact name search only (no fuzzy)
+        for (var er = 1; er < trainingData.length; er++) {
+          var erLast = trainingData[er][tLNameCol] ? trainingData[er][tLNameCol].toString().trim().toLowerCase() : "";
+          var erFirst = trainingData[er][tFNameCol] ? trainingData[er][tFNameCol].toString().trim().toLowerCase() : "";
+          if (erLast === lastName.toLowerCase() && erFirst === displayFirst.toLowerCase()) {
+            matchRow = er;
+            break;
+          }
+          if (preferred && erLast === lastName.toLowerCase() && erFirst === firstName.toLowerCase()) {
+            matchRow = er;
+            break;
+          }
+        }
+      } else {
+        // No ID — use full fuzzy matching
+        matchRow = findTrainingRow(trainingData, displayFirst, lastName, {
+          idCol: tIdCol, lNameCol: tLNameCol, fNameCol: tFNameCol
         });
+        if (matchRow < 0 && preferred && preferred !== firstName) {
+          matchRow = findTrainingRow(trainingData, firstName, lastName, {
+            idCol: tIdCol, lNameCol: tLNameCol, fNameCol: tFNameCol
+          });
+        }
       }
     }
 
@@ -2654,10 +2673,10 @@ function syncEmployeesSheet() {
       if (tPosCol >= 0) newRow[tPosCol] = position;
       if (tHireCol >= 0 && hireDate) newRow[tHireCol] = hireDate;
       trainingSheet.appendRow(newRow);
-      // Update in-memory data so subsequent lookups find this row
       trainingData.push(newRow);
       if (empId) trainingIdMap[empId] = trainingData.length - 1;
       stats.tAdded++;
+      Logger.log("Added new: " + displayFirst + " " + lastName + " (ID: " + empId + ")");
     }
   }
 
