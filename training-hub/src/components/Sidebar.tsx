@@ -18,6 +18,7 @@ import {
   UserPlus,
   FileUp,
   BarChart3,
+  Layers,
 } from "lucide-react";
 
 const mainNav = [
@@ -35,6 +36,7 @@ const mainNav = [
 const secondaryNav = [
   { href: "/trainings", label: "Training Types", icon: GraduationCap },
   { href: "/data-health", label: "Data Health", icon: HeartPulse },
+  { href: "/master-sync", label: "Master Sync", icon: Layers },
   { href: "/paylocity-audit", label: "Paylocity Audit", icon: GitCompare },
   { href: "/phs-import", label: "PHS Import", icon: FileUp },
   { href: "/archive", label: "Archive", icon: Archive },
