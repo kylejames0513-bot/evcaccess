@@ -328,6 +328,7 @@ export default function SchedulePage() {
                         <EnrolledChip
                           key={name}
                           name={name}
+                          training={session.training}
                           sessionRowIndex={session.rowIndex}
                           onRemoved={refresh}
                         />
@@ -706,17 +707,28 @@ function EnrollModal({
 
 function EnrolledChip({
   name,
+  training,
   sessionRowIndex,
   onRemoved,
 }: {
   name: string;
+  training: string;
   sessionRowIndex: number;
   onRemoved: () => void;
 }) {
+  const [showOptions, setShowOptions] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [showDateInput, setShowDateInput] = useState(false);
+  const [prevDate, setPrevDate] = useState("");
 
-  async function handleRemove() {
-    if (!confirm(`Remove ${name} from this session?`)) return;
+  // Find the training column key
+  const def = PRIMARY_TRAININGS.find(
+    (d) => d.name.toLowerCase() === training.toLowerCase() ||
+      d.aliases?.some((a: string) => a.toLowerCase() === training.toLowerCase())
+  );
+  const columnKey = def?.columnKey || training;
+
+  async function doRemove() {
     setRemoving(true);
     try {
       await fetch("/api/remove-enrollee", {
@@ -725,24 +737,103 @@ function EnrolledChip({
         body: JSON.stringify({ sessionRowIndex, name }),
       });
       onRemoved();
-    } catch {
-      // silently fail, user can retry
-    } finally {
-      setRemoving(false);
-    }
+    } catch {} finally { setRemoving(false); }
+  }
+
+  async function handleFailed() {
+    setRemoving(true);
+    try {
+      // Write "FX1" to the training column
+      await fetch("/api/record-completion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeName: name, trainingColumnKey: columnKey, completionDate: "FX1" }),
+      });
+      await doRemove();
+    } catch { setRemoving(false); }
+  }
+
+  async function handleNotNeeded() {
+    await doRemove();
+  }
+
+  async function handlePrevDate() {
+    if (!prevDate.trim()) return;
+    setRemoving(true);
+    try {
+      await fetch("/api/record-completion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeName: name, trainingColumnKey: columnKey, completionDate: prevDate.trim() }),
+      });
+      await doRemove();
+    } catch { setRemoving(false); }
+  }
+
+  if (removing) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-400 text-xs font-medium rounded-full">
+        {name} <Loader2 className="h-3 w-3 animate-spin" />
+      </span>
+    );
   }
 
   return (
-    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-700 text-xs font-medium rounded-full">
+    <span className="relative inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-700 text-xs font-medium rounded-full">
       {name}
       <button
-        onClick={handleRemove}
-        disabled={removing}
+        onClick={() => setShowOptions(!showOptions)}
         className="hover:text-red-600 transition-colors"
         title={`Remove ${name}`}
       >
-        {removing ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}
+        <X className="h-3 w-3" />
       </button>
+
+      {showOptions && (
+        <div className="absolute top-full left-0 mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg p-1 min-w-[180px]">
+          <p className="px-2 py-1 text-[10px] text-slate-400 uppercase font-semibold">Remove {name}</p>
+          <button
+            onClick={handleFailed}
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-red-50 text-red-700 rounded"
+          >
+            Failed — mark FX1
+          </button>
+          <button
+            onClick={handleNotNeeded}
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-700 rounded"
+          >
+            Not Needed — just remove
+          </button>
+          {!showDateInput ? (
+            <button
+              onClick={() => setShowDateInput(true)}
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 text-blue-700 rounded"
+            >
+              Went Previous Date — log date
+            </button>
+          ) : (
+            <div className="px-2 py-1.5 flex items-center gap-1">
+              <input
+                type="text"
+                value={prevDate}
+                onChange={(e) => setPrevDate(e.target.value)}
+                placeholder="M/D/YYYY"
+                autoFocus
+                className="w-24 px-2 py-1 border border-slate-200 rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <button onClick={handlePrevDate} disabled={!prevDate.trim()} className="px-2 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40">
+                Save
+              </button>
+            </div>
+          )}
+          <button
+            onClick={() => { setShowOptions(false); setShowDateInput(false); }}
+            className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-400 rounded"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
     </span>
   );
 }
