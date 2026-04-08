@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import {
   RefreshCw, Loader2, Check, XCircle, CheckCircle2, AlertTriangle,
   Layers, Users, FileText, Zap, History, ChevronDown, ChevronRight,
-  File, FileX, ArrowRight, Clock,
+  File, FileX, ArrowRight, Clock, GitCompare, FileUp,
 } from "lucide-react";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -335,17 +335,41 @@ export default function MasterSyncPage() {
           <button onClick={() => setApplyError("")} className="ml-auto text-slate-400 hover:text-slate-600"><XCircle className="h-4 w-4" /></button>
         </div>
       )}
-      {(!summary.hasPaylocity || !summary.hasPHS) && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
-          <p className="text-sm text-amber-800">
-            {!summary.hasPaylocity && !summary.hasPHS
-              ? "Neither Paylocity Import nor PHS Import tabs found in Google Sheets."
-              : !summary.hasPaylocity ? "Paylocity Import tab not found — syncing from PHS only."
-              : "PHS Import tab not found — syncing from Paylocity only."}
-          </p>
+      {/* ── Source Status Cards ──────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className={`rounded-xl border p-4 flex items-center gap-3 ${summary.hasPaylocity ? "bg-emerald-50 border-emerald-200" : "bg-red-50 border-red-200"}`}>
+          <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${summary.hasPaylocity ? "bg-emerald-100" : "bg-red-100"}`}>
+            <GitCompare className={`h-5 w-5 ${summary.hasPaylocity ? "text-emerald-600" : "text-red-500"}`} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-900">Paylocity Import</p>
+            <p className="text-xs text-slate-500 truncate">
+              {summary.hasPaylocity
+                ? `Connected · ${summary.fromPaylocity} record${summary.fromPaylocity !== 1 ? "s" : ""} pending`
+                : "Sheet tab 'Paylocity Import' not found — paste Paylocity export data there"}
+            </p>
+          </div>
+          {summary.hasPaylocity
+            ? <Check className="h-4 w-4 text-emerald-500 ml-auto shrink-0" />
+            : <AlertTriangle className="h-4 w-4 text-red-400 ml-auto shrink-0" />}
         </div>
-      )}
+        <div className={`rounded-xl border p-4 flex items-center gap-3 ${summary.hasPHS ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}>
+          <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${summary.hasPHS ? "bg-emerald-100" : "bg-amber-100"}`}>
+            <FileUp className={`h-5 w-5 ${summary.hasPHS ? "text-emerald-600" : "text-amber-500"}`} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-900">PHS Import</p>
+            <p className="text-xs text-slate-500 truncate">
+              {summary.hasPHS
+                ? `Connected · ${summary.fromPHS} record${summary.fromPHS !== 1 ? "s" : ""} pending`
+                : "Optional · Add 'PHS Import' sheet tab to enable PHS comparison"}
+            </p>
+          </div>
+          {summary.hasPHS
+            ? <Check className="h-4 w-4 text-emerald-500 ml-auto shrink-0" />
+            : <span className="text-[10px] font-medium text-amber-600 ml-auto shrink-0 bg-amber-100 px-1.5 py-0.5 rounded">Optional</span>}
+        </div>
+      </div>
 
       {/* ── Summary cards ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -429,11 +453,25 @@ export default function MasterSyncPage() {
             </div>
 
             {filtered.length === 0 ? (
-              <div className="py-14 text-center">
-                <CheckCircle2 className="h-10 w-10 mx-auto text-emerald-400 mb-3" />
-                <p className="text-sm font-medium text-slate-700">
-                  {summary.total === 0 ? "Training sheet is fully up to date!" : "No items in this category."}
-                </p>
+              <div className="py-14 text-center px-6">
+                {!summary.hasPaylocity && !summary.hasPHS ? (
+                  <>
+                    <AlertTriangle className="h-10 w-10 mx-auto text-amber-400 mb-3" />
+                    <p className="text-sm font-semibold text-slate-700 mb-1">No data sources connected</p>
+                    <p className="text-xs text-slate-400">Add a "Paylocity Import" or "PHS Import" sheet tab to your spreadsheet, then click Refresh.</p>
+                  </>
+                ) : summary.total === 0 ? (
+                  <>
+                    <CheckCircle2 className="h-10 w-10 mx-auto text-emerald-400 mb-3" />
+                    <p className="text-sm font-semibold text-slate-700 mb-1">Training sheet is fully up to date!</p>
+                    <p className="text-xs text-slate-400">All records in your import sheet{summary.hasPHS ? "s" : ""} already match the Training sheet.</p>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="h-10 w-10 mx-auto text-slate-300 mb-3" />
+                    <p className="text-sm text-slate-500">No items in this category.</p>
+                  </>
+                )}
               </div>
             ) : groupByEmployee ? (
               <div className="divide-y divide-slate-100">

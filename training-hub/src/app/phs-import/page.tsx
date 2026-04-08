@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { RefreshCw, AlertTriangle, ArrowRight, Loader2, Check, XCircle, CheckCircle2 } from "lucide-react";
+import { RefreshCw, AlertTriangle, ArrowRight, Loader2, Check, XCircle, CheckCircle2, FileUp } from "lucide-react";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 
@@ -14,6 +14,7 @@ interface Discrepancy {
 }
 
 interface AuditData {
+  error?: string;
   discrepancies: Discrepancy[];
   noMatch: Array<{ name: string; category: string; date: string }>;
   summary: {
@@ -167,6 +168,41 @@ export default function PHSAuditPage() {
   if (loading) return <Loading message="Reading PHS Import sheet and comparing with Training..." />;
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
+
+  // PHS Import sheet tab doesn't exist yet
+  if (data.error) {
+    return (
+      <div className="max-w-2xl mx-auto mt-12 px-4">
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-8 text-center">
+          <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+            <FileUp className="h-7 w-7 text-amber-500" />
+          </div>
+          <h2 className="text-lg font-bold text-slate-900 mb-2">PHS Import Not Set Up</h2>
+          <p className="text-sm text-slate-600 mb-4 leading-relaxed">
+            Add a sheet tab named <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono text-amber-800">PHS Import</code> to
+            your Google Spreadsheet and paste your PHS export data there.
+          </p>
+          <div className="bg-white rounded-xl border border-amber-100 p-4 text-left text-xs text-slate-500 mb-5 space-y-1">
+            <p className="font-semibold text-slate-700 mb-2">Expected column headers (row 1):</p>
+            <p>• <code className="font-mono">Employee Name</code> — full name</p>
+            <p>• <code className="font-mono">Upload Category</code> — e.g. "CPR/FA", "Med Admin"</p>
+            <p>• <code className="font-mono">Upload Type</code> — e.g. "CPR Card", "Certification"</p>
+            <p>• <code className="font-mono">Effective Date</code> — date the cert was issued</p>
+            <p>• <code className="font-mono">Termination Date</code> — leave blank if still active</p>
+            <p>• <code className="font-mono">View File</code> — optional file link</p>
+          </div>
+          <button
+            onClick={doRefresh}
+            disabled={refreshing}
+            className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 mx-auto"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            Check Again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const discrepancies = data.discrepancies || [];
   const noMatch = data.noMatch || [];

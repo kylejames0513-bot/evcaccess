@@ -19,6 +19,10 @@ import {
   HeartPulse,
   GitCompare,
   UserPlus,
+  Layers,
+  FileUp,
+  BarChart3,
+  Zap,
 } from "lucide-react";
 
 const navItems = [
@@ -27,17 +31,24 @@ const navItems = [
   { href: "/employees", label: "Employees", icon: Users },
   { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
   { href: "/attendance", label: "Attendance", icon: UserCheck },
+  { href: "/master-sync", label: "Master Sync", icon: Layers },
   { href: "/records", label: "Records", icon: FileText },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/new-hires", label: "New Hires", icon: UserPlus },
   { href: "/trainings", label: "Training Types", icon: GraduationCap },
   { href: "/data-health", label: "Data Health", icon: HeartPulse },
   { href: "/paylocity-audit", label: "Paylocity Audit", icon: GitCompare },
+  { href: "/phs-import", label: "PHS Import", icon: FileUp },
   { href: "/archive", label: "Archive", icon: Archive },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export default function MobileNav() {
+interface MobileNavProps {
+  onQuickRecord?: () => void;
+}
+
+export default function MobileNav({ onQuickRecord }: MobileNavProps) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -48,9 +59,19 @@ export default function MobileNav() {
           <GraduationCap className="h-5 w-5 text-blue-200" />
           <span className="font-bold text-sm">EVC Training</span>
         </div>
-        <button onClick={() => setOpen(!open)} aria-label="Toggle menu">
-          {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
+        <div className="flex items-center gap-2">
+          {onQuickRecord && (
+            <button
+              onClick={() => { onQuickRecord(); setOpen(false); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 rounded-lg text-xs font-semibold"
+            >
+              <Zap className="h-3.5 w-3.5" /> Record
+            </button>
+          )}
+          <button onClick={() => setOpen(!open)} aria-label="Toggle menu">
+            {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+        </div>
       </div>
       {open && (
         <nav className="bg-[#1e3a5f] text-white px-3 pb-3 space-y-0.5">

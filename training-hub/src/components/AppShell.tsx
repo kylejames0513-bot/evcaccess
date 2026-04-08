@@ -23,7 +23,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex h-full">
         <Sidebar onQuickRecord={() => setQuickRecordOpen(true)} />
         <div className="flex flex-1 flex-col overflow-hidden">
-          <MobileNav />
+          <MobileNav onQuickRecord={() => setQuickRecordOpen(true)} />
           <main className="flex-1 overflow-y-auto px-6 py-5 lg:px-8">{children}</main>
         </div>
       </div>
