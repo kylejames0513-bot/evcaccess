@@ -13,9 +13,11 @@ interface Discrepancy {
   issue: string;
 }
 
+interface NameSuggestion { name: string; score: number; confidence: "high" | "medium"; }
+
 interface AuditData {
   discrepancies: Discrepancy[];
-  noMatch: Array<{ name: string; skill: string; date: string }>;
+  noMatch: Array<{ name: string; skill: string; date: string; suggestions: NameSuggestion[] }>;
   summary: {
     total: number;
     mismatches: number;
@@ -476,70 +478,77 @@ export default function PaylocityAuditPage() {
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-200">
             <h2 className="font-semibold text-slate-900">No Name Match ({summary.noMatchCount})</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Click &quot;Match&quot; to link a Paylocity name to a Training sheet employee. Saved permanently.</p>
+            <p className="text-xs text-slate-500 mt-0.5">Names in Paylocity that couldn&apos;t be matched. Approve a suggestion or search manually — saved permanently.</p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[11px] text-slate-400 uppercase tracking-wide border-b border-slate-100">
-                  <th className="px-5 py-3">Paylocity Name</th>
-                  <th className="px-5 py-3">Skill</th>
-                  <th className="px-5 py-3">Date</th>
-                  <th className="px-5 py-3">Match To</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {noMatch.map((n, i) => (
-                  <tr key={i}>
-                    <td className="px-5 py-3 text-slate-900">{n.name}</td>
-                    <td className="px-5 py-3 text-slate-600">{n.skill}</td>
-                    <td className="px-5 py-3 font-mono text-xs text-slate-500">{n.date}</td>
-                    <td className="px-5 py-3">
-                      {matchingName === n.name ? (
-                        <div className="flex items-center gap-2">
-                          <div className="relative">
-                            <input
-                              type="text"
-                              value={matchSearch}
-                              onChange={(e) => setMatchSearch(e.target.value)}
-                              onFocus={loadEmployees}
-                              placeholder="Search employee..."
-                              className="w-44 px-2 py-1 border border-slate-200 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              autoFocus
-                            />
-                            {matchSearch && employees.length > 0 && (
-                              <div className="absolute z-10 top-full left-0 w-56 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                                {employees
-                                  .filter((e) => e.toLowerCase().includes(matchSearch.toLowerCase()))
-                                  .slice(0, 15)
-                                  .map((emp) => (
-                                    <button
-                                      key={emp}
-                                      onClick={() => handleMapName(n.name, emp)}
-                                      disabled={savingMatch}
-                                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 text-slate-700"
-                                    >
-                                      {emp}
-                                    </button>
-                                  ))}
-                              </div>
-                            )}
-                          </div>
-                          <button onClick={() => { setMatchingName(null); setMatchSearch(""); }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+          <div className="divide-y divide-slate-50">
+            {noMatch.map((n, i) => (
+              <div key={i} className="px-6 py-4">
+                <div className="flex items-start gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-900 text-sm">{n.name}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{n.skill} · {n.date}</p>
+                  </div>
+                  <div className="ml-auto flex items-center gap-2 flex-wrap">
+                    {matchingName === n.name ? (
+                      <>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={matchSearch}
+                            onChange={(e) => setMatchSearch(e.target.value)}
+                            onFocus={loadEmployees}
+                            placeholder="Search employee..."
+                            className="w-44 px-2 py-1 border border-slate-200 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            autoFocus
+                          />
+                          {matchSearch && employees.length > 0 && (
+                            <div className="absolute z-10 top-full right-0 w-56 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                              {employees
+                                .filter((e) => e.toLowerCase().includes(matchSearch.toLowerCase()))
+                                .slice(0, 15)
+                                .map((emp) => (
+                                  <button key={emp} onClick={() => handleMapName(n.name, emp)} disabled={savingMatch}
+                                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 text-slate-700">
+                                    {emp}
+                                  </button>
+                                ))}
+                            </div>
+                          )}
                         </div>
-                      ) : (
-                        <button
-                          onClick={() => setMatchingName(n.name)}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700"
-                        >
-                          Match
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        <button onClick={() => { setMatchingName(null); setMatchSearch(""); }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+                      </>
+                    ) : (
+                      <button onClick={() => setMatchingName(n.name)}
+                        className="px-2 py-1 text-[11px] font-medium rounded bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700">
+                        Search
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {/* Suggestions */}
+                {n.suggestions && n.suggestions.length > 0 && (
+                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] text-slate-400 shrink-0">Suggested:</span>
+                    {n.suggestions.map((s) => (
+                      <button
+                        key={s.name}
+                        onClick={() => handleMapName(n.name, s.name)}
+                        disabled={savingMatch}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors disabled:opacity-50 ${
+                          s.confidence === "high"
+                            ? "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
+                            : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+                        }`}
+                      >
+                        <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${s.confidence === "high" ? "bg-emerald-500" : "bg-amber-400"}`} />
+                        {s.name}
+                        <span className="text-[10px] opacity-60">{Math.round(s.score * 100)}%</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}

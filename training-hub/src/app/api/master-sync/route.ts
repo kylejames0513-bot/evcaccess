@@ -1,5 +1,5 @@
 import { readRange } from "@/lib/google-sheets";
-import { namesMatch } from "@/lib/name-utils";
+import { namesMatch, suggestNameMatches, type NameSuggestion } from "@/lib/name-utils";
 import {
   normalizeDate,
   parseToTimestamp,
@@ -118,6 +118,7 @@ interface RosterGap {
   name: string;
   recentTraining: string;
   recentDate: string;
+  suggestions?: NameSuggestion[];
   occurrences: number;
 }
 
@@ -202,6 +203,9 @@ export async function GET() {
       }
       trainingLookup.push({ name: first ? `${last}, ${first}` : last, row: i + 1, values });
     }
+
+    // All active Training sheet names — used for suggestion matching
+    const allActiveNames = trainingLookup.map((t) => t.name);
 
     // ── Deduplicate Paylocity → best date per (name, col) ───────────────────
     const bestPaylocity = new Map<string, BestRec>();
@@ -487,12 +491,24 @@ export async function GET() {
     }
 
     const rosterFromPaylocity: RosterGap[] = [...payRosterGaps.values()]
-      .map((g) => ({ name: g.name, recentTraining: g.skill, recentDate: g.date, occurrences: g.count }))
+      .map((g) => ({
+        name: g.name,
+        recentTraining: g.skill,
+        recentDate: g.date,
+        occurrences: g.count,
+        suggestions: suggestNameMatches(g.name, allActiveNames),
+      }))
       .sort((a, b) => b.occurrences - a.occurrences)
       .slice(0, 50);
 
     const rosterFromPHS: RosterGap[] = [...phsRosterGaps.values()]
-      .map((g) => ({ name: g.name, recentTraining: g.category, recentDate: g.date, occurrences: g.count }))
+      .map((g) => ({
+        name: g.name,
+        recentTraining: g.category,
+        recentDate: g.date,
+        occurrences: g.count,
+        suggestions: suggestNameMatches(g.name, allActiveNames),
+      }))
       .sort((a, b) => b.occurrences - a.occurrences)
       .slice(0, 50);
 

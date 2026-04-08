@@ -23,11 +23,14 @@ interface SmartSyncRow {
   conflictNote: string;
 }
 
+interface NameSuggestion { name: string; score: number; confidence: "high" | "medium"; }
+
 interface RosterGap {
   name: string;
   recentTraining: string;
   recentDate: string;
   occurrences: number;
+  suggestions?: NameSuggestion[];
 }
 
 interface TrainingEvent {
@@ -852,8 +855,31 @@ function RosterTable({ gaps, matchingGap, matchSearch, employees, savingMatch, o
         </thead>
         <tbody className="divide-y divide-slate-50">
           {gaps.map((g, i) => (
-            <tr key={i} className="hover:bg-slate-50">
-              <td className="px-5 py-3 font-medium text-slate-900">{g.name}</td>
+            <tr key={i} className="hover:bg-slate-50 align-top">
+              <td className="px-5 py-3">
+                <p className="font-medium text-slate-900">{g.name}</p>
+                {g.suggestions && g.suggestions.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                    <span className="text-[10px] text-slate-400">Suggested:</span>
+                    {g.suggestions.map((s) => (
+                      <button
+                        key={s.name}
+                        onClick={() => onMapName(g.name, s.name)}
+                        disabled={savingMatch}
+                        className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors disabled:opacity-50 ${
+                          s.confidence === "high"
+                            ? "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
+                            : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+                        }`}
+                      >
+                        <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${s.confidence === "high" ? "bg-emerald-500" : "bg-amber-400"}`} />
+                        {s.name}
+                        <span className="opacity-60">{Math.round(s.score * 100)}%</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </td>
               <td className="px-5 py-3 font-mono text-xs text-slate-600">{g.recentTraining}</td>
               <td className="px-5 py-3 font-mono text-xs text-slate-500">{g.recentDate}</td>
               <td className="px-5 py-3 text-slate-500 text-xs">{g.occurrences}</td>
@@ -883,7 +909,7 @@ function RosterTable({ gaps, matchingGap, matchSearch, employees, savingMatch, o
                   </div>
                 ) : (
                   <button onClick={() => onStartMatch(g.name)} className="px-2 py-1 text-[11px] font-medium rounded bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700">
-                    Map Name
+                    Search
                   </button>
                 )}
               </td>
