@@ -1,6 +1,6 @@
-import { readRange } from "@/lib/google-sheets";
+import { createServerClient } from "@/lib/supabase";
 import { namesMatch, suggestNameMatches, type NameSuggestion } from "@/lib/name-utils";
-import { normalizeDate, datesEqual, loadNameMappings } from "@/lib/import-utils";
+import { normalizeDate, datesEqual, loadNameMappingsFromSupabase } from "@/lib/import-utils";
 
 // Same mapping as Core.gs PAYLOCITY_SKILL_MAP
 export const PAYLOCITY_SKILL_MAP: Record<string, string> = {
@@ -70,103 +70,146 @@ interface Discrepancy {
   issue: string; // "mismatch" | "missing_on_training" | "missing_on_paylocity" | "na_but_has_date"
 }
 
+/**
+ * Build a lookup of active employees with their training data from Supabase.
+ */
+async function buildTrainingLookup(supabase: ReturnType<typeof createServerClient>) {
+  // Fetch active employees
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, first_name, last_name, is_active")
+    .order("last_name");
+
+  // Fetch training types
+  const { data: trainingTypes } = await supabase
+    .from("training_types")
+    .select("id, column_key");
+
+  const typeIdToColKey = new Map<string, string>();
+  for (const tt of trainingTypes || []) {
+    typeIdToColKey.set(tt.id, tt.column_key);
+  }
+
+  // Fetch training records for all employees
+  const empIds = (employees || []).map((e: any) => e.id);
+  const { data: records } = await supabase
+    .from("training_records")
+    .select("employee_id, training_type_id, completion_date")
+    .in("employee_id", empIds);
+
+  const { data: excusals } = await supabase
+    .from("excusals")
+    .select("employee_id, training_type_id, reason")
+    .in("employee_id", empIds);
+
+  // Build empId -> { columnKey -> dateString }
+  const empTrainingMap = new Map<string, Record<string, string>>();
+
+  for (const rec of records || []) {
+    const colKey = typeIdToColKey.get(rec.training_type_id);
+    if (!colKey) continue;
+    if (!empTrainingMap.has(rec.employee_id)) empTrainingMap.set(rec.employee_id, {});
+    const map = empTrainingMap.get(rec.employee_id)!;
+    if (rec.completion_date) {
+      const d = new Date(rec.completion_date);
+      const dateStr = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+      // Keep latest date
+      if (!map[colKey] || new Date(rec.completion_date) > new Date(map[colKey])) {
+        map[colKey] = dateStr;
+      }
+    }
+  }
+
+  for (const exc of excusals || []) {
+    const colKey = typeIdToColKey.get(exc.training_type_id);
+    if (!colKey) continue;
+    if (!empTrainingMap.has(exc.employee_id)) empTrainingMap.set(exc.employee_id, {});
+    const map = empTrainingMap.get(exc.employee_id)!;
+    if (!map[colKey]) {
+      map[colKey] = exc.reason || "NA";
+    }
+  }
+
+  const trainingLookup: Array<{
+    name: string;
+    row: number;
+    values: Record<string, string>;
+  }> = [];
+  const inactiveNames: string[] = [];
+
+  for (let i = 0; i < (employees || []).length; i++) {
+    const emp = employees![i];
+    const last = (emp.last_name || "").trim();
+    const first = (emp.first_name || "").trim();
+    if (!last) continue;
+    const name = first ? `${last}, ${first}` : last;
+
+    if (!emp.is_active) {
+      inactiveNames.push(name);
+      continue;
+    }
+
+    trainingLookup.push({
+      name,
+      row: i + 2,
+      values: empTrainingMap.get(emp.id) || {},
+    });
+  }
+
+  return { trainingLookup, inactiveNames };
+}
+
 export async function GET() {
   try {
-    let trainingRows: string[][] = [];
-    let paylocityRows: string[][] = [];
-    let settingsRows: string[][] = [];
-    try {
-      [trainingRows, paylocityRows, settingsRows] = await Promise.all([
-        readRange("Training"),
-        readRange("Paylocity Import"),
-        readRange("'Hub Settings'").catch(() => [] as string[][]),
-      ]);
-    } catch {
+    const supabase = createServerClient();
+
+    // Build training lookup from Supabase
+    const { trainingLookup, inactiveNames } = await buildTrainingLookup(supabase);
+    const allActiveNames = trainingLookup.map((t) => t.name);
+
+    // Load name mappings from Supabase
+    const nameMappings = await loadNameMappingsFromSupabase(supabase);
+
+    // Check if paylocity_imports table exists and has data
+    const { data: paylocityRows, error: payError } = await supabase
+      .from("paylocity_imports")
+      .select("last_name, first_name, preferred_name, skill, effective_date");
+
+    if (payError) {
       return Response.json({
-        error: "Could not read sheets. Make sure both 'Training' and 'Paylocity Import' tabs exist.",
-        discrepancies: [], noMatch: [],
+        error: "Could not read paylocity imports. Make sure the paylocity_imports table exists.",
+        discrepancies: [],
+        noMatch: [],
         summary: { total: 0, mismatches: 0, missingOnTraining: 0, naButHasDate: 0, noMatchCount: 0 },
       });
     }
 
-    // Load name mappings from Hub Settings
-    const nameMappings = loadNameMappings(settingsRows);
-
-    if (trainingRows.length < 2) return Response.json({ error: "Training sheet empty" }, { status: 400 });
-    if (paylocityRows.length < 2) return Response.json({ error: "Paylocity Import tab empty" }, { status: 400 });
-
-    // Parse Training sheet headers
-    const tHeaders = trainingRows[0];
-    const tHdr = (label: string) => tHeaders.findIndex((h) => h.trim().toUpperCase() === label.toUpperCase());
-    const tLName = tHdr("L NAME");
-    const tFName = tHdr("F NAME");
-    const tActive = tHdr("ACTIVE");
-
-    // Parse Paylocity Import headers
-    const pHeaders = paylocityRows[0];
-    const pHdr = (label: string) => {
-      const idx = pHeaders.findIndex((h) => h.trim().toLowerCase() === label.toLowerCase());
-      return idx;
-    };
-    const pLast = pHdr("last name");
-    const pFirst = pHdr("first name");
-    const pPref = pHdr("preferred/first name") >= 0 ? pHdr("preferred/first name") : pHdr("preferred name");
-    const pSkill = pHdr("skill");
-    const pDate = pHdr("effective/issue date") >= 0 ? pHdr("effective/issue date") : (pHdr("effective date") >= 0 ? pHdr("effective date") : pHdr("issue date"));
-
-    if (tLName < 0 || tFName < 0) return Response.json({ error: "Training sheet missing L NAME/F NAME" }, { status: 400 });
-    if (pLast < 0 || pFirst < 0 || pSkill < 0 || pDate < 0) return Response.json({ error: "Paylocity Import missing required columns" }, { status: 400 });
-
-    // Build Training sheet lookup: "last|first" → { row, training values }
-    const trainingLookup: Array<{
-      name: string;
-      row: number;
-      values: Record<string, string>; // columnKey → date string
-    }> = [];
-
-    const inactiveNames: string[] = [];
-
-    for (let i = 1; i < trainingRows.length; i++) {
-      const last = (trainingRows[i][tLName] || "").trim();
-      const first = (trainingRows[i][tFName] || "").trim();
-      if (!last) continue;
-      const active = tActive >= 0 ? (trainingRows[i][tActive] || "").toString().trim().toUpperCase() : "Y";
-      if (active !== "Y") {
-        inactiveNames.push(first ? `${last}, ${first}` : last);
-        continue;
-      }
-
-      const values: Record<string, string> = {};
-      for (const colKey of Object.values(PAYLOCITY_SKILL_MAP)) {
-        const colIdx = tHeaders.findIndex((h) => h.trim() === colKey);
-        if (colIdx >= 0) {
-          values[colKey] = (trainingRows[i][colIdx] || "").toString().trim();
-        }
-      }
-      const name = first ? `${last}, ${first}` : last;
-      trainingLookup.push({ name, row: i + 1, values });
+    if (!paylocityRows || paylocityRows.length === 0) {
+      return Response.json({
+        error: "Paylocity import table is empty",
+        discrepancies: [],
+        noMatch: [],
+        summary: { total: 0, mismatches: 0, missingOnTraining: 0, naButHasDate: 0, noMatchCount: 0 },
+      });
     }
 
-    // All active Training sheet names for suggestion matching
-    const allActiveNames = trainingLookup.map((t) => t.name);
-
-    // Process Paylocity Import — compare each entry
+    // Process Paylocity Import rows
     const discrepancies: Discrepancy[] = [];
     const noMatch: Array<{ name: string; skill: string; date: string; suggestions: NameSuggestion[] }> = [];
-    const seen = new Map<string, Set<string>>(); // track processed name+training combos
+    const seen = new Map<string, Set<string>>();
 
-    for (let i = 1; i < paylocityRows.length; i++) {
-      const pLastName = (paylocityRows[i][pLast] || "").trim();
-      const pFirstName = (paylocityRows[i][pFirst] || "").trim();
-      const pPrefName = pPref >= 0 ? (paylocityRows[i][pPref] || "").trim() : "";
-      const skill = (paylocityRows[i][pSkill] || "").trim();
-      const dateVal = (paylocityRows[i][pDate] || "").toString().trim();
+    for (const row of paylocityRows) {
+      const pLastName = (row.last_name || "").trim();
+      const pFirstName = (row.first_name || "").trim();
+      const pPrefName = (row.preferred_name || "").trim();
+      const skill = (row.skill || "").trim();
+      const dateVal = (row.effective_date || "").toString().trim();
 
       if (!pLastName || !pFirstName || !skill || !dateVal) continue;
 
       const skillLower = skill.toLowerCase();
       const targetCol = PAYLOCITY_SKILL_MAP[skillLower];
-      if (!targetCol) continue; // Not a tracked training
+      if (!targetCol) continue;
 
       const payDate = normalizeDate(dateVal);
       if (!payDate) continue;
@@ -174,12 +217,11 @@ export async function GET() {
       const displayFirst = pPrefName || pFirstName;
       const payName = `${pLastName}, ${displayFirst}`;
 
-      // Deduplicate: only check most recent date per person+training
       const dedupeKey = `${pLastName.toLowerCase()}|${displayFirst.toLowerCase()}|${targetCol}`;
       if (seen.has(dedupeKey)) continue;
       seen.set(dedupeKey, new Set());
 
-      // Find on Training sheet — check name mapping first
+      // Find on Training lookup
       const mappedName = nameMappings.get(payName.toLowerCase()) || nameMappings.get(`${pLastName}, ${pFirstName}`.toLowerCase());
       let match = mappedName
         ? trainingLookup.find((t) => namesMatch(t.name, mappedName))
@@ -190,7 +232,6 @@ export async function GET() {
       }
 
       if (!match) {
-        // Skip inactive employees — they may still appear in Paylocity until payroll removes them
         const isInactive = inactiveNames.some((n) => namesMatch(n, payName) || namesMatch(n, `${pLastName}, ${pFirstName}`));
         if (!isInactive) {
           const suggestions = suggestNameMatches(payName, allActiveNames);
@@ -202,7 +243,6 @@ export async function GET() {
       const trainingVal = match.values[targetCol] || "";
       const trainingDate = trainingVal ? normalizeDate(trainingVal) : "";
 
-      // Compare
       if (!trainingVal) {
         discrepancies.push({
           employee: match.name,

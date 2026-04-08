@@ -1,12 +1,11 @@
-import { readRange } from "@/lib/google-sheets";
+import { createServerClient } from "@/lib/supabase";
 import { namesMatch, suggestNameMatches, type NameSuggestion } from "@/lib/name-utils";
 import {
   normalizeDate,
   parseToTimestamp,
   datesEqual,
-  loadNameMappings,
-  applyFixes,
-  FixEntry,
+  loadNameMappingsFromSupabase,
+  applyFixesToSupabase,
 } from "@/lib/import-utils";
 import { addSyncLogEntry } from "@/lib/hub-settings";
 import { PAYLOCITY_SKILL_MAP } from "@/app/api/paylocity-audit/route";
@@ -24,7 +23,6 @@ function isExcused(val: string): boolean {
   const v = val.trim().toUpperCase();
   if (!v) return false;
   if (EXCUSAL_SET.has(v)) return true;
-  // Short alpha codes (≤4 chars, no digits) are likely excusal codes
   if (/^[A-Z]{1,4}$/.test(v)) return true;
   return false;
 }
@@ -104,14 +102,14 @@ function resolvePHSColumn(category: string, uploadType: string): string | null {
 export interface SmartSyncRow {
   employee: string;
   training: string;
-  trainingDate: string;       // current value in Training sheet ("(empty)" if blank)
-  paylocityDate: string;      // best from Paylocity Import
-  phsDate: string;            // best from PHS Import
-  phsHasDoc: boolean;         // PHS View File column was non-empty
-  winner: string;             // proposed new date
+  trainingDate: string;
+  paylocityDate: string;
+  phsDate: string;
+  phsHasDoc: boolean;
+  winner: string;
   winnerSource: "paylocity" | "phs";
   confidence: "high" | "medium" | "conflict";
-  conflictNote: string;       // set when confidence="conflict"
+  conflictNote: string;
 }
 
 interface RosterGap {
@@ -138,176 +136,178 @@ interface BestRec {
   hasDoc?: boolean;
 }
 
+/**
+ * Build a lookup of employee training data from Supabase.
+ */
+async function buildTrainingLookup(supabase: ReturnType<typeof createServerClient>) {
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, first_name, last_name, is_active")
+    .order("last_name");
+
+  const { data: trainingTypes } = await supabase
+    .from("training_types")
+    .select("id, column_key");
+
+  const typeIdToColKey = new Map<string, string>();
+  for (const tt of trainingTypes || []) {
+    typeIdToColKey.set(tt.id, tt.column_key);
+  }
+
+  const empIds = (employees || []).map((e: any) => e.id);
+  const { data: records } = await supabase
+    .from("training_records")
+    .select("employee_id, training_type_id, completion_date")
+    .in("employee_id", empIds);
+
+  const { data: excusals } = await supabase
+    .from("excusals")
+    .select("employee_id, training_type_id, reason")
+    .in("employee_id", empIds);
+
+  const empTrainingMap = new Map<string, Record<string, string>>();
+
+  for (const rec of records || []) {
+    const colKey = typeIdToColKey.get(rec.training_type_id);
+    if (!colKey) continue;
+    if (!empTrainingMap.has(rec.employee_id)) empTrainingMap.set(rec.employee_id, {});
+    const map = empTrainingMap.get(rec.employee_id)!;
+    if (rec.completion_date) {
+      const d = new Date(rec.completion_date);
+      map[colKey] = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+    }
+  }
+
+  for (const exc of excusals || []) {
+    const colKey = typeIdToColKey.get(exc.training_type_id);
+    if (!colKey) continue;
+    if (!empTrainingMap.has(exc.employee_id)) empTrainingMap.set(exc.employee_id, {});
+    const map = empTrainingMap.get(exc.employee_id)!;
+    if (!map[colKey]) {
+      map[colKey] = exc.reason || "NA";
+    }
+  }
+
+  const trainingLookup: Array<{
+    name: string;
+    row: number;
+    values: Record<string, string>;
+  }> = [];
+  const inactiveNames: string[] = [];
+
+  for (let i = 0; i < (employees || []).length; i++) {
+    const emp = employees![i];
+    const last = (emp.last_name || "").trim();
+    const first = (emp.first_name || "").trim();
+    if (!last) continue;
+    const name = first ? `${last}, ${first}` : last;
+
+    if (!emp.is_active) {
+      inactiveNames.push(name);
+      continue;
+    }
+
+    trainingLookup.push({
+      name,
+      row: i + 2,
+      values: empTrainingMap.get(emp.id) || {},
+    });
+  }
+
+  return { trainingLookup, inactiveNames };
+}
+
 export async function GET() {
   try {
-    let trainingRows: string[][] = [];
-    let paylocityRows: string[][] = [];
-    let phsRows: string[][] = [];
-    let settingsRows: string[][] = [];
+    const supabase = createServerClient();
 
-    try {
-      [trainingRows, paylocityRows, phsRows, settingsRows] = await Promise.all([
-        readRange("Training"),
-        readRange("Paylocity Import").catch(() => [] as string[][]),
-        readRange("PHS Import").catch(() => [] as string[][]),
-        readRange("'Hub Settings'").catch(() => [] as string[][]),
-      ]);
-    } catch {
-      return Response.json({ error: "Could not read sheets." }, { status: 500 });
-    }
-
-    const nameMappings = loadNameMappings(settingsRows);
-
-    if (trainingRows.length < 2) {
-      return Response.json({ error: "Training sheet is empty." }, { status: 400 });
-    }
-
-    // ── Parse Training sheet ─────────────────────────────────────────────────
-    const tHeaders = trainingRows[0];
-    const tHdr = (label: string) =>
-      tHeaders.findIndex((h) => h.trim().toUpperCase() === label.toUpperCase());
-    const tLName = tHdr("L NAME");
-    const tFName = tHdr("F NAME");
-    const tActive = tHdr("ACTIVE");
-
-    if (tLName < 0 || tFName < 0) {
-      return Response.json({ error: "Training sheet missing L NAME / F NAME." }, { status: 400 });
-    }
-
-    // Build Training sheet lookup
-    const trainingLookup: Array<{
-      name: string;
-      row: number;
-      values: Record<string, string>;
-    }> = [];
-    // Track inactive employee names so we don't flag them as roster gaps
-    const inactiveNames: string[] = [];
-
-    for (let i = 1; i < trainingRows.length; i++) {
-      const last = (trainingRows[i][tLName] || "").trim();
-      const first = (trainingRows[i][tFName] || "").trim();
-      if (!last) continue;
-      const active =
-        tActive >= 0
-          ? (trainingRows[i][tActive] || "").toString().trim().toUpperCase()
-          : "Y";
-      if (active !== "Y") {
-        inactiveNames.push(first ? `${last}, ${first}` : last);
-        continue;
-      }
-
-      const values: Record<string, string> = {};
-      for (const col of ALL_TRAINING_COLS) {
-        const idx = tHeaders.findIndex((h) => h.trim() === col);
-        if (idx >= 0) values[col] = (trainingRows[i][idx] || "").toString().trim();
-      }
-      trainingLookup.push({ name: first ? `${last}, ${first}` : last, row: i + 1, values });
-    }
-
-    // All active Training sheet names — used for suggestion matching
+    const { trainingLookup, inactiveNames } = await buildTrainingLookup(supabase);
     const allActiveNames = trainingLookup.map((t) => t.name);
+    const nameMappings = await loadNameMappingsFromSupabase(supabase);
+
+    if (trainingLookup.length === 0) {
+      return Response.json({ error: "No active employees found." }, { status: 400 });
+    }
 
     // ── Deduplicate Paylocity → best date per (name, col) ───────────────────
     const bestPaylocity = new Map<string, BestRec>();
-    const paylocityNoMatch: Map<string, { name: string; skill: string; date: string; count: number }> = new Map();
+    let hasPaylocity = false;
 
-    if (paylocityRows.length >= 2) {
-      const pH = paylocityRows[0];
-      const pHdr = (l: string) => pH.findIndex((h) => h.trim().toLowerCase() === l.toLowerCase());
-      const pLast = pHdr("last name");
-      const pFirst = pHdr("first name");
-      const pPref = pHdr("preferred/first name") >= 0 ? pHdr("preferred/first name") : pHdr("preferred name");
-      const pSkill = pHdr("skill");
-      const pDate =
-        pHdr("effective/issue date") >= 0
-          ? pHdr("effective/issue date")
-          : pHdr("effective date") >= 0
-          ? pHdr("effective date")
-          : pHdr("issue date");
+    const { data: paylocityRows } = await supabase
+      .from("paylocity_imports")
+      .select("last_name, first_name, preferred_name, skill, effective_date");
 
-      if (pLast >= 0 && pFirst >= 0 && pSkill >= 0 && pDate >= 0) {
-        for (let i = 1; i < paylocityRows.length; i++) {
-          const row = paylocityRows[i];
-          const lastName = (row[pLast] || "").trim();
-          const firstName = (row[pFirst] || "").trim();
-          const prefName = pPref >= 0 ? (row[pPref] || "").trim() : "";
-          const skill = (row[pSkill] || "").trim();
-          const dateRaw = (row[pDate] || "").toString().trim();
-          if (!lastName || !firstName || !skill || !dateRaw) continue;
+    if (paylocityRows && paylocityRows.length > 0) {
+      hasPaylocity = true;
+      for (const row of paylocityRows) {
+        const lastName = (row.last_name || "").trim();
+        const firstName = (row.first_name || "").trim();
+        const prefName = (row.preferred_name || "").trim();
+        const skill = (row.skill || "").trim();
+        const dateRaw = (row.effective_date || "").toString().trim();
+        if (!lastName || !firstName || !skill || !dateRaw) continue;
 
-          const col = PAYLOCITY_SKILL_MAP[skill.toLowerCase()];
-          if (!col) continue;
+        const col = PAYLOCITY_SKILL_MAP[skill.toLowerCase()];
+        if (!col) continue;
 
-          const date = normalizeDate(dateRaw);
-          if (!date) continue;
-          const ts = parseToTimestamp(date);
-          const displayFirst = prefName || firstName;
-          const name = `${lastName}, ${displayFirst}`;
-          const key = `${name.toLowerCase()}|${col}`;
-          const existing = bestPaylocity.get(key);
-          if (!existing || ts > existing.ts) {
-            bestPaylocity.set(key, { name, date, ts });
-          }
+        const date = normalizeDate(dateRaw);
+        if (!date) continue;
+        const ts = parseToTimestamp(date);
+        const displayFirst = prefName || firstName;
+        const name = `${lastName}, ${displayFirst}`;
+        const key = `${name.toLowerCase()}|${col}`;
+        const existing = bestPaylocity.get(key);
+        if (!existing || ts > existing.ts) {
+          bestPaylocity.set(key, { name, date, ts });
         }
       }
     }
 
     // ── Deduplicate PHS → best date per (name, col) ──────────────────────────
     const bestPHS = new Map<string, BestRec>();
-    const phsNoMatch: Map<string, { name: string; category: string; date: string; col: string; count: number }> = new Map();
-
-    // Track all PHS records for event detection
-    // key = "col|date" → list of names that have this
     const phsEventGroups = new Map<string, Set<string>>();
+    let hasPHS = false;
 
-    if (phsRows.length >= 2) {
-      const pH = phsRows[0];
-      const pHdr2 = (l: string) => pH.findIndex((h) => h.trim().toLowerCase() === l.toLowerCase());
-      const pName = pHdr2("employee name");
-      const pCat = pHdr2("upload category");
-      const pType = pHdr2("upload type");
-      const pEff = pHdr2("effective date");
-      const pTerm = pHdr2("termination date");
-      const pFile = pHdr2("view file");
+    const { data: phsRows } = await supabase
+      .from("phs_imports")
+      .select("employee_name, upload_category, upload_type, effective_date, termination_date, view_file");
 
-      if (pName >= 0 && pCat >= 0 && pType >= 0 && pEff >= 0) {
-        for (let i = 1; i < phsRows.length; i++) {
-          const row = phsRows[i];
-          const empName = (row[pName] || "").trim();
-          const category = (row[pCat] || "").trim();
-          const uploadType = (row[pType] || "").trim();
-          const effRaw = (row[pEff] || "").toString().trim();
-          const termRaw = pTerm >= 0 ? (row[pTerm] || "").toString().trim() : "";
-          const fileUrl = pFile >= 0 ? (row[pFile] || "").toString().trim() : "";
+    if (phsRows && phsRows.length > 0) {
+      hasPHS = true;
+      for (const row of phsRows) {
+        const empName = (row.employee_name || "").trim();
+        const category = (row.upload_category || "").trim();
+        const uploadType = (row.upload_type || "").trim();
+        const effRaw = (row.effective_date || "").toString().trim();
+        const termRaw = (row.termination_date || "").toString().trim();
+        const fileUrl = (row.view_file || "").toString().trim();
 
-          if (!empName || !category || !uploadType || !effRaw) continue;
-          const typL = uploadType.toLowerCase();
-          if (typL === "fail" || typL === "no show") continue;
-          if (termRaw) continue;
+        if (!empName || !category || !uploadType || !effRaw) continue;
+        const typL = uploadType.toLowerCase();
+        if (typL === "fail" || typL === "no show") continue;
+        if (termRaw) continue;
 
-          const col = resolvePHSColumn(category, uploadType);
-          if (!col) continue;
+        const col = resolvePHSColumn(category, uploadType);
+        if (!col) continue;
 
-          const date = normalizeDate(effRaw);
-          if (!date) continue;
-          const ts = parseToTimestamp(date);
-          const hasDoc = fileUrl.length > 0;
+        const date = normalizeDate(effRaw);
+        if (!date) continue;
+        const ts = parseToTimestamp(date);
+        const hasDoc = fileUrl.length > 0;
 
-          const key = `${empName.toLowerCase()}|${col}`;
-          const existing = bestPHS.get(key);
-          if (!existing || ts > existing.ts) {
-            bestPHS.set(key, { name: empName, date, ts, hasDoc });
-          }
-
-          // Track for event detection
-          const eventKey = `${col}|${date}`;
-          if (!phsEventGroups.has(eventKey)) phsEventGroups.set(eventKey, new Set());
-          phsEventGroups.get(eventKey)!.add(empName);
+        const key = `${empName.toLowerCase()}|${col}`;
+        const existing = bestPHS.get(key);
+        if (!existing || ts > existing.ts) {
+          bestPHS.set(key, { name: empName, date, ts, hasDoc });
         }
+
+        const eventKey = `${col}|${date}`;
+        if (!phsEventGroups.has(eventKey)) phsEventGroups.set(eventKey, new Set());
+        phsEventGroups.get(eventKey)!.add(empName);
       }
     }
 
-    // ── Helper: resolve employee name against Training sheet ─────────────────
+    // ── Helper: resolve employee name ────────────────────────────────────────
     function findEmployee(rawName: string): typeof trainingLookup[number] | null {
       const mappedName = nameMappings.get(rawName.toLowerCase());
       if (mappedName) {
@@ -326,13 +326,11 @@ export async function GET() {
     for (const emp of trainingLookup) {
       for (const col of ALL_TRAINING_COLS) {
         const rawTraining = emp.values[col] || "";
-
-        // Skip excused cells
         if (isExcused(rawTraining)) continue;
 
         const trainingDate = rawTraining ? normalizeDate(rawTraining) : "";
 
-        // Find best Paylocity date for this employee+col
+        // Find best Paylocity date
         let payDate = "";
         let payKey = "";
         for (const [k, v] of bestPaylocity) {
@@ -346,7 +344,7 @@ export async function GET() {
           }
         }
 
-        // Find best PHS date for this employee+col
+        // Find best PHS date
         let phsDate = "";
         let phsHasDoc = false;
         for (const [k, v] of bestPHS) {
@@ -360,12 +358,9 @@ export async function GET() {
           }
         }
 
-        void payKey; // used for lookup only
-
-        // Skip if no external source has data for this employee+training
+        void payKey;
         if (!payDate && !phsDate) continue;
 
-        // Determine confidence and winner
         let confidence: SmartSyncRow["confidence"];
         let winner = "";
         let winnerSource: SmartSyncRow["winnerSource"] = "paylocity";
@@ -377,25 +372,20 @@ export async function GET() {
 
         if (payDate && phsDate) {
           if (datesEqual(payDate, phsDate)) {
-            // Both external sources agree — highest confidence regardless of Training sheet
             winner = payDate;
             winnerSource = "paylocity";
             confidence = "high";
           } else if (trainingDate && datesEqual(payDate, trainingDate)) {
-            // Paylocity + Training sheet agree, PHS differs
             winner = payDate;
             winnerSource = "paylocity";
             confidence = "medium";
             conflictNote = `PHS has ${phsDate}`;
           } else if (trainingDate && datesEqual(phsDate, trainingDate)) {
-            // PHS + Training sheet agree, Paylocity differs
             winner = phsDate;
             winnerSource = "phs";
-            // Two agreeing sources — HIGH if PHS has documentation, MEDIUM otherwise
             confidence = phsHasDoc ? "high" : "medium";
             conflictNote = `Paylocity has ${payDate}`;
           } else {
-            // All 3 differ (or Training sheet is empty) — true conflict, user must pick
             if (payTs >= phsTs) {
               winner = payDate;
               winnerSource = "paylocity";
@@ -417,12 +407,10 @@ export async function GET() {
           confidence = "medium";
         }
 
-        // If training sheet is already at or ahead of the proposed winner — skip
         if (trainingDate && trainTs >= parseToTimestamp(winner) && !datesEqual(trainingDate, "") && confidence !== "conflict") {
           continue;
         }
 
-        // If no actual change needed
         if (trainingDate && datesEqual(trainingDate, winner)) continue;
 
         rows.push({
@@ -450,8 +438,7 @@ export async function GET() {
       return cDiff || a.employee.localeCompare(b.employee) || a.training.localeCompare(b.training);
     });
 
-    // ── Roster gaps: Paylocity names not on Training sheet ───────────────────
-    // Helper: check if a name matches a known inactive employee (ACTIVE=N)
+    // ── Roster gaps ──────────────────────────────────────────────────────────
     function isInactiveEmployee(rawName: string): boolean {
       const mappedName = nameMappings.get(rawName.toLowerCase());
       const checkName = mappedName || rawName;
@@ -464,8 +451,6 @@ export async function GET() {
       const rawName = k.split("|").slice(0, -1).join("|");
       const matched = findEmployee(v.name) || findEmployee(rawName);
       if (matched) continue;
-      // Skip employees who are inactive on the Training sheet — they may still
-      // appear in Paylocity/PHS until payroll removes them
       if (isInactiveEmployee(v.name) || isInactiveEmployee(rawName)) continue;
       const existingGap = payRosterGaps.get(v.name.toLowerCase());
       if (!existingGap || parseToTimestamp(v.date) > parseToTimestamp(existingGap.date)) {
@@ -517,14 +502,12 @@ export async function GET() {
     const trainingNameMap = new Map(TRAINING_DEFINITIONS.map((t) => [t.columnKey, t.name]));
 
     for (const [eventKey, attendeeNames] of phsEventGroups) {
-      if (attendeeNames.size < 3) continue; // only flag group events (3+ people)
+      if (attendeeNames.size < 3) continue;
       const [col, date] = eventKey.split("|").reduce((acc, part, i) => {
-        // eventKey = "col|date" but col might contain |
         if (i === 0) return [part, ""];
         return [acc[0], (acc[1] ? acc[1] + "|" : "") + part];
       }, ["", ""]);
 
-      // Find which Training sheet employees have this date
       const verifiedAttendees: string[] = [];
       for (const empName of attendeeNames) {
         const match = findEmployee(empName);
@@ -532,12 +515,10 @@ export async function GET() {
       }
       if (verifiedAttendees.length < 3) continue;
 
-      // Find active employees missing this training entirely
       const possiblyMissing: string[] = [];
       for (const emp of trainingLookup) {
         const val = emp.values[col] || "";
         if (!val || val === "(empty)") {
-          // Not already attending verified list
           if (!verifiedAttendees.includes(emp.name)) {
             possiblyMissing.push(emp.name);
           }
@@ -556,24 +537,28 @@ export async function GET() {
       });
     }
 
-    // Sort events by attendee count desc
     trainingEvents.sort((a, b) => b.attendees.length - a.attendees.length);
 
-    // ── Last sync timestamp ───────────────────────────────────────────────────
+    // ── Last sync timestamp ──────────────────────────────────────────────────
     let lastSyncAt: string | null = null;
-    for (let i = 1; i < settingsRows.length; i++) {
-      if ((settingsRows[i][0] || "").trim() === "sync_log") {
-        try {
-          const entry = JSON.parse((settingsRows[i][2] || "").trim());
-          if (entry.source === "master-sync" && entry.timestamp) {
-            lastSyncAt = entry.timestamp;
-            break; // rows are most-recent-first in Hub Settings
-          }
-        } catch {}
-      }
+    const { data: syncLogs } = await supabase
+      .from("hub_settings")
+      .select("value")
+      .eq("type", "sync_log")
+      .order("key", { ascending: false })
+      .limit(10);
+
+    for (const log of syncLogs || []) {
+      try {
+        const entry = JSON.parse(log.value);
+        if (entry.source === "master-sync" && entry.timestamp) {
+          lastSyncAt = entry.timestamp;
+          break;
+        }
+      } catch {}
     }
 
-    // ── Documentation audit ───────────────────────────────────────────────────
+    // ── Documentation audit ──────────────────────────────────────────────────
     let phsWithDoc = 0;
     let phsWithoutDoc = 0;
     const docAudit: Array<{ employee: string; training: string; phsDate: string; hasDoc: boolean }> = [];
@@ -585,7 +570,7 @@ export async function GET() {
       else phsWithoutDoc++;
       docAudit.push({ employee: match.name, training: col, phsDate: v.date, hasDoc: v.hasDoc || false });
     }
-    docAudit.sort((a, b) => (a.hasDoc === b.hasDoc ? 0 : a.hasDoc ? 1 : -1)); // missing docs first
+    docAudit.sort((a, b) => (a.hasDoc === b.hasDoc ? 0 : a.hasDoc ? 1 : -1));
 
     return Response.json({
       rows,
@@ -597,8 +582,8 @@ export async function GET() {
         employeesAffected: employeesAffected.size,
         fromPaylocity,
         fromPHS,
-        hasPaylocity: paylocityRows.length >= 2,
-        hasPHS: phsRows.length >= 2,
+        hasPaylocity,
+        hasPHS,
       },
       rosterGaps: {
         fromPaylocity: rosterFromPaylocity,
@@ -617,8 +602,9 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const supabase = createServerClient();
     const body = await request.json();
-    const fixes: FixEntry[] = (body.fixes || []).map(
+    const fixes: Array<{ employee: string; training: string; date: string }> = (body.fixes || []).map(
       (f: { employee: string; training: string; date: string }) => ({
         employee: f.employee,
         training: f.training,
@@ -630,7 +616,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "No fixes provided." }, { status: 400 });
     }
 
-    const result = await applyFixes(fixes);
+    const result = await applyFixesToSupabase(supabase, fixes);
 
     // Log to Hub Settings
     try {

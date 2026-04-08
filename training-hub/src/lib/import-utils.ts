@@ -1,6 +1,5 @@
-import { readRangeFresh, getSheets, getSpreadsheetId } from "./google-sheets";
+import { createServerClient } from "./supabase";
 import { namesMatch } from "./name-utils";
-import { invalidateAll } from "./cache";
 import { AUTO_FILL_RULES } from "@/config/trainings";
 
 // ============================================================
@@ -25,6 +24,11 @@ export function normalizeDate(val: string): string {
     let yr = parseInt(dash[3]);
     if (yr < 100) yr += yr < 50 ? 2000 : 1900;
     return `${parseInt(dash[1])}/${parseInt(dash[2])}/${yr}`;
+  }
+  // YYYY-MM-DD (ISO format from Supabase)
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    return `${parseInt(iso[2])}/${parseInt(iso[3])}/${iso[1]}`;
   }
   // Try Date parse
   try {
@@ -69,7 +73,6 @@ export interface FixEntry {
 
 // Columns that must always stay in sync with each other.
 // Derived from AUTO_FILL_RULES (same-day mirrors only, offsetDays === 0).
-// When a fix writes to one, the same date is written to all linked columns.
 const LINKED_COLUMNS: Record<string, string[]> = (() => {
   const result: Record<string, string[]> = {};
   for (const rule of AUTO_FILL_RULES) {
@@ -82,22 +85,43 @@ const LINKED_COLUMNS: Record<string, string[]> = (() => {
 })();
 
 /**
- * Batch-write fixes to the Training sheet.
- * Finds each employee row and training column, then writes the date.
- * Chunks in groups of 50 to stay under API quota.
+ * Convert M/D/YYYY date string to ISO date (YYYY-MM-DD) for Supabase.
  */
-export async function applyFixes(fixes: FixEntry[]): Promise<{ matched: number; errors: string[] }> {
-  const rows = await readRangeFresh("Training");
-  const headers = rows[0];
-  const hdr = (label: string) => headers.findIndex((h) => h.trim().toUpperCase() === label.toUpperCase());
-  const lNameCol = hdr("L NAME");
-  const fNameCol = hdr("F NAME");
+function toISODate(dateStr: string): string | null {
+  const m = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+}
 
-  if (lNameCol < 0 || fNameCol < 0) {
-    return { matched: 0, errors: ["L NAME / F NAME columns not found"] };
+/**
+ * Batch-write fixes to Supabase training_records.
+ * Finds each employee and training type, then upserts the record.
+ */
+export async function applyFixesToSupabase(
+  supabase: ReturnType<typeof createServerClient>,
+  fixes: FixEntry[]
+): Promise<{ matched: number; errors: string[] }> {
+  // Fetch employees
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, first_name, last_name")
+    .eq("is_active", true);
+
+  if (!employees || employees.length === 0) {
+    return { matched: 0, errors: ["No active employees found"] };
   }
 
-  // Expand fixes to include any linked columns (e.g. CPR ↔ FIRSTAID)
+  // Fetch training types
+  const { data: trainingTypes } = await supabase
+    .from("training_types")
+    .select("id, column_key");
+
+  const colKeyToTypeId = new Map<string, string>();
+  for (const tt of trainingTypes || []) {
+    colKeyToTypeId.set(tt.column_key.toUpperCase(), tt.id);
+  }
+
+  // Expand fixes to include linked columns (e.g. CPR ↔ FIRSTAID)
   const expanded: FixEntry[] = [];
   const seen = new Set<string>();
   for (const fix of fixes) {
@@ -112,59 +136,91 @@ export async function applyFixes(fixes: FixEntry[]): Promise<{ matched: number; 
     }
   }
 
-  const data: Array<{ range: string; values: string[][] }> = [];
   let matched = 0;
   const errors: string[] = [];
 
   for (const fix of expanded) {
-    const colIdx = headers.findIndex((h) => h.trim().toUpperCase() === fix.training.toUpperCase());
-    if (colIdx < 0) {
-      errors.push(`Column "${fix.training}" not found`);
+    const typeId = colKeyToTypeId.get(fix.training.toUpperCase());
+    if (!typeId) {
+      errors.push(`Training type "${fix.training}" not found`);
       continue;
     }
 
-    let empRow = -1;
-    for (let r = 1; r < rows.length; r++) {
-      const last = (rows[r][lNameCol] || "").trim();
-      const first = (rows[r][fNameCol] || "").trim();
+    // Find employee by name
+    const emp = employees.find((e: any) => {
+      const last = (e.last_name || "").trim();
+      const first = (e.first_name || "").trim();
       const combined = first ? `${last}, ${first}` : last;
-      if (namesMatch(combined, fix.employee)) {
-        empRow = r + 1; // 1-based sheet row
-        break;
-      }
-    }
+      return namesMatch(combined, fix.employee);
+    });
 
-    if (empRow < 0) {
+    if (!emp) {
       errors.push(`Employee "${fix.employee}" not found`);
       continue;
     }
 
-    const col = colToLetter(colIdx);
-    data.push({ range: `Training!${col}${empRow}`, values: [[fix.date]] });
+    const isoDate = toISODate(fix.date);
+    if (!isoDate) {
+      errors.push(`Invalid date "${fix.date}" for ${fix.employee}`);
+      continue;
+    }
+
+    // Upsert training record
+    const { error: upsertError } = await supabase
+      .from("training_records")
+      .upsert(
+        {
+          employee_id: emp.id,
+          training_type_id: typeId,
+          completion_date: isoDate,
+          source: "sync",
+        },
+        { onConflict: "employee_id,training_type_id" }
+      );
+
+    if (upsertError) {
+      errors.push(`Failed to update ${fix.employee} / ${fix.training}: ${upsertError.message}`);
+      continue;
+    }
+
+    // Remove any NA excusal if it exists
+    await supabase
+      .from("excusals")
+      .delete()
+      .eq("employee_id", emp.id)
+      .eq("training_type_id", typeId);
+
     matched++;
   }
 
-  if (data.length > 0) {
-    const sheets = getSheets();
-    for (let i = 0; i < data.length; i += 50) {
-      const chunk = data.slice(i, i + 50);
-      await sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId: getSpreadsheetId(),
-        requestBody: { valueInputOption: "USER_ENTERED", data: chunk },
-      });
-      if (i + 50 < data.length) {
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-    }
-  }
-
-  invalidateAll();
   return { matched, errors };
 }
 
 /**
- * Load name mappings from Hub Settings sheet.
+ * Load name mappings from Supabase hub_settings.
  * Returns a Map of lowercase source name → training sheet name.
+ */
+export async function loadNameMappingsFromSupabase(
+  supabase: ReturnType<typeof createServerClient>
+): Promise<Map<string, string>> {
+  const { data: settings } = await supabase
+    .from("hub_settings")
+    .select("key, value")
+    .eq("type", "name_map");
+
+  const mappings = new Map<string, string>();
+  for (const s of settings || []) {
+    const sourceName = (s.key || "").trim().toLowerCase();
+    const targetName = (s.value || "").trim();
+    if (sourceName && targetName) mappings.set(sourceName, targetName);
+  }
+  return mappings;
+}
+
+/**
+ * Load name mappings from Hub Settings rows (legacy format).
+ * Returns a Map of lowercase source name → training sheet name.
+ * @deprecated Use loadNameMappingsFromSupabase instead.
  */
 export function loadNameMappings(settingsRows: string[][]): Map<string, string> {
   const mappings = new Map<string, string>();

@@ -1,7 +1,6 @@
 import { getDeptRules, setDeptRule, removeDeptRule } from "@/lib/hub-settings";
-import { readRange, getSheets, getSpreadsheetId } from "@/lib/google-sheets";
+import { createServerClient } from "@/lib/supabase";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
-import { invalidateAll } from "@/lib/cache";
 
 export async function GET() {
   try {
@@ -11,16 +10,6 @@ export async function GET() {
     const message = error instanceof Error ? error.message : "Unknown error";
     return Response.json({ error: message }, { status: 500 });
   }
-}
-
-function colToLetter(col: number): string {
-  let letter = "";
-  let c = col;
-  while (c >= 0) {
-    letter = String.fromCharCode(65 + (c % 26)) + letter;
-    c = Math.floor(c / 26) - 1;
-  }
-  return letter;
 }
 
 export async function POST(request: Request) {
@@ -44,11 +33,11 @@ export async function POST(request: Request) {
 
     const rules = await setDeptRule(department, tracked, required || []);
 
-    // Apply changes to Training sheet immediately
+    // Apply changes to Supabase immediately
     try {
-      await applyRuleToSheet(department, new Set(tracked));
+      await applyRuleToSupabase(department, new Set(tracked));
     } catch (err) {
-      console.error("Failed to apply rule to sheet:", err);
+      console.error("Failed to apply rule to Supabase:", err);
     }
 
     return Response.json({ rules });
@@ -59,83 +48,103 @@ export async function POST(request: Request) {
 }
 
 /**
- * Apply a department rule to the Training sheet:
- * - Untracked + empty → write NA
- * - Tracked + NA → clear to empty
+ * Apply a department rule to Supabase:
+ * - Untracked + no record/excusal → insert NA excusal
+ * - Tracked + has NA excusal → remove the excusal
  */
-async function applyRuleToSheet(department: string, trackedSet: Set<string>) {
-  const rows = await readRange("Training");
-  if (rows.length < 2) return;
+async function applyRuleToSupabase(department: string, trackedSet: Set<string>) {
+  const supabase = createServerClient();
 
-  const headers = rows[0];
-  const hdr = (label: string) => headers.findIndex((h) => h.trim().toUpperCase() === label.toUpperCase());
-  const activeCol = hdr("ACTIVE");
-  const divCol = hdr("Division Description");
-  if (divCol < 0) return;
+  // Fetch active employees in this department
+  const { data: employees, error: empError } = await supabase
+    .from("employees")
+    .select("id, first_name, last_name, department")
+    .eq("is_active", true);
 
-  // Find all training column indices
-  const allTrainingCols: Array<{ key: string; index: number }> = [];
+  if (empError) throw new Error(`Failed to load employees: ${empError.message}`);
+
+  // Filter by department (flexible match)
+  const deptLower = department.toLowerCase().replace(/\s*-\s*/g, "-");
+  const deptEmployees = (employees || []).filter((emp: any) => {
+    const empDiv = (emp.department || "").trim().toLowerCase().replace(/\s*-\s*/g, "-");
+    return empDiv === deptLower;
+  });
+
+  if (deptEmployees.length === 0) return;
+
+  // Build set of all training column keys
+  const allTrainingCols = new Set<string>();
   const seenKeys = new Set<string>();
   for (const def of TRAINING_DEFINITIONS) {
     if (seenKeys.has(def.columnKey)) continue;
     seenKeys.add(def.columnKey);
-    const idx = hdr(def.columnKey);
-    if (idx >= 0) allTrainingCols.push({ key: def.columnKey, index: idx });
+    allTrainingCols.add(def.columnKey);
   }
-  // Also FIRSTAID
-  const faIdx = hdr("FIRSTAID");
-  if (faIdx >= 0 && !seenKeys.has("FIRSTAID")) {
-    allTrainingCols.push({ key: "FIRSTAID", index: faIdx });
-  }
+  allTrainingCols.add("FIRSTAID");
 
-  const deptLower = department.toLowerCase();
-  const writes: Array<{ range: string; values: string[][] }> = [];
+  // Fetch training types for these column keys
+  const { data: trainingTypes } = await supabase
+    .from("training_types")
+    .select("id, column_key");
 
-  for (let r = 1; r < rows.length; r++) {
-    if (activeCol >= 0) {
-      const active = (rows[r][activeCol] || "").toString().trim().toUpperCase();
-      if (active !== "Y") continue;
+  const colKeyToTypeId = new Map<string, string>();
+  for (const tt of trainingTypes || []) {
+    if (allTrainingCols.has(tt.column_key)) {
+      colKeyToTypeId.set(tt.column_key, tt.id);
     }
+  }
 
-    const empDiv = (rows[r][divCol] || "").trim().toLowerCase();
-    // Match with flexible hyphen spacing
-    const matches = empDiv === deptLower ||
-      empDiv.replace(/\s*-\s*/g, "-") === deptLower.replace(/\s*-\s*/g, "-") ||
-      empDiv.replace(/\s*-\s*/g, " - ") === deptLower.replace(/\s*-\s*/g, " - ");
-    if (!matches) continue;
+  const employeeIds = deptEmployees.map((e: any) => e.id);
 
-    for (const col of allTrainingCols) {
-      const cellVal = (rows[r][col.index] || "").toString().trim();
-      const cellUpper = cellVal.toUpperCase();
-      const colLetter = colToLetter(col.index);
+  // Fetch existing excusals for these employees
+  const { data: excusals } = await supabase
+    .from("excusals")
+    .select("id, employee_id, training_type_id, reason")
+    .in("employee_id", employeeIds);
 
-      if (trackedSet.has(col.key)) {
-        // Tracked — clear NA
-        if (cellUpper === "NA" || cellUpper === "N/A") {
-          writes.push({ range: `Training!${colLetter}${r + 1}`, values: [[""]] });
+  // Fetch existing training records
+  const { data: records } = await supabase
+    .from("training_records")
+    .select("employee_id, training_type_id")
+    .in("employee_id", employeeIds);
+
+  const excusalMap = new Map<string, { id: string; reason: string }>();
+  for (const exc of excusals || []) {
+    excusalMap.set(`${exc.employee_id}|${exc.training_type_id}`, { id: exc.id, reason: exc.reason });
+  }
+
+  const recordSet = new Set<string>();
+  for (const rec of records || []) {
+    recordSet.add(`${rec.employee_id}|${rec.training_type_id}`);
+  }
+
+  let cellsWritten = 0;
+
+  for (const emp of deptEmployees) {
+    for (const colKey of allTrainingCols) {
+      const typeId = colKeyToTypeId.get(colKey);
+      if (!typeId) continue;
+
+      const key = `${emp.id}|${typeId}`;
+      const existingExcusal = excusalMap.get(key);
+      const hasRecord = recordSet.has(key);
+
+      if (trackedSet.has(colKey)) {
+        // Tracked — remove NA excusal if present
+        if (existingExcusal && (existingExcusal.reason === "NA" || existingExcusal.reason === "N/A")) {
+          await supabase.from("excusals").delete().eq("id", existingExcusal.id);
+          cellsWritten++;
         }
       } else {
-        // Not tracked — write NA if empty
-        if (!cellVal) {
-          writes.push({ range: `Training!${colLetter}${r + 1}`, values: [["NA"]] });
+        // Not tracked — add NA excusal if no record and no excusal
+        if (!hasRecord && !existingExcusal) {
+          await supabase.from("excusals").upsert(
+            { employee_id: emp.id, training_type_id: typeId, reason: "NA" },
+            { onConflict: "employee_id,training_type_id" }
+          );
+          cellsWritten++;
         }
       }
     }
-  }
-
-  // Batch write in chunks
-  if (writes.length > 0) {
-    const sheets = getSheets();
-    for (let i = 0; i < writes.length; i += 50) {
-      const chunk = writes.slice(i, i + 50);
-      await sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId: getSpreadsheetId(),
-        requestBody: { valueInputOption: "USER_ENTERED", data: chunk },
-      });
-      if (i + 50 < writes.length) {
-        await new Promise((resolve) => setTimeout(resolve, 1500));
-      }
-    }
-    invalidateAll();
   }
 }

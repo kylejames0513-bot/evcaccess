@@ -1,62 +1,94 @@
-import { readRange } from "@/lib/google-sheets";
+import { createServerClient } from "@/lib/supabase";
 import { namesMatch } from "@/lib/name-utils";
-import { normalizeDate, datesEqual, applyFixes, loadNameMappings } from "@/lib/import-utils";
+import { normalizeDate, datesEqual, loadNameMappingsFromSupabase, applyFixesToSupabase } from "@/lib/import-utils";
 import { addSyncLogEntry } from "@/lib/hub-settings";
 import { PAYLOCITY_SKILL_MAP } from "@/app/api/paylocity-audit/route";
 
 export async function POST() {
   try {
-    let trainingRows: string[][] = [];
-    let paylocityRows: string[][] = [];
-    let settingsRows: string[][] = [];
+    const supabase = createServerClient();
 
-    [trainingRows, paylocityRows, settingsRows] = await Promise.all([
-      readRange("Training"),
-      readRange("Paylocity Import"),
-      readRange("'Hub Settings'").catch(() => [] as string[][]),
-    ]);
+    // Load name mappings from Supabase
+    const nameMappings = await loadNameMappingsFromSupabase(supabase);
 
-    if (trainingRows.length < 2 || paylocityRows.length < 2) {
-      return Response.json({ error: "Training or Paylocity Import sheet is empty" }, { status: 400 });
+    // Fetch active employees with their training data
+    const { data: employees } = await supabase
+      .from("employees")
+      .select("id, first_name, last_name, is_active")
+      .eq("is_active", true)
+      .order("last_name");
+
+    if (!employees || employees.length === 0) {
+      return Response.json({ error: "No active employees found" }, { status: 400 });
     }
 
-    const nameMappings = loadNameMappings(settingsRows);
+    // Fetch training types
+    const { data: trainingTypes } = await supabase
+      .from("training_types")
+      .select("id, column_key");
 
-    // Parse Training sheet
-    const tHeaders = trainingRows[0];
-    const tHdr = (label: string) => tHeaders.findIndex((h) => h.trim().toUpperCase() === label.toUpperCase());
-    const tLName = tHdr("L NAME");
-    const tFName = tHdr("F NAME");
-    const tActive = tHdr("ACTIVE");
-
-    // Parse Paylocity Import
-    const pHeaders = paylocityRows[0];
-    const pHdr = (label: string) => pHeaders.findIndex((h) => h.trim().toLowerCase() === label.toLowerCase());
-    const pLast = pHdr("last name");
-    const pFirst = pHdr("first name");
-    const pPref = pHdr("preferred/first name") >= 0 ? pHdr("preferred/first name") : pHdr("preferred name");
-    const pSkill = pHdr("skill");
-    const pDate = pHdr("effective/issue date") >= 0 ? pHdr("effective/issue date") : (pHdr("effective date") >= 0 ? pHdr("effective date") : pHdr("issue date"));
-
-    if (tLName < 0 || tFName < 0 || pLast < 0 || pFirst < 0 || pSkill < 0 || pDate < 0) {
-      return Response.json({ error: "Required columns not found" }, { status: 400 });
+    const typeIdToColKey = new Map<string, string>();
+    const colKeyToTypeId = new Map<string, string>();
+    for (const tt of trainingTypes || []) {
+      typeIdToColKey.set(tt.id, tt.column_key);
+      colKeyToTypeId.set(tt.column_key, tt.id);
     }
 
-    // Build Training sheet lookup
-    const trainingLookup: Array<{ name: string; values: Record<string, string> }> = [];
-    for (let i = 1; i < trainingRows.length; i++) {
-      const last = (trainingRows[i][tLName] || "").trim();
-      const first = (trainingRows[i][tFName] || "").trim();
-      if (!last) continue;
-      const active = tActive >= 0 ? (trainingRows[i][tActive] || "").toString().trim().toUpperCase() : "Y";
-      if (active !== "Y") continue;
+    // Fetch existing training records
+    const empIds = employees.map((e: any) => e.id);
+    const { data: records } = await supabase
+      .from("training_records")
+      .select("employee_id, training_type_id, completion_date")
+      .in("employee_id", empIds);
 
-      const values: Record<string, string> = {};
-      for (const colKey of Object.values(PAYLOCITY_SKILL_MAP)) {
-        const colIdx = tHeaders.findIndex((h) => h.trim() === colKey);
-        if (colIdx >= 0) values[colKey] = (trainingRows[i][colIdx] || "").toString().trim();
+    const { data: excusals } = await supabase
+      .from("excusals")
+      .select("employee_id, training_type_id, reason")
+      .in("employee_id", empIds);
+
+    // Build lookup: empId -> { columnKey -> dateString }
+    const empTrainingMap = new Map<string, Record<string, string>>();
+    for (const rec of records || []) {
+      const colKey = typeIdToColKey.get(rec.training_type_id);
+      if (!colKey) continue;
+      if (!empTrainingMap.has(rec.employee_id)) empTrainingMap.set(rec.employee_id, {});
+      const map = empTrainingMap.get(rec.employee_id)!;
+      if (rec.completion_date) {
+        const d = new Date(rec.completion_date);
+        map[colKey] = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
       }
-      trainingLookup.push({ name: first ? `${last}, ${first}` : last, values });
+    }
+
+    for (const exc of excusals || []) {
+      const colKey = typeIdToColKey.get(exc.training_type_id);
+      if (!colKey) continue;
+      if (!empTrainingMap.has(exc.employee_id)) empTrainingMap.set(exc.employee_id, {});
+      const map = empTrainingMap.get(exc.employee_id)!;
+      if (!map[colKey]) {
+        map[colKey] = exc.reason || "NA";
+      }
+    }
+
+    // Build training lookup
+    const trainingLookup: Array<{ name: string; empId: string; values: Record<string, string> }> = [];
+    for (const emp of employees) {
+      const last = (emp.last_name || "").trim();
+      const first = (emp.first_name || "").trim();
+      if (!last) continue;
+      trainingLookup.push({
+        name: first ? `${last}, ${first}` : last,
+        empId: emp.id,
+        values: empTrainingMap.get(emp.id) || {},
+      });
+    }
+
+    // Fetch paylocity import data
+    const { data: paylocityRows, error: payError } = await supabase
+      .from("paylocity_imports")
+      .select("last_name, first_name, preferred_name, skill, effective_date");
+
+    if (payError || !paylocityRows || paylocityRows.length === 0) {
+      return Response.json({ error: "Paylocity import table is empty or not found" }, { status: 400 });
     }
 
     // Process: only auto-apply safe fixes (missing_on_training)
@@ -66,12 +98,12 @@ export async function POST() {
     let noMatchCount = 0;
     const seen = new Set<string>();
 
-    for (let i = 1; i < paylocityRows.length; i++) {
-      const pLastName = (paylocityRows[i][pLast] || "").trim();
-      const pFirstName = (paylocityRows[i][pFirst] || "").trim();
-      const pPrefName = pPref >= 0 ? (paylocityRows[i][pPref] || "").trim() : "";
-      const skill = (paylocityRows[i][pSkill] || "").trim();
-      const dateVal = (paylocityRows[i][pDate] || "").toString().trim();
+    for (const row of paylocityRows) {
+      const pLastName = (row.last_name || "").trim();
+      const pFirstName = (row.first_name || "").trim();
+      const pPrefName = (row.preferred_name || "").trim();
+      const skill = (row.skill || "").trim();
+      const dateVal = (row.effective_date || "").toString().trim();
 
       if (!pLastName || !pFirstName || !skill || !dateVal) continue;
 
@@ -97,7 +129,7 @@ export async function POST() {
       const trainingDate = trainingVal ? normalizeDate(trainingVal) : "";
 
       if (!trainingVal) {
-        // Safe to auto-apply: empty cell on Training sheet, has date on Paylocity
+        // Safe to auto-apply: empty cell, has date on Paylocity
         fixes.push({ employee: match.name, training: targetCol, date: payDate });
       } else if (trainingVal.toUpperCase() === "NA" || trainingVal.toUpperCase() === "N/A") {
         skippedNA++;
@@ -106,11 +138,11 @@ export async function POST() {
       }
     }
 
-    // Apply fixes
+    // Apply fixes to Supabase
     let applied = 0;
     const errors: string[] = [];
     if (fixes.length > 0) {
-      const result = await applyFixes(fixes);
+      const result = await applyFixesToSupabase(supabase, fixes);
       applied = result.matched;
       errors.push(...result.errors);
     }

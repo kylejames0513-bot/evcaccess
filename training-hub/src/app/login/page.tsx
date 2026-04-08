@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Lock, Loader2, GraduationCap } from "lucide-react";
+import { Lock, Loader2, GraduationCap, Mail } from "lucide-react";
 
 export default function LoginPage() {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<"email" | "legacy">("email");
   const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
@@ -17,14 +19,18 @@ export default function LoginPage() {
     setError("");
 
     try {
+      const payload = mode === "email"
+        ? { email, password }
+        : { password };
+
       const res = await fetch("/api/auth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Incorrect password");
+        setError(data.error || "Incorrect credentials");
         return;
       }
       router.push("/");
@@ -48,6 +54,25 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+          {mode === "email" && (
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                Email
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  autoFocus
+                  className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:bg-white"
+                />
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
               Password
@@ -58,8 +83,8 @@ export default function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter HR password"
-                autoFocus
+                placeholder={mode === "email" ? "Enter your password" : "Enter HR password"}
+                autoFocus={mode === "legacy"}
                 className="w-full pl-10 pr-4 py-3 border border-slate-200 rounded-xl text-sm bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#1e3a5f] focus:bg-white"
               />
             </div>
@@ -73,14 +98,20 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            disabled={loading || !password}
+            disabled={loading || !password || (mode === "email" && !email)}
             className="w-full px-6 py-3 bg-[#1e3a5f] text-white font-semibold rounded-xl hover:bg-[#2a4d7a] transition-all disabled:opacity-50 inline-flex items-center justify-center gap-2"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
             {loading ? "Checking..." : "Sign In"}
           </button>
 
-          {/* Sign-in link removed — page was deprecated */}
+          <button
+            type="button"
+            onClick={() => { setMode(mode === "email" ? "legacy" : "email"); setError(""); }}
+            className="w-full text-xs text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            {mode === "email" ? "Use shared password instead" : "Sign in with email"}
+          </button>
         </form>
       </div>
     </div>

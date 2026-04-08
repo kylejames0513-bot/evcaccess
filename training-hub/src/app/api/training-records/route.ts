@@ -1,36 +1,54 @@
-import { readRange, updateCell } from "@/lib/google-sheets";
-import { invalidateAll } from "@/lib/cache";
-
-const SHEET_NAME = "Training Records";
+import { createServerClient } from "@/lib/supabase";
 
 export async function GET() {
   try {
-    const rows = await readRange(SHEET_NAME);
-    if (rows.length < 2) {
+    const supabase = createServerClient();
+
+    // Query training_records joined with training_types and employees
+    const { data: records, error } = await supabase
+      .from("training_records")
+      .select(`
+        id, completion_date, source, pass_fail, reviewed_by, notes,
+        left_early, reason, arrival_time, end_time, session_length,
+        training_types ( name ),
+        employees ( first_name, last_name )
+      `)
+      .order("completion_date", { ascending: false });
+
+    if (error) throw new Error(`Failed to load training records: ${error.message}`);
+
+    if (!records || records.length === 0) {
       return Response.json({ records: [], pendingCount: 0, passCount: 0, failCount: 0 });
     }
 
-    // Skip header row (index 0)
-    const records = rows.slice(1).map((row, i) => ({
-      rowIndex: i + 2, // 1-based, skip header = row 2 is first data row
-      arrivalTime: row[0] || "",
-      session: row[1] || "",
-      attendee: row[2] || "",
-      date: row[3] || "",
-      leftEarly: row[4] || "",
-      reason: row[5] || "",
-      notes: row[6] || "",
-      endTime: row[7] || "",
-      sessionLength: row[8] || "",
-      passFail: row[9] || "",
-      reviewedBy: row[10] || "",
-    }));
+    const mapped = records.map((rec: any, i: number) => {
+      const attendee = rec.employees
+        ? `${rec.employees.first_name} ${rec.employees.last_name}`.trim()
+        : "";
+      const session = rec.training_types?.name || "";
+      const passFail = rec.pass_fail || "";
 
-    const pendingCount = records.filter((r) => !r.passFail || r.passFail.toLowerCase() === "pending").length;
-    const passCount = records.filter((r) => r.passFail.toLowerCase() === "pass").length;
-    const failCount = records.filter((r) => r.passFail.toLowerCase() === "fail").length;
+      return {
+        rowIndex: i + 2, // backward compat
+        arrivalTime: rec.arrival_time || "",
+        session,
+        attendee,
+        date: rec.completion_date || "",
+        leftEarly: rec.left_early || "",
+        reason: rec.reason || "",
+        notes: rec.notes || "",
+        endTime: rec.end_time || "",
+        sessionLength: rec.session_length || "",
+        passFail,
+        reviewedBy: rec.reviewed_by || "",
+      };
+    });
 
-    return Response.json({ records, pendingCount, passCount, failCount });
+    const pendingCount = mapped.filter((r: any) => !r.passFail || r.passFail.toLowerCase() === "pending").length;
+    const passCount = mapped.filter((r: any) => r.passFail.toLowerCase() === "pass").length;
+    const failCount = mapped.filter((r: any) => r.passFail.toLowerCase() === "fail").length;
+
+    return Response.json({ records: mapped, pendingCount, passCount, failCount });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return Response.json({ error: message }, { status: 500 });
@@ -63,18 +81,38 @@ export async function POST(request: Request) {
       );
     }
 
+    const supabase = createServerClient();
     const value = action === "bulk_pass" ? "Pass" : "Fail";
 
+    // Get all records sorted by completion_date desc to map rowIndex to id
+    const { data: allRecords, error: fetchError } = await supabase
+      .from("training_records")
+      .select("id")
+      .order("completion_date", { ascending: false });
+
+    if (fetchError) throw new Error(`Failed to fetch records: ${fetchError.message}`);
+
+    // Map rowIndices (2-based) to record ids
+    const idsToUpdate: string[] = [];
     for (const rowIndex of rowIndices) {
-      await updateCell(SHEET_NAME, rowIndex, 9, value);
-      await updateCell(SHEET_NAME, rowIndex, 10, reviewedBy.trim());
+      const idx = rowIndex - 2; // rowIndex is 2-based
+      if (allRecords && idx >= 0 && idx < allRecords.length) {
+        idsToUpdate.push(allRecords[idx].id);
+      }
     }
 
-    invalidateAll();
+    if (idsToUpdate.length > 0) {
+      const { error: updateError } = await supabase
+        .from("training_records")
+        .update({ pass_fail: value, reviewed_by: reviewedBy.trim() })
+        .in("id", idsToUpdate);
+
+      if (updateError) throw new Error(`Failed to update records: ${updateError.message}`);
+    }
 
     return Response.json({
       success: true,
-      updated: rowIndices.length,
+      updated: idsToUpdate.length,
       action: value,
     });
   } catch (error) {

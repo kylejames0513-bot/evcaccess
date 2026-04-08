@@ -1,81 +1,59 @@
-import { readRange, writeRange, appendRows, getSheetNames } from "./google-sheets";
-import { getSheets, getSpreadsheetId } from "./google-sheets";
-import { invalidateAll } from "@/lib/cache";
+import { createServerClient } from "./supabase";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 
 // ============================================================
-// Hub Settings — stored in a "Hub Settings" tab on the spreadsheet
+// Hub Settings -- Supabase (PostgreSQL)
 // ============================================================
-// Row 1: Headers — "Type", "Key", "Value"
-// Rows 2+:
-//   Type="exclude", Key=employee name, Value=""
-//   Type="capacity", Key=training name, Value=number
+// Migrated from Google Sheets "Hub Settings" tab to Supabase
+// hub_settings table. Same type/key/value structure.
 // ============================================================
-
-const SETTINGS_SHEET = "Hub Settings";
 
 /**
- * Ensure the Hub Settings tab exists. Creates it if missing.
+ * Read all settings rows of a given type.
  */
-async function ensureSettingsSheet(): Promise<void> {
-  const names = await getSheetNames();
-  if (names.includes(SETTINGS_SHEET)) return;
-
-  // Create the sheet
-  const sheets = getSheets();
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: getSpreadsheetId(),
-    requestBody: {
-      requests: [
-        {
-          addSheet: {
-            properties: { title: SETTINGS_SHEET },
-          },
-        },
-      ],
-    },
-  });
-
-  // Write headers
-  await writeRange(`'${SETTINGS_SHEET}'!A1:C1`, [["Type", "Key", "Value"]]);
+async function readSettings(type?: string): Promise<Array<{ type: string; key: string; value: string }>> {
+  const supabase = createServerClient();
+  let query = supabase.from("hub_settings").select("type, key, value");
+  if (type) query = query.eq("type", type);
+  const { data, error } = await query;
+  if (error) throw new Error(`Failed to read settings: ${error.message}`);
+  return (data || []).map((r) => ({ type: r.type, key: r.key, value: r.value }));
 }
 
 /**
- * Read all settings rows.
+ * Upsert a single setting.
  */
-async function readSettings(): Promise<Array<{ type: string; key: string; value: string }>> {
-  await ensureSettingsSheet();
-  const rows = await readRange(`'${SETTINGS_SHEET}'`);
-  if (rows.length < 2) return [];
-  return rows.slice(1).map((row) => ({
-    type: (row[0] || "").trim(),
-    key: (row[1] || "").trim(),
-    value: (row[2] || "").trim(),
-  })).filter((r) => r.type && r.key);
+async function upsertSetting(type: string, key: string, value: string): Promise<void> {
+  const supabase = createServerClient();
+  const { error } = await supabase
+    .from("hub_settings")
+    .upsert({ type, key, value }, { onConflict: "type,key" });
+  if (error) throw new Error(`Failed to upsert setting: ${error.message}`);
 }
 
 /**
- * Rewrite all settings (full replace).
+ * Delete a setting.
  */
-async function writeSettings(settings: Array<{ type: string; key: string; value: string }>): Promise<void> {
-  await ensureSettingsSheet();
-  const rows: (string | number)[][] = [["Type", "Key", "Value"]];
-  for (const s of settings) {
-    rows.push([s.type, s.key, s.value]);
-  }
+async function deleteSetting(type: string, key: string): Promise<void> {
+  const supabase = createServerClient();
+  const { error } = await supabase
+    .from("hub_settings")
+    .delete()
+    .eq("type", type)
+    .eq("key", key);
+  if (error) throw new Error(`Failed to delete setting: ${error.message}`);
+}
 
-  // Clear the sheet first
-  const sheets = getSheets();
-  await sheets.spreadsheets.values.clear({
-    spreadsheetId: getSpreadsheetId(),
-    range: `'${SETTINGS_SHEET}'`,
-  });
-
-  // Write all rows
-  await writeRange(`'${SETTINGS_SHEET}'!A1`, rows);
-
-  // Clear cache so next read gets fresh data
-  invalidateAll();
+/**
+ * Delete all settings of a given type.
+ */
+async function deleteSettingsByType(type: string): Promise<void> {
+  const supabase = createServerClient();
+  const { error } = await supabase
+    .from("hub_settings")
+    .delete()
+    .eq("type", type);
+  if (error) throw new Error(`Failed to delete settings: ${error.message}`);
 }
 
 // ────────────────────────────────────────────────────────────
@@ -83,27 +61,19 @@ async function writeSettings(settings: Array<{ type: string; key: string; value:
 // ────────────────────────────────────────────────────────────
 
 export async function getExcludedEmployees(): Promise<string[]> {
-  const settings = await readSettings();
-  return settings.filter((s) => s.type === "exclude").map((s) => s.key);
+  const settings = await readSettings("exclude");
+  return settings.map((s) => s.key);
 }
 
 export async function addExcludedEmployee(name: string): Promise<string[]> {
-  const settings = await readSettings();
   const normalized = name.trim();
-  if (!settings.some((s) => s.type === "exclude" && s.key.toLowerCase() === normalized.toLowerCase())) {
-    settings.push({ type: "exclude", key: normalized, value: "" });
-    await writeSettings(settings);
-  }
-  return settings.filter((s) => s.type === "exclude").map((s) => s.key);
+  await upsertSetting("exclude", normalized, "");
+  return getExcludedEmployees();
 }
 
 export async function removeExcludedEmployee(name: string): Promise<string[]> {
-  let settings = await readSettings();
-  settings = settings.filter(
-    (s) => !(s.type === "exclude" && s.key.toLowerCase() === name.trim().toLowerCase())
-  );
-  await writeSettings(settings);
-  return settings.filter((s) => s.type === "exclude").map((s) => s.key);
+  await deleteSetting("exclude", name.trim());
+  return getExcludedEmployees();
 }
 
 export function isExcluded(name: string, excludedList: string[]): boolean {
@@ -115,83 +85,72 @@ export function isExcluded(name: string, excludedList: string[]): boolean {
 // ────────────────────────────────────────────────────────────
 
 export async function getCapacityOverrides(): Promise<Record<string, number>> {
-  const settings = await readSettings();
+  const settings = await readSettings("capacity");
   const overrides: Record<string, number> = {};
   for (const s of settings) {
-    if (s.type === "capacity" && s.value) {
-      const num = parseInt(s.value);
-      if (!isNaN(num)) overrides[s.key] = num;
-    }
+    const num = parseInt(s.value);
+    if (!isNaN(num)) overrides[s.key] = num;
   }
   return overrides;
 }
 
 export async function setCapacityOverride(trainingName: string, capacity: number): Promise<Record<string, number>> {
-  const settings = await readSettings();
-  const existing = settings.findIndex(
-    (s) => s.type === "capacity" && s.key.toLowerCase() === trainingName.toLowerCase()
-  );
-  if (existing >= 0) {
-    settings[existing].value = capacity.toString();
-  } else {
-    settings.push({ type: "capacity", key: trainingName, value: capacity.toString() });
-  }
-  await writeSettings(settings);
-  return getCapacityOverridesSync(settings);
+  await upsertSetting("capacity", trainingName, capacity.toString());
+  return getCapacityOverrides();
 }
 
-function getCapacityOverridesSync(settings: Array<{ type: string; key: string; value: string }>): Record<string, number> {
-  const overrides: Record<string, number> = {};
-  for (const s of settings) {
-    if (s.type === "capacity" && s.value) {
-      const num = parseInt(s.value);
-      if (!isNaN(num)) overrides[s.key] = num;
-    }
-  }
-  return overrides;
+/**
+ * Get capacity for a training, checking overrides first.
+ */
+export async function getCapacity(trainingName: string, defaultCapacity: number): Promise<number> {
+  const overrides = await getCapacityOverrides();
+  if (overrides[trainingName] !== undefined) return overrides[trainingName];
+
+  const def = TRAINING_DEFINITIONS.find(
+    (d) => d.name.toLowerCase() === trainingName.toLowerCase() ||
+      d.columnKey.toLowerCase() === trainingName.toLowerCase() ||
+      d.aliases?.some((a) => a.toLowerCase() === trainingName.toLowerCase())
+  );
+  if (def && overrides[def.name] !== undefined) return overrides[def.name];
+
+  return defaultCapacity;
 }
 
 // ────────────────────────────────────────────────────────────
-// Expiration thresholds — configurable alert levels
+// Expiration thresholds
 // ────────────────────────────────────────────────────────────
 
 export interface ExpirationThresholds {
-  notice: number;   // days — e.g. 90
-  warning: number;  // days — e.g. 60
-  critical: number; // days — e.g. 30
+  notice: number;
+  warning: number;
+  critical: number;
 }
 
 const DEFAULT_THRESHOLDS: ExpirationThresholds = { notice: 90, warning: 60, critical: 30 };
 
 export async function getExpirationThresholds(): Promise<ExpirationThresholds> {
-  const settings = await readSettings();
+  const settings = await readSettings("expiration_threshold");
   const thresholds = { ...DEFAULT_THRESHOLDS };
   for (const s of settings) {
-    if (s.type === "expiration_threshold") {
-      const val = parseInt(s.value);
-      if (!isNaN(val) && val > 0) {
-        if (s.key === "notice") thresholds.notice = val;
-        else if (s.key === "warning") thresholds.warning = val;
-        else if (s.key === "critical") thresholds.critical = val;
-      }
+    const val = parseInt(s.value);
+    if (!isNaN(val) && val > 0) {
+      if (s.key === "notice") thresholds.notice = val;
+      else if (s.key === "warning") thresholds.warning = val;
+      else if (s.key === "critical") thresholds.critical = val;
     }
   }
   return thresholds;
 }
 
 export async function setExpirationThresholds(thresholds: ExpirationThresholds): Promise<ExpirationThresholds> {
-  const settings = await readSettings();
-  // Remove existing threshold entries
-  const filtered = settings.filter((s) => s.type !== "expiration_threshold");
-  filtered.push({ type: "expiration_threshold", key: "notice", value: thresholds.notice.toString() });
-  filtered.push({ type: "expiration_threshold", key: "warning", value: thresholds.warning.toString() });
-  filtered.push({ type: "expiration_threshold", key: "critical", value: thresholds.critical.toString() });
-  await writeSettings(filtered);
+  await upsertSetting("expiration_threshold", "notice", thresholds.notice.toString());
+  await upsertSetting("expiration_threshold", "warning", thresholds.warning.toString());
+  await upsertSetting("expiration_threshold", "critical", thresholds.critical.toString());
   return thresholds;
 }
 
 // ────────────────────────────────────────────────────────────
-// Sync log — track import/sync operations
+// Sync log
 // ────────────────────────────────────────────────────────────
 
 export interface SyncLogEntry {
@@ -203,9 +162,8 @@ export interface SyncLogEntry {
 }
 
 export async function getSyncLog(): Promise<SyncLogEntry[]> {
-  const settings = await readSettings();
+  const settings = await readSettings("sync_log");
   return settings
-    .filter((s) => s.type === "sync_log")
     .map((s) => {
       try {
         return JSON.parse(s.value) as SyncLogEntry;
@@ -218,38 +176,36 @@ export async function getSyncLog(): Promise<SyncLogEntry[]> {
 }
 
 export async function addSyncLogEntry(entry: SyncLogEntry): Promise<void> {
-  const settings = await readSettings();
-  settings.push({ type: "sync_log", key: entry.timestamp, value: JSON.stringify(entry) });
+  await upsertSetting("sync_log", entry.timestamp, JSON.stringify(entry));
+
   // Keep only last 50 sync log entries
-  const nonLogSettings = settings.filter((s) => s.type !== "sync_log");
-  const logSettings = settings.filter((s) => s.type === "sync_log").slice(-50);
-  await writeSettings([...nonLogSettings, ...logSettings]);
+  const all = await readSettings("sync_log");
+  if (all.length > 50) {
+    const sorted = all.sort((a, b) => a.key.localeCompare(b.key));
+    const toDelete = sorted.slice(0, sorted.length - 50);
+    for (const s of toDelete) {
+      await deleteSetting("sync_log", s.key);
+    }
+  }
 }
 
 // ────────────────────────────────────────────────────────────
-// Compliance tracks — which trainings to track on compliance page
+// Compliance tracks
 // ────────────────────────────────────────────────────────────
 
-// Default tracks if none configured
 const DEFAULT_COMPLIANCE_KEYS = [...new Set(TRAINING_DEFINITIONS.map(d => d.columnKey))];
 
 export async function getComplianceTracks(): Promise<string[]> {
-  const settings = await readSettings();
-  const tracks = settings
-    .filter((s) => s.type === "compliance")
-    .map((s) => s.key);
+  const settings = await readSettings("compliance");
+  const tracks = settings.map((s) => s.key);
   return tracks.length > 0 ? tracks : DEFAULT_COMPLIANCE_KEYS;
 }
 
 export async function setComplianceTracks(columnKeys: string[]): Promise<string[]> {
-  const settings = await readSettings();
-  // Remove old compliance entries
-  const filtered = settings.filter((s) => s.type !== "compliance");
-  // Add new ones
+  await deleteSettingsByType("compliance");
   for (const key of columnKeys) {
-    filtered.push({ type: "compliance", key, value: "" });
+    await upsertSetting("compliance", key, "");
   }
-  await writeSettings(filtered);
   return columnKeys;
 }
 
@@ -257,63 +213,51 @@ export async function setComplianceTracks(columnKeys: string[]): Promise<string[
 // No-show tracking
 // ────────────────────────────────────────────────────────────
 
-// Type="no_show", Key=employee name (Last, First), Value=training|date,training|date,...
-
 export interface NoShowRecord {
   name: string;
   incidents: Array<{ training: string; date: string }>;
 }
 
 export async function getNoShows(): Promise<NoShowRecord[]> {
-  const settings = await readSettings();
-  return settings
-    .filter((s) => s.type === "no_show")
-    .map((s) => ({
-      name: s.key,
-      incidents: s.value.split(";").filter(Boolean).map((entry) => {
-        const [training, date] = entry.split("|");
-        return { training: training || "", date: date || "" };
-      }),
-    }));
+  const settings = await readSettings("no_show");
+  return settings.map((s) => ({
+    name: s.key,
+    incidents: s.value.split(";").filter(Boolean).map((entry) => {
+      const [training, date] = entry.split("|");
+      return { training: training || "", date: date || "" };
+    }),
+  }));
 }
 
 export async function addNoShow(employeeName: string, training: string, date: string): Promise<void> {
-  const settings = await readSettings();
-  const entry = `${training}|${date}`;
-  const idx = settings.findIndex(
-    (s) => s.type === "no_show" && s.key.toLowerCase() === employeeName.toLowerCase()
+  const settings = await readSettings("no_show");
+  const existing = settings.find(
+    (s) => s.key.toLowerCase() === employeeName.toLowerCase()
   );
-  if (idx >= 0) {
-    // Append to existing incidents
-    settings[idx].value = settings[idx].value ? settings[idx].value + ";" + entry : entry;
-  } else {
-    settings.push({ type: "no_show", key: employeeName, value: entry });
-  }
-  await writeSettings(settings);
+  const entry = `${training}|${date}`;
+  const newValue = existing?.value ? existing.value + ";" + entry : entry;
+  await upsertSetting("no_show", existing?.key || employeeName, newValue);
 }
 
 export async function clearNoShows(employeeName: string): Promise<void> {
-  let settings = await readSettings();
-  settings = settings.filter(
-    (s) => !(s.type === "no_show" && s.key.toLowerCase() === employeeName.toLowerCase())
+  // Find the actual key (case-insensitive)
+  const settings = await readSettings("no_show");
+  const match = settings.find(
+    (s) => s.key.toLowerCase() === employeeName.toLowerCase()
   );
-  await writeSettings(settings);
+  if (match) {
+    await deleteSetting("no_show", match.key);
+  }
 }
 
 // ────────────────────────────────────────────────────────────
-// Department training rules — which trainings each department needs
+// Department training rules
 // ────────────────────────────────────────────────────────────
-
-// Type="dept_rule", Key=department name
-// Value format: "tracked_keys|required_keys"
-//   tracked = trainings this division has (unchecked = NA auto-fill)
-//   required = subset of tracked that are actively monitored for compliance
-// Legacy format: "ALL" or "CPR,Ukeru" (treated as tracked=required=same list)
 
 export interface DeptRule {
   department: string;
-  tracked: string[];  // column keys this division has (not NA)
-  required: string[]; // subset — actively monitored for compliance
+  tracked: string[];
+  required: string[];
 }
 
 function parseDeptRuleValue(value: string): { tracked: string[]; required: string[] } {
@@ -325,7 +269,6 @@ function parseDeptRuleValue(value: string): { tracked: string[]; required: strin
       required: requiredStr.split(",").map((t) => t.trim()).filter(Boolean),
     };
   }
-  // Legacy format: same list for both
   const keys = value.split(",").map((t) => t.trim()).filter(Boolean);
   return { tracked: keys, required: keys };
 }
@@ -336,65 +279,20 @@ function encodeDeptRuleValue(tracked: string[], required: string[]): string {
 }
 
 export async function getDeptRules(): Promise<DeptRule[]> {
-  const settings = await readSettings();
-  return settings
-    .filter((s) => s.type === "dept_rule")
-    .map((s) => {
-      const parsed = parseDeptRuleValue(s.value);
-      return { department: s.key, ...parsed };
-    });
+  const settings = await readSettings("dept_rule");
+  return settings.map((s) => {
+    const parsed = parseDeptRuleValue(s.value);
+    return { department: s.key, ...parsed };
+  });
 }
 
 export async function setDeptRule(department: string, tracked: string[], required: string[]): Promise<DeptRule[]> {
-  const settings = await readSettings();
-  const idx = settings.findIndex(
-    (s) => s.type === "dept_rule" && s.key.toLowerCase() === department.toLowerCase()
-  );
   const value = encodeDeptRuleValue(tracked, required);
-  if (idx >= 0) {
-    settings[idx].value = value;
-    settings[idx].key = department;
-  } else {
-    settings.push({ type: "dept_rule", key: department, value });
-  }
-  await writeSettings(settings);
-  return getDeptRulesSync(settings);
+  await upsertSetting("dept_rule", department, value);
+  return getDeptRules();
 }
 
 export async function removeDeptRule(department: string): Promise<DeptRule[]> {
-  let settings = await readSettings();
-  settings = settings.filter(
-    (s) => !(s.type === "dept_rule" && s.key.toLowerCase() === department.toLowerCase())
-  );
-  await writeSettings(settings);
-  return getDeptRulesSync(settings);
-}
-
-function getDeptRulesSync(settings: Array<{ type: string; key: string; value: string }>): DeptRule[] {
-  return settings
-    .filter((s) => s.type === "dept_rule")
-    .map((s) => {
-      const parsed = parseDeptRuleValue(s.value);
-      return { department: s.key, ...parsed };
-    });
-}
-
-/**
- * Get capacity for a training, checking overrides first.
- * Uses alias resolution to match "CPR" → "CPR/FA" etc.
- */
-export async function getCapacity(trainingName: string, defaultCapacity: number): Promise<number> {
-  const overrides = await getCapacityOverrides();
-  if (overrides[trainingName] !== undefined) return overrides[trainingName];
-
-  // Check canonical name
-  const { TRAINING_DEFINITIONS } = await import("@/config/trainings");
-  const def = TRAINING_DEFINITIONS.find(
-    (d) => d.name.toLowerCase() === trainingName.toLowerCase() ||
-      d.columnKey.toLowerCase() === trainingName.toLowerCase() ||
-      d.aliases?.some((a) => a.toLowerCase() === trainingName.toLowerCase())
-  );
-  if (def && overrides[def.name] !== undefined) return overrides[def.name];
-
-  return defaultCapacity;
+  await deleteSetting("dept_rule", department);
+  return getDeptRules();
 }

@@ -1,7 +1,5 @@
-import { readRange, updateCell } from "@/lib/google-sheets";
+import { createServerClient } from "@/lib/supabase";
 import { namesMatch } from "@/lib/name-utils";
-import { invalidateAll } from "@/lib/cache";
-import { TRAINING_DEFINITIONS } from "@/config/trainings";
 
 // Board of Directors — exempt from all trainings
 const BOARD_MEMBERS = [
@@ -23,52 +21,62 @@ const BOARD_MEMBERS = [
 
 export async function POST() {
   try {
-    const rows = await readRange("Training");
-    if (rows.length < 2) return Response.json({ error: "Training sheet empty" }, { status: 400 });
+    const supabase = createServerClient();
 
-    const headers = rows[0];
-    const lCol = headers.findIndex((h) => h.trim().toUpperCase() === "L NAME");
-    const fCol = headers.findIndex((h) => h.trim().toUpperCase() === "F NAME");
-    if (lCol < 0 || fCol < 0) return Response.json({ error: "Name columns not found" }, { status: 400 });
+    // Fetch active employees
+    const { data: employees, error: empError } = await supabase
+      .from("employees")
+      .select("id, first_name, last_name")
+      .eq("is_active", true);
 
-    // Find all training column indices
-    const trainingCols: number[] = [];
-    const seen = new Set<string>();
-    for (const def of TRAINING_DEFINITIONS) {
-      if (seen.has(def.columnKey)) continue;
-      seen.add(def.columnKey);
-      const idx = headers.findIndex((h) => h.trim().toUpperCase() === def.columnKey.toUpperCase());
-      if (idx >= 0) trainingCols.push(idx);
-    }
-    // Also include FIRSTAID if present
-    const faIdx = headers.findIndex((h) => h.trim().toUpperCase() === "FIRSTAID");
-    if (faIdx >= 0) trainingCols.push(faIdx);
+    if (empError) throw new Error(`Failed to load employees: ${empError.message}`);
+
+    // Fetch all training types
+    const { data: trainingTypes, error: ttError } = await supabase
+      .from("training_types")
+      .select("id, name");
+
+    if (ttError) throw new Error(`Failed to load training types: ${ttError.message}`);
 
     let matched = 0;
     let cellsWritten = 0;
 
-    for (let r = 1; r < rows.length; r++) {
-      const last = (rows[r][lCol] || "").trim();
-      const first = (rows[r][fCol] || "").trim();
-      const fullName = first ? `${first} ${last}` : last;
-      if (!fullName) continue;
-
+    for (const emp of employees || []) {
+      const fullName = `${emp.first_name} ${emp.last_name}`.trim();
       const isBoard = BOARD_MEMBERS.some((bm) => namesMatch(bm, fullName));
       if (!isBoard) continue;
 
       matched++;
 
-      for (const colIdx of trainingCols) {
-        const current = (rows[r][colIdx] || "").trim().toUpperCase();
-        // Don't overwrite if already has BOARD or another excusal
-        if (current === "BOARD") continue;
-        // Write BOARD to every training column
-        await updateCell("Training", r + 1, colIdx, "BOARD");
-        cellsWritten++;
+      // Set excusal for every training type with reason "BOARD"
+      for (const tt of trainingTypes || []) {
+        // Check if already excused
+        const { data: existing } = await supabase
+          .from("excusals")
+          .select("id, reason")
+          .eq("employee_id", emp.id)
+          .eq("training_type_id", tt.id)
+          .limit(1)
+          .maybeSingle();
+
+        if (existing?.reason === "BOARD") continue;
+
+        // Upsert excusal
+        const { error: upsertError } = await supabase
+          .from("excusals")
+          .upsert(
+            {
+              employee_id: emp.id,
+              training_type_id: tt.id,
+              reason: "BOARD",
+            },
+            { onConflict: "employee_id,training_type_id" }
+          );
+
+        if (!upsertError) cellsWritten++;
       }
     }
 
-    invalidateAll();
     return Response.json({
       success: true,
       matched,

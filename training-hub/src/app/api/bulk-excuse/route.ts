@@ -1,5 +1,4 @@
-import { readRange, updateCell } from "@/lib/google-sheets";
-import { invalidateAll } from "@/lib/cache";
+import { createServerClient } from "@/lib/supabase";
 import { namesMatch } from "@/lib/name-utils";
 
 export async function POST(request: Request) {
@@ -21,66 +20,92 @@ export async function POST(request: Request) {
       );
     }
 
-    const rows = await readRange("Training");
-    if (rows.length < 2) {
-      return Response.json({ error: "Training sheet is empty" }, { status: 400 });
-    }
+    const supabase = createServerClient();
 
-    const headers = rows[0];
-    const hdr = (label: string) =>
-      headers.findIndex((h) => h.trim().toUpperCase() === label.toUpperCase());
+    // Fetch active employees
+    const { data: employees, error: empError } = await supabase
+      .from("employees")
+      .select("id, first_name, last_name, department")
+      .eq("is_active", true);
 
-    const activeCol = hdr("ACTIVE");
-    const divCol = hdr("Division Description");
-    const lNameCol = hdr("L NAME");
-    const fNameCol = hdr("F NAME");
+    if (empError) throw new Error(`Failed to load employees: ${empError.message}`);
 
-    // Resolve all training column indices
-    const trainingCols: { key: string; col: number }[] = [];
+    // Resolve training type IDs for requested column keys
+    const trainingCols: Array<{ key: string; typeId: string }> = [];
     const notFound: string[] = [];
+
     for (const key of keys) {
-      const col = hdr(key);
-      if (col < 0) notFound.push(key);
-      else trainingCols.push({ key, col });
+      const { data: tt } = await supabase
+        .from("training_types")
+        .select("id")
+        .or(`column_key.ilike.${key},name.ilike.${key}`)
+        .limit(1)
+        .maybeSingle();
+
+      if (!tt) {
+        notFound.push(key);
+      } else {
+        trainingCols.push({ key, typeId: tt.id });
+      }
     }
 
     let excused = 0;
     let skipped = 0;
 
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-
-      if (activeCol >= 0) {
-        const active = (row[activeCol] || "").toString().trim().toUpperCase();
-        if (active !== "Y") continue;
-      }
+    for (const emp of employees || []) {
+      const empName = emp.first_name
+        ? `${emp.last_name}, ${emp.first_name}`
+        : emp.last_name;
 
       // Check if this employee matches the filter (division or individual names)
       let matches = false;
-      if (division && divCol >= 0) {
-        const empDiv = (row[divCol] || "").trim();
+      if (division) {
+        const empDiv = (emp.department || "").trim();
         if (empDiv.toLowerCase() === division.toLowerCase()) matches = true;
       }
-      if (names.length > 0 && lNameCol >= 0 && fNameCol >= 0) {
-        const last = (row[lNameCol] || "").trim();
-        const first = (row[fNameCol] || "").trim();
-        const fullName = first ? `${last}, ${first}` : last;
-        if (names.some((n) => namesMatch(n, fullName))) matches = true;
+      if (names.length > 0) {
+        if (names.some((n) => namesMatch(n, empName))) matches = true;
       }
       if (!matches) continue;
 
       for (const tc of trainingCols) {
-        const currentValue = (row[tc.col] || "").trim();
-        if (currentValue) {
+        // Check if already has a training record or excusal
+        const { data: existingRecord } = await supabase
+          .from("training_records")
+          .select("id")
+          .eq("employee_id", emp.id)
+          .eq("training_type_id", tc.typeId)
+          .limit(1)
+          .maybeSingle();
+
+        const { data: existingExcusal } = await supabase
+          .from("excusals")
+          .select("id")
+          .eq("employee_id", emp.id)
+          .eq("training_type_id", tc.typeId)
+          .limit(1)
+          .maybeSingle();
+
+        if (existingRecord || existingExcusal) {
           skipped++;
           continue;
         }
-        await updateCell("Training", i + 1, tc.col, reason);
-        excused++;
+
+        // Insert excusal
+        const { error: insertError } = await supabase
+          .from("excusals")
+          .upsert(
+            {
+              employee_id: emp.id,
+              training_type_id: tc.typeId,
+              reason,
+            },
+            { onConflict: "employee_id,training_type_id" }
+          );
+
+        if (!insertError) excused++;
       }
     }
-
-    invalidateAll();
 
     return Response.json({
       success: true,

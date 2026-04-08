@@ -1,24 +1,19 @@
-import { readRange } from "@/lib/google-sheets";
+import { createServerClient } from "@/lib/supabase";
 
 export async function GET() {
   try {
-    const rows = await readRange("Training");
-    if (rows.length < 2) return Response.json({ divisions: [] });
+    const supabase = createServerClient();
 
-    const headers = rows[0];
-    const hdr = (label: string) =>
-      headers.findIndex((h) => h.trim().toUpperCase() === label.toUpperCase());
-    const activeCol = hdr("ACTIVE");
-    const divCol = hdr("Division Description");
-    if (divCol < 0) return Response.json({ divisions: [] });
+    const { data: employees, error } = await supabase
+      .from("employees")
+      .select("department")
+      .eq("is_active", true);
+
+    if (error) throw new Error(`Failed to load employees: ${error.message}`);
 
     const divisions = new Set<string>();
-    for (let i = 1; i < rows.length; i++) {
-      if (activeCol >= 0) {
-        const active = (rows[i][activeCol] || "").toString().trim().toUpperCase();
-        if (active !== "Y") continue;
-      }
-      const div = (rows[i][divCol] || "").trim();
+    for (const emp of employees || []) {
+      const div = (emp.department || "").trim();
       if (div) divisions.add(div);
     }
 

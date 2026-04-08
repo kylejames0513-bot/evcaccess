@@ -1,10 +1,4 @@
-import {
-  readRangeFresh,
-  getSheets,
-  getSpreadsheetId,
-  writeRange,
-} from "@/lib/google-sheets";
-import { invalidateAll } from "@/lib/cache";
+import { createServerClient } from "@/lib/supabase";
 
 interface ClearGarbledPayload {
   action: "clear_garbled";
@@ -48,62 +42,126 @@ export async function POST(request: Request) {
   }
 }
 
-/** Convert 0-based column index to A1 notation (A, B, ... Z, AA, AB, ...) */
-function colToLetter(col: number): string {
-  let letter = "";
-  let c = col;
-  while (c >= 0) {
-    letter = String.fromCharCode(65 + (c % 26)) + letter;
-    c = Math.floor(c / 26) - 1;
-  }
-  return letter;
+/**
+ * Get all employees ordered by last_name to map row indices.
+ * Row indices are 2-based (header is row 1) to maintain backward compat.
+ */
+async function getEmployeeByRow(supabase: ReturnType<typeof createServerClient>, rowNum: number) {
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, first_name, last_name")
+    .order("last_name");
+
+  if (!employees) return null;
+  const idx = rowNum - 2; // 2-based to 0-based
+  if (idx < 0 || idx >= employees.length) return null;
+  return employees[idx];
+}
+
+async function getEmployeesSorted(supabase: ReturnType<typeof createServerClient>) {
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, first_name, last_name")
+    .order("last_name");
+  return employees || [];
+}
+
+async function getTrainingTypeByColumnKey(supabase: ReturnType<typeof createServerClient>, columnKey: string) {
+  const { data: tt } = await supabase
+    .from("training_types")
+    .select("id, column_key")
+    .ilike("column_key", columnKey)
+    .limit(1)
+    .maybeSingle();
+  return tt;
 }
 
 // ----------------------------------------------------------------
-// Clear/fix garbled date cells — batch write
+// Clear/fix garbled values — update or delete records/excusals
 // ----------------------------------------------------------------
 async function handleClearGarbled(payload: ClearGarbledPayload) {
   if (!payload.items?.length) {
     return Response.json({ error: "No items provided" }, { status: 400 });
   }
 
-  const rows = await readRangeFresh("Training");
-  const headers = rows[0];
-
-  // Build cell-level writes (safe — only touches the specific cells)
-  const data: Array<{ range: string; values: string[][] }> = [];
-  for (const item of payload.items) {
-    const colIndex = headers.findIndex(
-      (h) => h.trim().toUpperCase() === item.column.toUpperCase()
-    );
-    if (colIndex < 0) continue;
-    const col = colToLetter(colIndex);
-    data.push({ range: `Training!${col}${item.row}`, values: [[item.newValue || ""]] });
-  }
-
-  // Write in chunks of 50 to avoid quota (with delay between chunks)
-  const CHUNK_SIZE = 50;
+  const supabase = createServerClient();
+  const employees = await getEmployeesSorted(supabase);
   let written = 0;
-  for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-    const chunk = data.slice(i, i + CHUNK_SIZE);
-    const sheets = getSheets();
-    await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId: getSpreadsheetId(),
-      requestBody: { valueInputOption: "USER_ENTERED", data: chunk },
-    });
-    written += chunk.length;
-    // Wait 1 second between chunks to avoid quota
-    if (i + CHUNK_SIZE < data.length) {
-      await new Promise((r) => setTimeout(r, 1000));
+
+  for (const item of payload.items) {
+    const idx = item.row - 2;
+    if (idx < 0 || idx >= employees.length) continue;
+    const emp = employees[idx];
+
+    const tt = await getTrainingTypeByColumnKey(supabase, item.column);
+    if (!tt) continue;
+
+    const newValue = (item.newValue || "").trim();
+
+    if (!newValue) {
+      // Clear: delete any training record or excusal for this cell
+      await supabase
+        .from("training_records")
+        .delete()
+        .eq("employee_id", emp.id)
+        .eq("training_type_id", tt.id);
+      await supabase
+        .from("excusals")
+        .delete()
+        .eq("employee_id", emp.id)
+        .eq("training_type_id", tt.id);
+      written++;
+    } else if (/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.test(newValue)) {
+      // It's a date — upsert training record
+      const match = newValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)!;
+      const isoDate = `${match[3]}-${match[1].padStart(2, "0")}-${match[2].padStart(2, "0")}`;
+
+      // Remove any excusal first
+      await supabase
+        .from("excusals")
+        .delete()
+        .eq("employee_id", emp.id)
+        .eq("training_type_id", tt.id);
+
+      // Upsert training record
+      await supabase
+        .from("training_records")
+        .upsert(
+          {
+            employee_id: emp.id,
+            training_type_id: tt.id,
+            completion_date: isoDate,
+            source: "data_health_fix",
+          },
+          { onConflict: "employee_id,training_type_id" }
+        );
+      written++;
+    } else {
+      // It's an excusal code or other value — upsert as excusal
+      await supabase
+        .from("training_records")
+        .delete()
+        .eq("employee_id", emp.id)
+        .eq("training_type_id", tt.id);
+      await supabase
+        .from("excusals")
+        .upsert(
+          {
+            employee_id: emp.id,
+            training_type_id: tt.id,
+            reason: newValue,
+          },
+          { onConflict: "employee_id,training_type_id" }
+        );
+      written++;
     }
   }
 
-  invalidateAll();
   return Response.json({ success: true, message: `Fixed ${written} cell(s)` });
 }
 
 // ----------------------------------------------------------------
-// Remove duplicate rows
+// Remove duplicate employees — merge data into kept employee, delete others
 // ----------------------------------------------------------------
 async function handleRemoveDuplicates(payload: RemoveDuplicatesPayload) {
   const { keepRow, deleteRows } = payload;
@@ -111,73 +169,76 @@ async function handleRemoveDuplicates(payload: RemoveDuplicatesPayload) {
     return Response.json({ error: "Missing keepRow or deleteRows" }, { status: 400 });
   }
 
-  const rows = await readRangeFresh("Training");
-  const headers = rows[0];
-  const totalCols = headers.length;
-  const keepData = rows[keepRow - 1];
-  if (!keepData) {
+  const supabase = createServerClient();
+  const employees = await getEmployeesSorted(supabase);
+  const keepIdx = keepRow - 2;
+  if (keepIdx < 0 || keepIdx >= employees.length) {
     return Response.json({ error: `Row ${keepRow} not found` }, { status: 400 });
   }
+  const keepEmp = employees[keepIdx];
 
-  // Merge: collect all cells to update
-  const mergeWrites: Array<{ range: string; value: string }> = [];
+  // For each duplicate, merge their training records & excusals into the kept employee
   for (const delRow of deleteRows) {
-    const delData = rows[delRow - 1];
-    if (!delData) continue;
-    for (let col = 0; col < totalCols; col++) {
-      const keptVal = (keepData[col] || "").trim();
-      const delVal = (delData[col] || "").trim();
-      if (!keptVal && delVal) {
-        mergeWrites.push({ range: `Training!${colToLetter(col)}${keepRow}`, value: delVal });
+    const delIdx = delRow - 2;
+    if (delIdx < 0 || delIdx >= employees.length) continue;
+    const delEmp = employees[delIdx];
+
+    // Fetch records from the duplicate
+    const { data: delRecords } = await supabase
+      .from("training_records")
+      .select("training_type_id, completion_date, source")
+      .eq("employee_id", delEmp.id);
+
+    // Fetch existing records for kept employee
+    const { data: keepRecords } = await supabase
+      .from("training_records")
+      .select("training_type_id")
+      .eq("employee_id", keepEmp.id);
+
+    const keepRecordTypes = new Set((keepRecords || []).map((r: any) => r.training_type_id));
+
+    // Merge: copy records from duplicate that the kept employee doesn't have
+    for (const rec of delRecords || []) {
+      if (!keepRecordTypes.has(rec.training_type_id)) {
+        await supabase.from("training_records").insert({
+          employee_id: keepEmp.id,
+          training_type_id: rec.training_type_id,
+          completion_date: rec.completion_date,
+          source: rec.source,
+        });
       }
     }
+
+    // Same for excusals
+    const { data: delExcusals } = await supabase
+      .from("excusals")
+      .select("training_type_id, reason")
+      .eq("employee_id", delEmp.id);
+
+    const { data: keepExcusals } = await supabase
+      .from("excusals")
+      .select("training_type_id")
+      .eq("employee_id", keepEmp.id);
+
+    const keepExcusalTypes = new Set((keepExcusals || []).map((e: any) => e.training_type_id));
+
+    for (const exc of delExcusals || []) {
+      if (!keepExcusalTypes.has(exc.training_type_id) && !keepRecordTypes.has(exc.training_type_id)) {
+        await supabase.from("excusals").insert({
+          employee_id: keepEmp.id,
+          training_type_id: exc.training_type_id,
+          reason: exc.reason,
+        });
+      }
+    }
+
+    // Delete the duplicate employee's records, excusals, enrollments, then the employee
+    await supabase.from("training_records").delete().eq("employee_id", delEmp.id);
+    await supabase.from("excusals").delete().eq("employee_id", delEmp.id);
+    await supabase.from("enrollments").delete().eq("employee_id", delEmp.id);
+    await supabase.from("employees").delete().eq("id", delEmp.id);
   }
 
-  // Batch merge writes
-  if (mergeWrites.length > 0) {
-    const sheets = getSheets();
-    await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId: getSpreadsheetId(),
-      requestBody: {
-        valueInputOption: "USER_ENTERED",
-        data: mergeWrites.map((w) => ({ range: w.range, values: [[w.value]] })),
-      },
-    });
-  }
-
-  // Delete rows
-  const sheets = getSheets();
-  const spreadsheetId = getSpreadsheetId();
-  const spreadsheet = await sheets.spreadsheets.get({
-    spreadsheetId,
-    fields: "sheets.properties",
-  });
-  const trainingSheet = spreadsheet.data.sheets?.find(
-    (s) => s.properties?.title === "Training"
-  );
-  if (!trainingSheet?.properties?.sheetId && trainingSheet?.properties?.sheetId !== 0) {
-    return Response.json({ error: "Could not find Training sheet" }, { status: 500 });
-  }
-  const sheetId = trainingSheet.properties.sheetId!;
-
-  const sortedDeleteRows = [...deleteRows].sort((a, b) => b - a);
-  const requests = sortedDeleteRows.map((rowNum) => ({
-    deleteDimension: {
-      range: {
-        sheetId,
-        dimension: "ROWS" as const,
-        startIndex: rowNum - 1,
-        endIndex: rowNum,
-      },
-    },
-  }));
-
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: { requests },
-  });
-
-  invalidateAll();
   return Response.json({
     success: true,
     message: `Kept row ${keepRow}, removed ${deleteRows.length} duplicate(s)`,
@@ -185,75 +246,65 @@ async function handleRemoveDuplicates(payload: RemoveDuplicatesPayload) {
 }
 
 // ----------------------------------------------------------------
-// Fix CPR/FA mismatches — batch write
+// Fix CPR/FA mismatches — sync FIRSTAID to match CPR
 // ----------------------------------------------------------------
 async function handleFixCprFa(payload: FixCprFaPayload) {
   if (!payload.items?.length) {
     return Response.json({ error: "No items provided" }, { status: 400 });
   }
 
-  const rows = await readRangeFresh("Training");
-  const headers = rows[0];
+  const supabase = createServerClient();
+  const employees = await getEmployeesSorted(supabase);
 
-  const cprCol = headers.findIndex((h) => h.trim().toUpperCase() === "CPR");
-  const faCol = headers.findIndex((h) => h.trim().toUpperCase() === "FIRSTAID");
+  // Get CPR and FIRSTAID training type IDs
+  const cprType = await getTrainingTypeByColumnKey(supabase, "CPR");
+  const faType = await getTrainingTypeByColumnKey(supabase, "FIRSTAID");
 
-  if (cprCol < 0 || faCol < 0) {
-    return Response.json({ error: `CPR (col ${cprCol}) or FIRSTAID (col ${faCol}) not found` }, { status: 500 });
+  if (!cprType || !faType) {
+    return Response.json({ error: "CPR or FIRSTAID training type not found" }, { status: 500 });
   }
 
   const skipped: string[] = [];
-  const writes: Array<{ range: string; values: string[][] }> = [];
+  let fixed = 0;
 
   for (const item of payload.items) {
-    const rowData = rows[item.row - 1];
-    if (!rowData) { skipped.push(`Row ${item.row}: not found`); continue; }
+    const idx = item.row - 2;
+    if (idx < 0 || idx >= employees.length) {
+      skipped.push(`Row ${item.row}: not found`);
+      continue;
+    }
+    const emp = employees[idx];
 
-    let cprVal = (rowData[cprCol] || "").toString().trim();
-    if (!cprVal) { skipped.push(`Row ${item.row}: CPR is empty`); continue; }
+    // Get CPR record
+    const { data: cprRecord } = await supabase
+      .from("training_records")
+      .select("completion_date")
+      .eq("employee_id", emp.id)
+      .eq("training_type_id", cprType.id)
+      .limit(1)
+      .maybeSingle();
 
-    // Normalize to M/D/YYYY if needed
-    if (!/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(cprVal)) {
-      const shortYr = cprVal.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
-      if (shortYr) {
-        let yr = parseInt(shortYr[3]);
-        yr += yr < 50 ? 2000 : 1900;
-        cprVal = `${parseInt(shortYr[1])}/${parseInt(shortYr[2])}/${yr}`;
-      } else {
-        try {
-          const d = new Date(cprVal);
-          if (!isNaN(d.getTime()) && d.getFullYear() >= 1990) {
-            cprVal = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-          }
-        } catch {}
-      }
+    if (!cprRecord?.completion_date) {
+      skipped.push(`Row ${item.row}: CPR is empty`);
+      continue;
     }
 
-    // Add cell-level writes (safe — only touches CPR and FA columns)
-    const cprLetter = colToLetter(cprCol);
-    const faLetter = colToLetter(faCol);
-    writes.push({ range: `Training!${cprLetter}${item.row}`, values: [[cprVal]] });
-    writes.push({ range: `Training!${faLetter}${item.row}`, values: [[cprVal]] });
+    // Upsert FIRSTAID to match CPR
+    await supabase
+      .from("training_records")
+      .upsert(
+        {
+          employee_id: emp.id,
+          training_type_id: faType.id,
+          completion_date: cprRecord.completion_date,
+          source: "cpr_fa_sync",
+        },
+        { onConflict: "employee_id,training_type_id" }
+      );
+
+    fixed++;
   }
 
-  // Write in chunks of 50 to avoid quota
-  const CHUNK_SIZE = 50;
-  let written = 0;
-  for (let i = 0; i < writes.length; i += CHUNK_SIZE) {
-    const chunk = writes.slice(i, i + CHUNK_SIZE);
-    const sheets = getSheets();
-    await sheets.spreadsheets.values.batchUpdate({
-      spreadsheetId: getSpreadsheetId(),
-      requestBody: { valueInputOption: "USER_ENTERED", data: chunk },
-    });
-    written += chunk.length;
-    if (i + CHUNK_SIZE < writes.length) {
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-  }
-
-  const fixed = Math.floor(written / 2);
-  invalidateAll();
   return Response.json({
     success: true,
     message: `Synced ${fixed} row(s)${skipped.length > 0 ? ". Skipped: " + skipped.slice(0, 3).join("; ") : ""}`,

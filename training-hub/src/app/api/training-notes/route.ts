@@ -1,23 +1,27 @@
-import { readRange, writeRange } from "@/lib/google-sheets";
-import { invalidateAll } from "@/lib/cache";
-
-const SETTINGS_SHEET = "Hub Settings";
+import { createServerClient } from "@/lib/supabase";
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const employee = searchParams.get("employee");
 
-    const rows = await readRange(`'${SETTINGS_SHEET}'`);
+    const supabase = createServerClient();
+
+    let query = supabase
+      .from("hub_settings")
+      .select("key, value")
+      .eq("type", "training_note");
+
+    const { data: settings, error } = await query;
+    if (error) throw new Error(`Failed to load training notes: ${error.message}`);
+
     const notes: Record<string, string> = {};
 
-    for (let i = 1; i < rows.length; i++) {
-      if ((rows[i][0] || "").trim() !== "training_note") continue;
-      const key = (rows[i][1] || "").trim();
-      const val = (rows[i][2] || "").trim();
+    for (const s of settings || []) {
+      const key = (s.key || "").trim();
+      const val = (s.value || "").trim();
       if (!key || !val) continue;
 
-      // If employee filter, only return their notes
       if (employee) {
         if (key.toLowerCase().startsWith(employee.toLowerCase() + "|")) {
           const trainingKey = key.split("|")[1];
@@ -44,29 +48,27 @@ export async function POST(request: Request) {
     }
 
     const settingsKey = `${employee}|${training}`;
-    const rows = await readRange(`'${SETTINGS_SHEET}'`);
+    const supabase = createServerClient();
 
-    // Find existing note
-    for (let i = 1; i < rows.length; i++) {
-      if ((rows[i][0] || "").trim() === "training_note" &&
-          (rows[i][1] || "").trim().toLowerCase() === settingsKey.toLowerCase()) {
-        if (note) {
-          // Update
-          await writeRange(`'${SETTINGS_SHEET}'!C${i + 1}`, [[note]]);
-        } else {
-          // Clear
-          await writeRange(`'${SETTINGS_SHEET}'!A${i + 1}:C${i + 1}`, [["", "", ""]]);
-        }
-        invalidateAll();
-        return Response.json({ success: true });
-      }
-    }
-
-    // Add new
     if (note) {
-      const nextRow = rows.length + 1;
-      await writeRange(`'${SETTINGS_SHEET}'!A${nextRow}:C${nextRow}`, [["training_note", settingsKey, note]]);
-      invalidateAll();
+      // Upsert the note
+      const { error } = await supabase
+        .from("hub_settings")
+        .upsert(
+          { type: "training_note", key: settingsKey, value: note },
+          { onConflict: "type,key" }
+        );
+
+      if (error) throw new Error(`Failed to save note: ${error.message}`);
+    } else {
+      // Delete the note
+      const { error } = await supabase
+        .from("hub_settings")
+        .delete()
+        .eq("type", "training_note")
+        .eq("key", settingsKey);
+
+      if (error) throw new Error(`Failed to delete note: ${error.message}`);
     }
 
     return Response.json({ success: true });

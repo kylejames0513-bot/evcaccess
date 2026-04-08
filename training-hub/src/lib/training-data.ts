@@ -1,50 +1,31 @@
-import { readRange, readSheetAsObjects, appendRows, findRow, updateCell, writeRange, clearCell } from "./google-sheets";
+import { createServerClient } from "./supabase";
 import { TRAINING_DEFINITIONS, AUTO_FILL_RULES } from "@/config/trainings";
 import { toFirstLast as toFirstLastUtil, namesMatch } from "@/lib/name-utils";
-import { getExcludedEmployees, getCapacity } from "@/lib/hub-settings";
-import { cached, invalidateAll } from "@/lib/cache";
 import type { ComplianceStatus } from "@/types/database";
 
 // ============================================================
-// Training Data Layer — reads/writes your existing Google Sheet
+// Training Data Layer -- Supabase (PostgreSQL)
 // ============================================================
-// Sheet names match your Config.gs constants:
-//   "Training"           — employee names + training dates
-//   "Scheduled"          — upcoming classes
-//   "Scheduled Overview" — summary of scheduled trainings
-//   "Training Rosters"   — compliance rosters
-//   "Removal Log"        — audit trail
+// Migrated from Google Sheets reads to direct Supabase queries.
+// Uses the employee_compliance view for compliance calculations
+// and direct table queries for sessions/enrollments.
 // ============================================================
 
-const TRAINING_SHEET = "Training";
-const SCHEDULED_SHEET = "Scheduled";
-const OVERVIEW_SHEET = "Scheduled Overview";
-
-// Excusal codes from Config.gs
+// Excusal codes from Config.gs (kept for backward compat with imported data)
 const EXCUSAL_CODES = new Set([
-  // Standard not-applicable
   "NA", "N/A", "N/",
-  // Leadership / executive roles
   "VP", "DIR", "DIRECTOR", "CEO", "CFO", "COO", "CMO",
   "AVP", "SVP", "EVP", "PRESIDENT",
-  // Management
   "MGR", "MANAGER", "SUPERVISOR", "SUPV",
-  // Location/program excusals
   "ELC", "EI",
-  // Department excusals
   "FACILITIES", "MAINT",
   "HR", "FINANCE", "FIN", "IT", "ADMIN",
-  // Nursing credentials
   "NURSE", "LPN", "RN", "CNA",
-  // Role codes
   "BH", "PA", "BA", "QA", "TAC",
-  // Board of Directors
   "BOARD",
-  // Facility/failure codes (tracked separately by data integrity)
   "FX1", "FX2", "FX3", "FS",
   "F X 2", "FX 1",
   "FX1*", "FX1/NS", "FX1 - S", "FX1 - R",
-  // Other
   "TRAINER", "LP", "NS", "LLL",
 ]);
 
@@ -52,132 +33,18 @@ function isExcusal(value: string): boolean {
   return EXCUSAL_CODES.has(value.trim().toUpperCase());
 }
 
-const MONTH_NAMES: Record<string, number> = {
-  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
-  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
-  jan: 0, feb: 1, mar: 2, apr: 3, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
-};
-
-/**
- * Parse dates in various formats:
- *   "4/2/2026", "04/02/2026", "2026-04-02"
- *   "April 6", "April 6 – April 9", "April 27 - 30"
- * Returns the first/start date found.
- */
-function parseFuzzyDate(value: string): Date | null {
-  if (!value) return null;
-  const s = value.trim();
-
-  // Try standard date parse first (handles "4/2/2026", "2026-04-02", etc.)
-  const direct = new Date(s);
-  if (!isNaN(direct.getTime()) && direct.getFullYear() > 2000) return direct;
-
-  // Try "Month Day" patterns: "April 6", "April 6 – April 9", "April 27 - 30"
-  const monthMatch = s.match(/([A-Za-z]+)\s+(\d{1,2})/);
-  if (monthMatch) {
-    const monthNum = MONTH_NAMES[monthMatch[1].toLowerCase()];
-    if (monthNum !== undefined) {
-      const day = parseInt(monthMatch[2]);
-      const year = new Date().getFullYear();
-      return new Date(year, monthNum, day);
-    }
-  }
-
-  return null;
-}
-
-/**
- * Normalize any date string to MM/DD/YYYY format.
- * Multi-day ranges like "April 6 – April 9" become "4/6 – 4/9/2026".
- */
-function normalizeDateDisplay(value: string): string {
-  const s = value.trim();
-
-  // Already in numeric format? Keep it.
-  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(s)) return s;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    const d = new Date(s);
-    return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-  }
-
-  // Range: "April 6 – April 9" or "April 27 - 30"
-  const rangeMatch = s.match(/([A-Za-z]+)\s+(\d{1,2})\s*[–\-]\s*(?:([A-Za-z]+)\s+)?(\d{1,2})/);
-  if (rangeMatch) {
-    const startMonth = MONTH_NAMES[rangeMatch[1].toLowerCase()];
-    const startDay = parseInt(rangeMatch[2]);
-    const endMonthName = rangeMatch[3];
-    const endDay = parseInt(rangeMatch[4]);
-    const endMonth = endMonthName ? MONTH_NAMES[endMonthName.toLowerCase()] : startMonth;
-
-    if (startMonth !== undefined && endMonth !== undefined) {
-      const year = new Date().getFullYear();
-      return `${startMonth + 1}/${startDay} – ${endMonth + 1}/${endDay}/${year}`;
-    }
-  }
-
-  // Single: "April 6"
-  const singleMatch = s.match(/([A-Za-z]+)\s+(\d{1,2})/);
-  if (singleMatch) {
-    const monthNum = MONTH_NAMES[singleMatch[1].toLowerCase()];
-    if (monthNum !== undefined) {
-      const day = parseInt(singleMatch[2]);
-      const year = new Date().getFullYear();
-      return `${monthNum + 1}/${day}/${year}`;
-    }
-  }
-
-  // Can't parse — return as-is
-  return s;
-}
-
-function parseDate(value: string): Date | null {
-  if (!value || isExcusal(value)) return null;
-  const s = value.trim();
-
-  // Try MM/DD/YYYY or M/D/YYYY or MM/DD/YY
-  const slashMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if (slashMatch) {
-    const month = parseInt(slashMatch[1]) - 1;
-    const day = parseInt(slashMatch[2]);
-    let year = parseInt(slashMatch[3]);
-    if (year < 100) year += 2000; // "24" -> 2024
-    const d = new Date(year, month, day);
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  // Try YYYY-MM-DD
-  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoMatch) {
-    const d = new Date(parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]));
-    return isNaN(d.getTime()) ? null : d;
-  }
-
-  // Try "Month Day, Year" or "Month Day Year"
-  const textMatch = s.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s*(\d{4})$/);
-  if (textMatch) {
-    const monthNum = MONTH_NAMES[textMatch[1].toLowerCase()];
-    if (monthNum !== undefined) {
-      return new Date(parseInt(textMatch[3]), monthNum, parseInt(textMatch[2]));
-    }
-  }
-
-  // Fallback to native parsing
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? null : d;
-}
-
-// ────────────────────────────────────────────────────────────
-// Employee + compliance data from the Training sheet
-// ────────────────────────────────────────────────────────────
+// --------------------------------------------------------
+// Employee + compliance data from Supabase
+// --------------------------------------------------------
 
 export interface EmployeeTrainingRow {
   name: string;       // "Last, First"
-  employeeId: string; // ID from first column
-  position: string;   // Division Description
+  employeeId: string; // UUID
+  position: string;   // department
   hireDate: string;   // Hire Date
-  rowIndex: number;   // 1-based row in sheet
+  rowIndex: number;   // kept for backward compat (uses numeric hash)
   trainings: Record<string, {
-    value: string;        // raw cell value
+    value: string;        // raw value (date string or excusal code)
     date: Date | null;    // parsed date or null
     isExcused: boolean;
     status: ComplianceStatus;
@@ -203,150 +70,135 @@ export interface DashboardStats {
 }
 
 /**
- * Read the Training sheet and compute compliance for every employee.
+ * Read compliance data from the employee_compliance view.
  */
 export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
-  const rows = await readRange(TRAINING_SHEET);
-  if (rows.length < 2) return [];
-
-  const headers = rows[0];
-  const now = new Date();
-  const soonThreshold = new Date();
-  soonThreshold.setDate(soonThreshold.getDate() + 60);
+  const supabase = createServerClient();
 
   // Load excluded employees
+  const { getExcludedEmployees } = await import("@/lib/hub-settings");
   const excluded = await getExcludedEmployees();
   const excludedSet = new Set(excluded.map((n) => n.toLowerCase()));
 
-  // All training definitions — department rules control per-division requirements
+  // Load department rules
   const { getDeptRules } = await import("@/lib/hub-settings");
-  const trackedDefs = TRAINING_DEFINITIONS;
-
-  // Load department training rules
   const deptRules = await getDeptRules();
-  const deptRequiredMap = new Map<string, Set<string>>(); // dept → required training keys
+  const deptRequiredMap = new Map<string, Set<string>>();
   for (const rule of deptRules) {
     deptRequiredMap.set(rule.department.toLowerCase(), new Set(rule.required));
   }
 
-  const employees: EmployeeTrainingRow[] = [];
+  // Query the employee_compliance view
+  const { data: complianceRows, error } = await supabase
+    .from("employee_compliance")
+    .select("*");
 
-  // Resolve key columns by header name (not hardcoded index)
-  const hdr = (label: string) =>
-    headers.findIndex((h) => h.trim().toUpperCase() === label.toUpperCase());
-  const idCol = hdr("ID");
-  const lNameCol = hdr("L NAME");
-  const fNameCol = hdr("F NAME");
-  const activeCol = hdr("ACTIVE");
-  const divisionCol = hdr("Division Description");
-  const hireDateCol = hdr("Hire Date");
+  if (error) throw new Error(`Failed to load compliance data: ${error.message}`);
+  if (!complianceRows || complianceRows.length === 0) return [];
 
-  if (lNameCol < 0 || fNameCol < 0) return []; // can't proceed without name columns
+  // Also fetch employee hire dates
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, hire_date")
+    .eq("is_active", true);
 
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    const lastName = (row[lNameCol] || "").trim();
-    const firstName = (row[fNameCol] || "").trim();
-    const employeeId = idCol >= 0 ? (row[idCol] || "").toString().trim() : "";
-    const position = divisionCol >= 0 ? (row[divisionCol] || "").trim() : "";
-    const hireDate = hireDateCol >= 0 ? (row[hireDateCol] || "").toString().trim() : "";
-    if (!lastName) continue;
+  const hireDateMap = new Map<string, string>();
+  for (const emp of employees || []) {
+    if (emp.hire_date) hireDateMap.set(emp.id, emp.hire_date);
+  }
 
-    // Combine to "Last, First"
-    const name = firstName ? `${lastName}, ${firstName}` : lastName;
+  // Group by employee
+  const employeeMap = new Map<string, EmployeeTrainingRow>();
+  const trackedDefs = TRAINING_DEFINITIONS;
 
-    // Only include active employees
-    const activeFlag = activeCol >= 0
-      ? (row[activeCol] || "").toString().trim().toUpperCase()
-      : "Y"; // default to active if no Active column
-    if (activeFlag !== "Y") continue;
-
-    // Skip excluded employees
+  for (const row of complianceRows) {
+    const name = `${row.last_name}, ${row.first_name}`;
     if (excludedSet.has(name.toLowerCase())) continue;
 
-    // Determine which trainings this employee is monitored for (required)
-    // Only trainings in their division's "required" list show on compliance
-    // No rule = all tracked trainings are required
+    const position = row.department || "";
     const empRequired = position ? deptRequiredMap.get(position.toLowerCase()) : undefined;
     const employeeDefs = empRequired
       ? empRequired.has("ALL")
         ? trackedDefs
         : trackedDefs.filter((d) => empRequired.has(d.columnKey))
-      : trackedDefs; // no rule = all tracked trainings
+      : trackedDefs;
 
-    const trainings: EmployeeTrainingRow["trainings"] = {};
+    // Find the matching training def for this row
+    const def = employeeDefs.find(
+      (d) => d.columnKey === row.training_name ||
+        d.name === row.training_name ||
+        d.columnKey.toLowerCase() === (row.training_name || "").toLowerCase()
+    );
+    if (!def) continue;
 
-    for (const def of employeeDefs) {
-      const colIndex = headers.findIndex(
-        (h) => h.trim().toUpperCase() === def.columnKey.toUpperCase()
-      );
-      if (colIndex === -1) continue;
-
-      // Prerequisite check: skip if prerequisite column has no date
-      // (e.g., Post Med requires MED_TRAIN — don't show if no MED_TRAIN date)
-      if (def.prerequisite) {
-        const prereqCol = headers.findIndex(
-          (h) => h.trim().toUpperCase() === def.prerequisite!.toUpperCase()
-        );
-        if (prereqCol >= 0) {
-          const prereqVal = (row[prereqCol] || "").trim();
-          const prereqDate = parseDate(prereqVal);
-          if (!prereqDate && !isExcusal(prereqVal)) continue; // no prereq = skip this training
-        }
-      }
-
-      const value = (row[colIndex] || "").trim();
-      const isExcused = isExcusal(value);
-      const date = parseDate(value);
-
-      let status: ComplianceStatus;
-      if (isExcused) {
-        status = "excused";
-      } else if (!date) {
-        status = def.isRequired ? "expired" : "needed";
-      } else if (def.renewalYears === 0) {
-        status = "current"; // one-and-done, has a date
-      } else {
-        const expiry = new Date(date);
-        expiry.setFullYear(expiry.getFullYear() + def.renewalYears);
-        if (expiry < now) {
-          status = "expired";
-        } else if (expiry < soonThreshold) {
-          status = "expiring_soon";
-        } else {
-          status = "current";
-        }
-      }
-
-      // onlyExpired: skip if employee has no date or is current (they need Initial, not Recert)
-      // But still write "current" status so the training doesn't disappear
-      if (def.onlyExpired && (!date || status === "needed" || status === "current")) {
-        if (date && status === "current" && !trainings[def.columnKey]) {
-          trainings[def.columnKey] = { value, date, isExcused, status };
-        }
-        continue;
-      }
-      // onlyNeeded: skip if employee already has a date (they need Recert, not Initial)
-      if (def.onlyNeeded && date) continue;
-
-      // Don't overwrite if this columnKey was already set by a more specific def
-      if (trainings[def.columnKey]) continue;
-
-      trainings[def.columnKey] = { value, date, isExcused, status };
+    if (!employeeMap.has(row.employee_id)) {
+      employeeMap.set(row.employee_id, {
+        name,
+        employeeId: row.employee_id,
+        position,
+        hireDate: hireDateMap.get(row.employee_id) || "",
+        rowIndex: Math.abs(hashCode(row.employee_id)) % 100000,
+        trainings: {},
+      });
     }
 
-    employees.push({ name, employeeId, position, hireDate, rowIndex: i + 1, trainings });
+    const emp = employeeMap.get(row.employee_id)!;
+    const status = row.status as ComplianceStatus;
+    const isExcused = status === "excused";
+    const completionDate = row.completion_date ? new Date(row.completion_date) : null;
+    const value = isExcused
+      ? (row.excusal_reason || "N/A")
+      : completionDate
+        ? formatDateMDY(completionDate)
+        : "";
+
+    // Prerequisite check
+    if (def.prerequisite) {
+      const prereqTraining = complianceRows.find(
+        (r: any) => r.employee_id === row.employee_id &&
+          (r.training_name === def.prerequisite || r.training_name?.toLowerCase() === def.prerequisite?.toLowerCase())
+      );
+      if (prereqTraining && !prereqTraining.completion_date && prereqTraining.status !== "excused") continue;
+    }
+
+    // onlyExpired: skip if no date or current
+    if (def.onlyExpired && (!completionDate || status === "needed" || status === "current")) {
+      if (completionDate && status === "current" && !emp.trainings[def.columnKey]) {
+        emp.trainings[def.columnKey] = { value, date: completionDate, isExcused, status };
+      }
+      continue;
+    }
+    // onlyNeeded: skip if already has a date
+    if (def.onlyNeeded && completionDate) continue;
+
+    // Don't overwrite if already set
+    if (emp.trainings[def.columnKey]) continue;
+
+    emp.trainings[def.columnKey] = { value, date: completionDate, isExcused, status };
   }
 
-  return employees;
+  return Array.from(employeeMap.values());
+}
+
+function hashCode(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    const char = s.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash |= 0;
+  }
+  return hash;
+}
+
+function formatDateMDY(d: Date): string {
+  return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
 }
 
 /**
- * Get compliance issues (expired, expiring soon, needed) across all employees.
+ * Get compliance issues (expired, expiring soon, needed).
  */
 export async function getComplianceIssues(): Promise<ComplianceIssue[]> {
   const data = await getTrainingData();
-  // Use all training definitions — department rules already filtered per employee
   const trackedDefs = TRAINING_DEFINITIONS;
   const issues: ComplianceIssue[] = [];
 
@@ -354,9 +206,6 @@ export async function getComplianceIssues(): Promise<ComplianceIssue[]> {
     for (const def of trackedDefs) {
       const t = emp.trainings[def.columnKey];
       if (!t) continue;
-
-      // Respect onlyExpired/onlyNeeded so Med Recert and Initial Med Training
-      // don't double-report the same column
       if (def.onlyExpired && t.status === "needed") continue;
       if (def.onlyNeeded && (t.status === "expired" || t.status === "expiring_soon") && t.date) continue;
 
@@ -379,13 +228,11 @@ export async function getComplianceIssues(): Promise<ComplianceIssue[]> {
     }
   }
 
-  // Sort: by status priority first, then by expiration date (soonest first)
   const priority: Record<string, number> = { expired: 0, expiring_soon: 1, needed: 2 };
   issues.sort((a, b) => {
     const pa = priority[a.status] ?? 3;
     const pb = priority[b.status] ?? 3;
     if (pa !== pb) return pa - pb;
-    // Within same status, sort by date (earliest first, nulls last)
     if (a.expirationDate && b.expirationDate) return a.expirationDate.localeCompare(b.expirationDate);
     if (a.expirationDate) return -1;
     if (b.expirationDate) return 1;
@@ -399,7 +246,7 @@ export async function getComplianceIssues(): Promise<ComplianceIssue[]> {
 }
 
 /**
- * Get dashboard summary stats.
+ * Dashboard summary stats.
  */
 export async function getDashboardStats(): Promise<DashboardStats> {
   const data = await getTrainingData();
@@ -424,212 +271,124 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   };
 }
 
-// ────────────────────────────────────────────────────────────
-// Scheduled sessions from the Scheduled sheet
-// ────────────────────────────────────────────────────────────
+// --------------------------------------------------------
+// Scheduled sessions from Supabase
+// --------------------------------------------------------
 
 export interface ScheduledSession {
   rowIndex: number;
   training: string;
   date: string;
-  sortDateMs: number;   // millisecond timestamp for reliable sorting
+  sortDateMs: number;
   time: string;
   location: string;
-  enrolled: string[];   // names of enrolled people
-  noShows: string[];    // names of people who didn't show
+  enrolled: string[];
+  noShows: string[];
   capacity: number;
   status: "scheduled" | "completed";
 }
 
 /**
- * Read the Scheduled sheet to get upcoming training sessions.
- * Columns match Rosters.gs rewriteScheduledSheet_:
- *   A: Type (training name)
- *   B: Dates
- *   C: Time
- *   D: Location
- *   E: Enrollment (comma-separated names)
+ * Read scheduled sessions from Supabase training_sessions + enrollments.
  */
 export async function getScheduledSessions(): Promise<ScheduledSession[]> {
-  const rows = await readRange(SCHEDULED_SHEET);
-  if (rows.length < 2) return [];
+  const supabase = createServerClient();
 
-  // Load all capacity overrides once
-  const { getCapacityOverrides } = await import("@/lib/hub-settings");
-  const overrides = await getCapacityOverrides();
+  const { data: sessions, error } = await supabase
+    .from("training_sessions")
+    .select(`
+      id, session_date, start_time, location, capacity, status,
+      training_types ( name ),
+      enrollments ( status, employees ( first_name, last_name ) )
+    `)
+    .in("status", ["scheduled", "in_progress", "completed"])
+    .order("session_date", { ascending: true });
 
-  // Build a lookup: any name/alias/columnKey → override capacity
-  function resolveCapacity(training: string, defaultCap: number): number {
-    // Direct match
-    if (overrides[training] !== undefined) return overrides[training];
+  if (error) throw new Error(`Failed to load sessions: ${error.message}`);
+  if (!sessions) return [];
 
-    // Find via training definitions
-    const def = TRAINING_DEFINITIONS.find(
-      (d) => d.name.toLowerCase() === training.toLowerCase() ||
-        d.columnKey.toLowerCase() === training.toLowerCase() ||
-        d.aliases?.some((a) => a.toLowerCase() === training.toLowerCase())
-    );
-    if (def) {
-      if (overrides[def.name] !== undefined) return overrides[def.name];
-      if (overrides[def.columnKey] !== undefined) return overrides[def.columnKey];
+  return sessions.map((s: any, idx: number) => {
+    const trainingName = s.training_types?.name || "Unknown";
+    const sessionDate = new Date(s.session_date);
+    const enrolledNames: string[] = [];
+    const noShowNames: string[] = [];
+
+    for (const e of s.enrollments || []) {
+      const name = `${e.employees?.first_name} ${e.employees?.last_name}`.trim();
+      if (e.status === "no_show") {
+        noShowNames.push(name);
+      } else if (e.status !== "cancelled") {
+        enrolledNames.push(name);
+      }
     }
-    return defaultCap;
-  }
 
-  const sessions: ScheduledSession[] = [];
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  let lastType = "";
-
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    const colA = (row[0] || "").trim();
-    const colB = (row[1] || "").trim();
-    const colC = (row[2] || "").trim();
-    const colD = (row[3] || "").trim();
-    const colE = (row[4] || "").trim();
-
-    // Skip header rows
-    if (colA === "Type" || colA === "a. Upcoming Training") continue;
-
-    // Type-only row (no date) = section header
-    if (colA && !colB && !colC && !colD && !colE) { lastType = colA; continue; }
-
-    // Blank row
-    if (!colA && !colB && !colC && !colD && !colE) continue;
-
-    const training = colA || lastType;
-    if (colA) lastType = colA;
-    if (!colB) continue; // no date = skip
-
-    // Normalize the date display to MM/DD/YYYY format
-    const normalizedDate = normalizeDateDisplay(colB);
-    const sortDate = parseFuzzyDate(colB);
-
-    const colF = (row[5] || "").trim();
-
-    // Enrollment is comma-separated names in column E
-    const enrolled = colE
-      ? colE.split(",").map((n) => n.trim()).filter((n) => n && n !== "TBD")
-      : [];
-
-    // No-shows are comma-separated names in column F
-    const noShows = colF
-      ? colF.split(",").map((n) => n.trim()).filter(Boolean)
-      : [];
-
-    // Find capacity from training config
-    const def = TRAINING_DEFINITIONS.find(
-      (d) => d.name.toLowerCase() === training.toLowerCase() ||
-        d.aliases?.some((a) => a.toLowerCase() === training.toLowerCase())
-    );
-
-    sessions.push({
-      rowIndex: i + 1,
-      training,
-      date: normalizedDate,
-      sortDateMs: sortDate ? sortDate.getTime() : 0,
-      time: colC,
-      location: colD,
-      enrolled,
-      noShows,
-      capacity: resolveCapacity(training, def?.classCapacity || 15),
-      status: sortDate && sortDate < now ? "completed" : "scheduled",
-    });
-  }
-
-  // Sort by date — earliest first
-  sessions.sort((a, b) => a.sortDateMs - b.sortDateMs);
-  return sessions;
+    return {
+      rowIndex: idx + 2,
+      training: trainingName,
+      date: formatDateMDY(sessionDate),
+      sortDateMs: sessionDate.getTime(),
+      time: s.start_time || "",
+      location: s.location || "",
+      enrolled: enrolledNames,
+      noShows: noShowNames,
+      capacity: s.capacity,
+      status: s.status === "completed" ? "completed" as const : "scheduled" as const,
+    };
+  });
 }
 
-// ────────────────────────────────────────────────────────────
+// --------------------------------------------------------
 // Write operations
-// ────────────────────────────────────────────────────────────
+// --------------------------------------------------------
 
 /**
  * Record a training completion for an employee.
- * Finds their row on the Training sheet and writes the date to the correct column.
  */
 export async function recordCompletion(
   employeeName: string,
   trainingColumnKey: string,
   completionDate: string
 ): Promise<{ success: boolean; message: string }> {
-  const rows = await readRange(TRAINING_SHEET);
-  if (rows.length < 2) return { success: false, message: "Training sheet is empty" };
+  const supabase = createServerClient();
 
-  const headers = rows[0];
-  const colIndex = headers.findIndex(
-    (h) => h.trim().toUpperCase() === trainingColumnKey.toUpperCase()
-  );
-  if (colIndex === -1) {
-    return { success: false, message: `Column "${trainingColumnKey}" not found in Training sheet` };
-  }
+  // Find the employee
+  const employee = await findEmployee(supabase, employeeName);
+  if (!employee) return { success: false, message: `Employee "${employeeName}" not found` };
 
-  // Find ID and name columns by header
-  const idCol = headers.findIndex((h) => h.trim().toUpperCase() === "ID");
-  const lCol = headers.findIndex((h) => h.trim().toUpperCase() === "L NAME");
-  const fCol = headers.findIndex((h) => h.trim().toUpperCase() === "F NAME");
+  // Find the training type
+  const { data: trainingType } = await supabase
+    .from("training_types")
+    .select("id, name, column_key")
+    .or(`column_key.ilike.${trainingColumnKey},name.ilike.${trainingColumnKey}`)
+    .limit(1)
+    .single();
 
-  // Find employee row — try ID first, then name
-  let empRow = -1;
-  // If employeeName looks like an ID (short alphanumeric), try ID match
-  if (idCol >= 0 && employeeName.length <= 10 && /^[A-Z0-9]+$/i.test(employeeName)) {
-    empRow = rows.findIndex((row, i) => i > 0 && (row[idCol] || "").toString().trim() === employeeName);
-  }
-  // Name-based matching
-  if (empRow === -1) {
-    empRow = rows.findIndex((row, i) => {
-      if (i === 0) return false;
-      if (lCol >= 0 && fCol >= 0) {
-        const last = (row[lCol] || "").trim();
-        const first = (row[fCol] || "").trim();
-        const combined = first ? `${last}, ${first}` : last;
-        return namesMatch(combined, employeeName);
-      }
-      return namesMatch((row[0] || "").trim(), employeeName);
+  if (!trainingType) return { success: false, message: `Training "${trainingColumnKey}" not found` };
+
+  // Parse the date
+  const parsedDate = new Date(completionDate);
+  if (isNaN(parsedDate.getTime())) return { success: false, message: "Invalid date" };
+
+  // Insert training record (trigger handles expiration_date and auto-fill)
+  const { error } = await supabase
+    .from("training_records")
+    .insert({
+      employee_id: employee.id,
+      training_type_id: trainingType.id,
+      completion_date: parsedDate.toISOString().split("T")[0],
+      source: "manual",
     });
-  }
-  if (empRow === -1) {
-    return { success: false, message: `Employee "${employeeName}" not found` };
-  }
 
-  await updateCell(TRAINING_SHEET, empRow + 1, colIndex, completionDate);
+  if (error) return { success: false, message: `Database error: ${error.message}` };
 
-  // Apply AUTO_FILL_RULES — e.g. CPR↔FIRSTAID same date, MED_TRAIN→POST MED +1 day
-  const linkedApplied: string[] = [];
-  for (const rule of AUTO_FILL_RULES) {
-    if (rule.source.toUpperCase() !== trainingColumnKey.toUpperCase()) continue;
-    const linkedColIdx = headers.findIndex(
-      (h) => h.trim().toUpperCase() === rule.target.toUpperCase()
-    );
-    if (linkedColIdx === -1) continue;
-
-    // Compute linked date by offset
-    const baseDateObj = parseDate(completionDate);
-    if (!baseDateObj) continue;
-    const linkedDateObj = new Date(baseDateObj);
-    linkedDateObj.setDate(linkedDateObj.getDate() + rule.offsetDays);
-    const linkedDate = `${linkedDateObj.getMonth() + 1}/${linkedDateObj.getDate()}/${linkedDateObj.getFullYear()}`;
-
-    // Only write if target cell is empty or older than the new date
-    const currentVal = (rows[empRow][linkedColIdx] || "").trim();
-    const currentDateObj = parseDate(currentVal);
-    if (!currentDateObj || linkedDateObj > currentDateObj) {
-      await updateCell(TRAINING_SHEET, empRow + 1, linkedColIdx, linkedDate);
-      linkedApplied.push(rule.target);
-    }
-  }
-
-  invalidateAll();
-  const linkedNote = linkedApplied.length > 0 ? ` + auto-filled ${linkedApplied.join(", ")}` : "";
-  return { success: true, message: `Recorded ${completionDate} for ${employeeName} — ${trainingColumnKey}${linkedNote}` };
+  return {
+    success: true,
+    message: `Recorded ${completionDate} for ${employeeName} -- ${trainingType.name}`,
+  };
 }
 
 /**
- * Set or clear an excusal (N/A) for an employee's training.
- * Finds their row on the Training sheet and writes "N/A" or clears the cell.
+ * Set or clear an excusal for an employee's training.
  */
 export async function setExcusal(
   employeeName: string,
@@ -637,72 +396,65 @@ export async function setExcusal(
   excused: boolean,
   reason?: string
 ): Promise<{ success: boolean; message: string }> {
-  const rows = await readRange(TRAINING_SHEET);
-  if (rows.length < 2) return { success: false, message: "Training sheet is empty" };
+  const supabase = createServerClient();
 
-  const headers = rows[0];
-  const colIndex = headers.findIndex(
-    (h) => h.trim().toUpperCase() === trainingColumnKey.toUpperCase()
-  );
-  if (colIndex === -1) {
-    return { success: false, message: `Column "${trainingColumnKey}" not found` };
-  }
+  const employee = await findEmployee(supabase, employeeName);
+  if (!employee) return { success: false, message: `Employee "${employeeName}" not found` };
 
-  // Find by ID first, then name
-  const idCol = headers.findIndex((h) => h.trim().toUpperCase() === "ID");
-  const lCol = headers.findIndex((h) => h.trim().toUpperCase() === "L NAME");
-  const fCol = headers.findIndex((h) => h.trim().toUpperCase() === "F NAME");
+  const { data: trainingType } = await supabase
+    .from("training_types")
+    .select("id, name")
+    .or(`column_key.ilike.${trainingColumnKey},name.ilike.${trainingColumnKey}`)
+    .limit(1)
+    .single();
 
-  const nameLower = employeeName.trim().toLowerCase();
-  let empRow = -1;
-  for (let i = 1; i < rows.length; i++) {
-    // Try ID match
-    if (idCol >= 0 && (rows[i][idCol] || "").toString().trim() === employeeName.trim()) {
-      empRow = i; break;
-    }
-    // Try name match
-    const last = (rows[i][lCol >= 0 ? lCol : 0] || "").trim();
-    const first = (rows[i][fCol >= 0 ? fCol : 1] || "").trim();
-    const combined = first ? `${last}, ${first}`.toLowerCase() : last.toLowerCase();
-    if (combined === nameLower || namesMatch(`${last}, ${first}`, employeeName)) {
-      empRow = i; break;
-    }
-  }
-
-  if (empRow === -1) {
-    return { success: false, message: `Employee "${employeeName}" not found` };
-  }
+  if (!trainingType) return { success: false, message: `Training "${trainingColumnKey}" not found` };
 
   if (excused) {
-    await updateCell(TRAINING_SHEET, empRow + 1, colIndex, reason || "N/A");
+    const { error } = await supabase
+      .from("excusals")
+      .upsert({
+        employee_id: employee.id,
+        training_type_id: trainingType.id,
+        reason: reason || "N/A",
+      }, { onConflict: "employee_id,training_type_id" });
+
+    if (error) return { success: false, message: `Database error: ${error.message}` };
   } else {
-    await clearCell(TRAINING_SHEET, empRow + 1, colIndex);
+    const { error } = await supabase
+      .from("excusals")
+      .delete()
+      .eq("employee_id", employee.id)
+      .eq("training_type_id", trainingType.id);
+
+    if (error) return { success: false, message: `Database error: ${error.message}` };
   }
-  invalidateAll();
 
   const action = excused ? "Excused" : "Cleared excusal for";
-  return { success: true, message: `${action} ${employeeName} — ${trainingColumnKey}` };
+  return { success: true, message: `${action} ${employeeName} -- ${trainingType.name}` };
 }
 
 /**
- * Get the list of active employees (names) from the Training sheet.
+ * Get list of active employee names.
  */
 export async function getEmployeeList(): Promise<string[]> {
-  const rows = await readRange(`${TRAINING_SHEET}!A:C`);
-  return rows
-    .slice(1)
-    .filter((r) => (r[2] || "").toString().trim().toUpperCase() === "Y")
-    .map((r) => {
-      const last = (r[0] || "").trim();
-      const first = (r[1] || "").trim();
-      return first ? `${last}, ${first}` : last;
-    })
-    .filter(Boolean);
+  const supabase = createServerClient();
+
+  const { data, error } = await supabase
+    .from("employees")
+    .select("first_name, last_name")
+    .eq("is_active", true)
+    .order("last_name");
+
+  if (error) throw new Error(`Failed to load employees: ${error.message}`);
+
+  return (data || []).map((e) => {
+    return e.first_name ? `${e.last_name}, ${e.first_name}` : e.last_name;
+  }).filter(Boolean);
 }
 
 /**
- * Get employees who need a specific training (expired, expiring, or never completed).
- * Returns names sorted by priority: expired first, then expiring, then needed.
+ * Get employees who need a specific training.
  */
 export async function getEmployeesNeedingTraining(
   trainingName: string
@@ -715,9 +467,6 @@ export async function getEmployeesNeedingTraining(
   if (!def) return [];
 
   const now = new Date();
-
-  // Look-ahead: include people expiring within lookAheadDays
-  // Grace period: include people expired within postExpGraceDays (can still recert)
   const lookAheadDate = def.lookAheadDays && def.renewalYears > 0
     ? new Date(now.getTime() + def.lookAheadDays * 24 * 60 * 60 * 1000) : null;
   const graceDate = def.postExpGraceDays && def.renewalYears > 0
@@ -728,11 +477,9 @@ export async function getEmployeesNeedingTraining(
     const t = emp.trainings[def.columnKey];
     if (!t) continue;
 
-    // Respect onlyExpired/onlyNeeded
-    if (def.onlyExpired && (t.status === "needed")) continue;
+    if (def.onlyExpired && t.status === "needed") continue;
     if (def.onlyNeeded && (t.status === "expired" || t.status === "expiring_soon") && t.date) continue;
 
-    // Look-ahead: include "current" employees expiring within lookAheadDays
     let includeLookAhead = false;
     if (lookAheadDate && t.status === "current" && t.date && def.renewalYears > 0) {
       const expiry = new Date(t.date);
@@ -740,12 +487,10 @@ export async function getEmployeesNeedingTraining(
       if (expiry <= lookAheadDate) includeLookAhead = true;
     }
 
-    // Grace period: for expired people, only include if expired within grace days
-    // (expired more than 30 days = lost cert, needs Initial Med again)
     if (def.postExpGraceDays && t.status === "expired" && t.date && def.renewalYears > 0) {
       const expiry = new Date(t.date);
       expiry.setFullYear(expiry.getFullYear() + def.renewalYears);
-      if (expiry < (graceDate || now)) continue; // too long expired — skip for recert
+      if (expiry < (graceDate || now)) continue;
     }
 
     if (t.status === "expired" || t.status === "expiring_soon" || t.status === "needed" || includeLookAhead) {
@@ -771,27 +516,22 @@ export async function getEmployeesNeedingTraining(
     }
   }
 
-  // Sort: expired by daysExpired DESC (longest expired first),
-  // then expiring_soon by daysUntilExpiry ASC (soonest first),
-  // then needed
   const priority: Record<string, number> = { expired: 0, expiring_soon: 1, needed: 2 };
   results.sort((a, b) => {
     const pa = priority[a.status] ?? 3;
     const pb = priority[b.status] ?? 3;
     if (pa !== pb) return pa - pb;
-    if (a.status === "expired") return b.daysExpired - a.daysExpired; // longest expired first
-    if (a.status === "expiring_soon") return a.daysUntilExpiry - b.daysUntilExpiry; // soonest first
+    if (a.status === "expired") return b.daysExpired - a.daysExpired;
+    if (a.status === "expiring_soon") return a.daysUntilExpiry - b.daysUntilExpiry;
     return a.name.localeCompare(b.name);
   });
   return results;
 }
 
-// Use shared toFirstLast from name-utils
 const toFirstLast = toFirstLastUtil;
 
 /**
- * Create a new session on the Scheduled sheet.
- * Appends a row: [Type, Date, Time, Location, Enrollment]
+ * Create a new session.
  */
 export async function createSession(
   trainingType: string,
@@ -800,9 +540,46 @@ export async function createSession(
   location: string,
   enrollees: string[]
 ): Promise<{ success: boolean; message: string }> {
-  const enrollStr = enrollees.length > 0 ? enrollees.map(toFirstLast).join(", ") : "TBD";
-  await appendRows(SCHEDULED_SHEET, [[trainingType, date, time, location, enrollStr]]);
-  invalidateAll();
+  const supabase = createServerClient();
+
+  // Find training type
+  const { data: tt } = await supabase
+    .from("training_types")
+    .select("id, class_capacity")
+    .or(`name.ilike.${trainingType},column_key.ilike.${trainingType}`)
+    .limit(1)
+    .single();
+
+  if (!tt) return { success: false, message: `Training type "${trainingType}" not found` };
+
+  // Create session
+  const { data: session, error: sessionErr } = await supabase
+    .from("training_sessions")
+    .insert({
+      training_type_id: tt.id,
+      session_date: date,
+      start_time: time || null,
+      location: location || null,
+      capacity: tt.class_capacity,
+    })
+    .select("id")
+    .single();
+
+  if (sessionErr || !session) return { success: false, message: `Failed to create session: ${sessionErr?.message}` };
+
+  // Enroll employees
+  if (enrollees.length > 0) {
+    for (const name of enrollees) {
+      const employee = await findEmployee(supabase, name);
+      if (employee) {
+        await supabase.from("enrollments").insert({
+          session_id: session.id,
+          employee_id: employee.id,
+        });
+      }
+    }
+  }
+
   return {
     success: true,
     message: `Created ${trainingType} session on ${date} with ${enrollees.length} enrollee(s)`,
@@ -810,56 +587,50 @@ export async function createSession(
 }
 
 /**
- * Add enrollees to an existing session on the Scheduled sheet.
- * Reads current enrollment from column E, appends new names, writes back.
+ * Add enrollees to an existing session.
  */
 export async function addEnrollees(
   sessionRowIndex: number,
   newNames: string[]
 ): Promise<{ success: boolean; message: string }> {
-  const rows = await readRange(SCHEDULED_SHEET);
-  const row = rows[sessionRowIndex - 1];
-  if (!row) return { success: false, message: "Session row not found" };
+  const supabase = createServerClient();
 
-  const sessionTraining = (row[0] || "").trim();
-  const currentEnrollment = (row[4] || "").trim();
-  const existing = currentEnrollment && currentEnrollment !== "TBD"
-    ? currentEnrollment.split(",").map((n) => n.trim()).filter(Boolean)
-    : [];
+  // Find session by looking up all sessions sorted by date
+  const session = await findSessionByIndex(supabase, sessionRowIndex);
+  if (!session) return { success: false, message: "Session not found" };
 
-  // Collect ALL names enrolled in any session of the same training type
-  const { trainingMatchesAny } = await import("@/lib/training-match");
-  const allEnrolledInTraining: string[] = [...existing];
-  for (let r = 1; r < rows.length; r++) {
-    if (r === sessionRowIndex - 1) continue; // skip current session
-    const otherTraining = (rows[r][0] || "").trim();
-    const otherEnrollment = (rows[r][4] || "").trim();
-    if (!otherTraining || !otherEnrollment) continue;
-    if (trainingMatchesAny(otherTraining, sessionTraining)) {
-      const otherNames = otherEnrollment.split(",").map((n) => n.trim()).filter((n) => n && n !== "TBD");
-      allEnrolledInTraining.push(...otherNames);
+  // Check all sessions of same training type to prevent double-enrollment
+  const { data: otherEnrollments } = await supabase
+    .from("enrollments")
+    .select("employee_id, training_sessions!inner(training_type_id, status)")
+    .eq("training_sessions.training_type_id", session.training_type_id)
+    .in("training_sessions.status", ["scheduled", "in_progress"])
+    .neq("status", "cancelled");
+
+  const allEnrolledIds = new Set((otherEnrollments || []).map((e: any) => e.employee_id));
+
+  let added = 0;
+  const addedNames: string[] = [];
+  for (const name of newNames) {
+    const employee = await findEmployee(supabase, name);
+    if (!employee || allEnrolledIds.has(employee.id)) continue;
+
+    const { error } = await supabase.from("enrollments").insert({
+      session_id: session.id,
+      employee_id: employee.id,
+    });
+
+    if (!error) {
+      added++;
+      addedNames.push(toFirstLast(name));
     }
   }
 
-  // Convert new names to "First Last" format for the sheet
-  const newNamesConverted = newNames.map(toFirstLast);
-
-  // Don't add if already enrolled in THIS session or ANY other session of same training
-  const toAdd = newNamesConverted.filter(
-    (n) => !allEnrolledInTraining.some((e) => namesMatch(e, n))
-  );
-
-  if (toAdd.length === 0) {
+  if (added === 0) {
     return { success: false, message: "All selected employees are already enrolled in a session for this training" };
   }
 
-  const updated = [...existing, ...toAdd].join(", ");
-  await updateCell(SCHEDULED_SHEET, sessionRowIndex, 4, updated);
-  invalidateAll();
-  return {
-    success: true,
-    message: `Added ${toAdd.length} enrollee(s): ${toAdd.join(", ")}`,
-  };
+  return { success: true, message: `Added ${added} enrollee(s): ${addedNames.join(", ")}` };
 }
 
 /**
@@ -869,135 +640,94 @@ export async function removeEnrollee(
   sessionRowIndex: number,
   nameToRemove: string
 ): Promise<{ success: boolean; message: string }> {
-  const rows = await readRange(SCHEDULED_SHEET);
-  const row = rows[sessionRowIndex - 1];
-  if (!row) return { success: false, message: "Session row not found" };
+  const supabase = createServerClient();
 
-  const currentEnrollment = (row[4] || "").trim();
-  const existing = currentEnrollment
-    ? currentEnrollment.split(",").map((n) => n.trim()).filter(Boolean)
-    : [];
+  const session = await findSessionByIndex(supabase, sessionRowIndex);
+  if (!session) return { success: false, message: "Session not found" };
 
-  const updated = existing.filter(
-    (n) => !namesMatch(n, nameToRemove)
-  );
+  const employee = await findEmployee(supabase, nameToRemove);
+  if (!employee) return { success: false, message: `"${nameToRemove}" not found` };
 
-  if (updated.length === existing.length) {
+  const { error, count } = await supabase
+    .from("enrollments")
+    .delete()
+    .eq("session_id", session.id)
+    .eq("employee_id", employee.id);
+
+  if (error || count === 0) {
     return { success: false, message: `"${nameToRemove}" not found in enrollment` };
   }
 
-  const newStr = updated.length > 0 ? updated.join(", ") : "TBD";
-  await updateCell(SCHEDULED_SHEET, sessionRowIndex, 4, newStr);
-  invalidateAll();
   return { success: true, message: `Removed ${nameToRemove}` };
 }
 
 /**
- * Delete a scheduled session by clearing its row on the Scheduled sheet.
+ * Delete a scheduled session.
  */
 export async function deleteSession(
   sessionRowIndex: number
 ): Promise<{ success: boolean; message: string }> {
-  const rows = await readRange(SCHEDULED_SHEET);
-  const row = rows[sessionRowIndex - 1];
-  if (!row) return { success: false, message: "Session row not found" };
+  const supabase = createServerClient();
 
-  const training = (row[0] || "").trim();
-  const date = (row[1] || "").trim();
+  const session = await findSessionByIndex(supabase, sessionRowIndex);
+  if (!session) return { success: false, message: "Session not found" };
 
-  // Clear all columns in this row (A through F)
-  await writeRange(
-    `${SCHEDULED_SHEET}!A${sessionRowIndex}:F${sessionRowIndex}`,
-    [["", "", "", "", "", ""]]
-  );
-  invalidateAll();
-  return { success: true, message: `Deleted ${training} on ${date}` };
+  const { error } = await supabase
+    .from("training_sessions")
+    .update({ status: "cancelled" as const })
+    .eq("id", session.id);
+
+  if (error) return { success: false, message: `Failed to delete: ${error.message}` };
+
+  return { success: true, message: `Deleted ${session.training_name} on ${session.session_date}` };
 }
 
-const ARCHIVE_SHEET = "Archive";
-
 /**
- * Archive a session: copy to Archive sheet, then clear from Scheduled.
+ * Archive a session: mark completed and record training completions.
  */
 export async function archiveSession(
   sessionRowIndex: number
 ): Promise<{ success: boolean; message: string }> {
-  const rows = await readRange(SCHEDULED_SHEET);
-  const row = rows[sessionRowIndex - 1];
-  if (!row) return { success: false, message: "Session row not found" };
+  const supabase = createServerClient();
 
-  const training = (row[0] || "").trim();
-  const date = (row[1] || "").trim();
-  const time = (row[2] || "").trim();
-  const location = (row[3] || "").trim();
-  const enrolled = (row[4] || "").trim();
-  const noShows = (row[5] || "").trim();
-  const archivedDate = new Date().toLocaleDateString();
+  const session = await findSessionByIndex(supabase, sessionRowIndex);
+  if (!session) return { success: false, message: "Session not found" };
 
-  // Ensure Archive sheet exists
-  const { getSheetNames } = await import("./google-sheets");
-  const { getSheets, getSpreadsheetId } = await import("./google-sheets");
-  const sheetNames = await getSheetNames();
-  if (!sheetNames.includes(ARCHIVE_SHEET)) {
-    const sheets = getSheets();
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: getSpreadsheetId(),
-      requestBody: {
-        requests: [{ addSheet: { properties: { title: ARCHIVE_SHEET } } }],
-      },
+  // Get enrollments with employee details
+  const { data: enrollments } = await supabase
+    .from("enrollments")
+    .select("id, employee_id, status, employees(first_name, last_name)")
+    .eq("session_id", session.id);
+
+  // Record completions for attended/enrolled (not no-shows)
+  for (const enrollment of enrollments || []) {
+    if (enrollment.status === "no_show" || enrollment.status === "cancelled") continue;
+
+    // Insert training record (trigger handles expiration + auto-fill)
+    await supabase.from("training_records").insert({
+      employee_id: enrollment.employee_id,
+      training_type_id: session.training_type_id,
+      completion_date: session.session_date,
+      session_id: session.id,
+      source: "session",
     });
-    await writeRange(`'${ARCHIVE_SHEET}'!A1:G1`, [["Training", "Date", "Time", "Location", "Enrolled", "No-Shows", "Archived On"]]);
+
+    // Update enrollment status
+    await supabase.from("enrollments")
+      .update({ status: "attended" as const, completed_at: new Date().toISOString() })
+      .eq("id", enrollment.id);
   }
 
-  // Append to Archive
-  await appendRows(ARCHIVE_SHEET, [[training, date, time, location, enrolled, noShows, archivedDate]]);
+  // Mark session as completed
+  await supabase.from("training_sessions")
+    .update({ status: "completed" as const })
+    .eq("id", session.id);
 
-  // Record completion dates on the Training sheet for enrolled employees (skip no-shows)
-  const trainingDef = TRAINING_DEFINITIONS.find(
-    (d) =>
-      d.name.toLowerCase() === training.toLowerCase() ||
-      d.columnKey.toLowerCase() === training.toLowerCase() ||
-      d.aliases?.some((a) => a.toLowerCase() === training.toLowerCase())
-  );
-  if (trainingDef) {
-    const enrolledNames = enrolled
-      ? enrolled.split(",").map((n) => n.trim()).filter((n) => n && n !== "TBD")
-      : [];
-    const noShowNames = noShows
-      ? noShows.split(",").map((n) => n.trim()).filter(Boolean)
-      : [];
-
-    const completionDate = normalizeDateDisplay(date);
-
-    for (const enrolledName of enrolledNames) {
-      // Skip no-shows
-      if (noShowNames.some((ns) => namesMatch(ns, enrolledName))) continue;
-
-      try {
-        const result = await recordCompletion(enrolledName, trainingDef.columnKey, completionDate);
-        if (!result.success) {
-          console.warn(`[archiveSession] Could not record completion for "${enrolledName}": ${result.message}`);
-        }
-      } catch (err) {
-        console.warn(`[archiveSession] Error recording completion for "${enrolledName}":`, err);
-      }
-    }
-  } else {
-    console.warn(`[archiveSession] No training definition found for "${training}" — skipping completion writes`);
-  }
-
-  // Clear from Scheduled
-  await writeRange(
-    `${SCHEDULED_SHEET}!A${sessionRowIndex}:F${sessionRowIndex}`,
-    [["", "", "", "", "", ""]]
-  );
-
-  invalidateAll();
-  return { success: true, message: `Archived ${training} on ${date}` };
+  return { success: true, message: `Archived ${session.training_name} on ${session.session_date}` };
 }
 
 /**
- * Read all sessions from the Archive sheet.
+ * Read archived sessions.
  */
 export async function getArchivedSessions(): Promise<
   Array<{
@@ -1010,82 +740,126 @@ export async function getArchivedSessions(): Promise<
     archivedOn: string;
   }>
 > {
-  let rows: string[][];
-  try {
-    rows = await readRange(ARCHIVE_SHEET);
-  } catch {
-    // Archive sheet may not exist yet
-    return [];
-  }
-  if (rows.length < 2) return [];
+  const supabase = createServerClient();
 
-  // Skip header row
-  return rows.slice(1).filter((row) => (row[0] || "").trim()).map((row) => ({
-    training: (row[0] || "").trim(),
-    date: (row[1] || "").trim(),
-    time: (row[2] || "").trim(),
-    location: (row[3] || "").trim(),
-    enrolled: (row[4] || "")
-      .split(",")
-      .map((n) => n.trim())
-      .filter((n) => n && n !== "TBD"),
-    noShows: (row[5] || "")
-      .split(",")
-      .map((n) => n.trim())
-      .filter(Boolean),
-    archivedOn: (row[6] || "").trim(),
-  }));
+  const { data: sessions, error } = await supabase
+    .from("training_sessions")
+    .select(`
+      id, session_date, start_time, location, updated_at,
+      training_types ( name ),
+      enrollments ( status, employees ( first_name, last_name ) )
+    `)
+    .eq("status", "completed")
+    .order("updated_at", { ascending: false });
+
+  if (error || !sessions) return [];
+
+  return sessions.map((s: any) => {
+    const enrolled: string[] = [];
+    const noShows: string[] = [];
+    for (const e of s.enrollments || []) {
+      const name = `${e.employees?.first_name} ${e.employees?.last_name}`.trim();
+      if (e.status === "no_show") noShows.push(name);
+      else if (e.status !== "cancelled") enrolled.push(name);
+    }
+
+    return {
+      training: s.training_types?.name || "Unknown",
+      date: s.session_date,
+      time: s.start_time || "",
+      location: s.location || "",
+      enrolled,
+      noShows,
+      archivedOn: s.updated_at ? new Date(s.updated_at).toLocaleDateString() : "",
+    };
+  });
 }
 
 /**
- * Record no-shows for a session. Writes names to column F and removes them from enrollment (column E).
+ * Record no-shows for a session.
  */
 export async function recordNoShows(
   sessionRowIndex: number,
   noShowNames: string[]
 ): Promise<{ success: boolean; message: string }> {
-  if (noShowNames.length === 0) {
-    return { success: false, message: "No names provided" };
+  if (noShowNames.length === 0) return { success: false, message: "No names provided" };
+
+  const supabase = createServerClient();
+  const session = await findSessionByIndex(supabase, sessionRowIndex);
+  if (!session) return { success: false, message: "Session not found" };
+
+  for (const name of noShowNames) {
+    const employee = await findEmployee(supabase, name);
+    if (!employee) continue;
+
+    await supabase.from("enrollments")
+      .update({ status: "no_show" as const })
+      .eq("session_id", session.id)
+      .eq("employee_id", employee.id);
   }
 
-  const rows = await readRange(SCHEDULED_SHEET);
-  const row = rows[sessionRowIndex - 1];
-  if (!row) return { success: false, message: "Session row not found" };
-
-  // Remove no-shows from enrollment (column E)
-  const currentEnrollment = (row[4] || "").trim();
-  const enrolled = currentEnrollment
-    ? currentEnrollment.split(",").map((n) => n.trim()).filter(Boolean)
-    : [];
-
-  const updatedEnrolled = enrolled.filter(
-    (n) => !noShowNames.some((ns) => namesMatch(n, ns))
-  );
-  const enrollStr = updatedEnrolled.length > 0 ? updatedEnrolled.join(", ") : "TBD";
-
-  // Append to existing no-shows in column F
-  const existingNoShows = (row[5] || "").trim();
-  const allNoShows = existingNoShows
-    ? existingNoShows + ", " + noShowNames.join(", ")
-    : noShowNames.join(", ");
-
-  // Write both columns
-  await writeRange(
-    `${SCHEDULED_SHEET}!E${sessionRowIndex}:F${sessionRowIndex}`,
-    [[enrollStr, allNoShows]]
-  );
-
-  // Record no-show flags in Hub Settings for tracking
+  // Record no-show flags in hub settings
   const { addNoShow } = await import("@/lib/hub-settings");
-  const training = (row[0] || "").trim();
-  const date = (row[1] || "").trim();
+  const training = session.training_name;
+  const date = session.session_date;
   for (const name of noShowNames) {
     await addNoShow(name, training, date);
   }
 
-  invalidateAll();
+  return { success: true, message: `Recorded ${noShowNames.length} no-show(s) for session` };
+}
+
+// --------------------------------------------------------
+// Helper: find employee by name (fuzzy matching)
+// --------------------------------------------------------
+
+async function findEmployee(
+  supabase: ReturnType<typeof createServerClient>,
+  nameInput: string
+): Promise<{ id: string; first_name: string; last_name: string } | null> {
+  const { data: employees } = await supabase
+    .from("employees")
+    .select("id, first_name, last_name")
+    .eq("is_active", true);
+
+  if (!employees) return null;
+
+  for (const emp of employees) {
+    const combined = `${emp.last_name}, ${emp.first_name}`;
+    const firstLast = `${emp.first_name} ${emp.last_name}`;
+    if (namesMatch(combined, nameInput) || namesMatch(firstLast, nameInput)) {
+      return emp;
+    }
+  }
+
+  return null;
+}
+
+// --------------------------------------------------------
+// Helper: find session by row index (maps to sorted position)
+// --------------------------------------------------------
+
+async function findSessionByIndex(
+  supabase: ReturnType<typeof createServerClient>,
+  rowIndex: number
+): Promise<{ id: string; session_date: string; training_type_id: number; training_name: string } | null> {
+  const { data: sessions } = await supabase
+    .from("training_sessions")
+    .select("id, session_date, training_type_id, training_types(name)")
+    .in("status", ["scheduled", "in_progress"])
+    .order("session_date", { ascending: true });
+
+  if (!sessions) return null;
+
+  // rowIndex is 1-based offset from getScheduledSessions (which returns rowIndex = idx + 2)
+  const idx = rowIndex - 2;
+  if (idx < 0 || idx >= sessions.length) return null;
+
+  const s = sessions[idx] as any;
   return {
-    success: true,
-    message: `Recorded ${noShowNames.length} no-show(s) for session`,
+    id: s.id,
+    session_date: s.session_date,
+    training_type_id: s.training_type_id,
+    training_name: s.training_types?.name || "Unknown",
   };
 }

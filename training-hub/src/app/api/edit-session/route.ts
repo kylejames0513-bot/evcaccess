@@ -1,5 +1,4 @@
-import { readRange, writeRange } from "@/lib/google-sheets";
-import { invalidateAll } from "@/lib/cache";
+import { createServerClient } from "@/lib/supabase";
 
 export async function POST(request: Request) {
   try {
@@ -10,26 +9,55 @@ export async function POST(request: Request) {
       return Response.json({ error: "Missing sessionRowIndex" }, { status: 400 });
     }
 
-    const rows = await readRange("Scheduled");
-    const row = rows[sessionRowIndex - 1];
-    if (!row) {
+    const supabase = createServerClient();
+
+    // Find session by sorted index (same logic as training-data.ts findSessionByIndex)
+    const { data: sessions, error: fetchError } = await supabase
+      .from("training_sessions")
+      .select("id, session_date, start_time, location, training_type_id, training_types(name)")
+      .in("status", ["scheduled", "in_progress"])
+      .order("session_date", { ascending: true });
+
+    if (fetchError) throw new Error(`Failed to fetch sessions: ${fetchError.message}`);
+
+    const idx = sessionRowIndex - 2;
+    if (!sessions || idx < 0 || idx >= sessions.length) {
       return Response.json({ error: "Session row not found" }, { status: 400 });
     }
 
-    // Build updated row — keep existing values if not provided
-    const newTraining = training !== undefined ? training : (row[0] || "").trim();
-    const newDate = date !== undefined ? date : (row[1] || "").trim();
-    const newTime = time !== undefined ? time : (row[2] || "").trim();
-    const newLocation = location !== undefined ? location : (row[3] || "").trim();
-    const enrollment = (row[4] || "").trim(); // don't change enrollment
-    const noShows = (row[5] || "").trim(); // don't change no-shows
+    const session = sessions[idx] as any;
 
-    await writeRange(
-      `Scheduled!A${sessionRowIndex}:F${sessionRowIndex}`,
-      [[newTraining, newDate, newTime, newLocation, enrollment, noShows]]
-    );
+    // Build update payload — keep existing values if not provided
+    const updates: Record<string, any> = {};
+    if (date !== undefined) updates.session_date = date;
+    if (time !== undefined) updates.start_time = time || null;
+    if (location !== undefined) updates.location = location || null;
 
-    invalidateAll();
+    // If training name changed, find the new training type
+    if (training !== undefined) {
+      const { data: tt } = await supabase
+        .from("training_types")
+        .select("id")
+        .or(`name.ilike.${training},column_key.ilike.${training}`)
+        .limit(1)
+        .single();
+
+      if (tt) {
+        updates.training_type_id = tt.id;
+      }
+    }
+
+    if (Object.keys(updates).length > 0) {
+      const { error: updateError } = await supabase
+        .from("training_sessions")
+        .update(updates)
+        .eq("id", session.id);
+
+      if (updateError) throw new Error(`Failed to update session: ${updateError.message}`);
+    }
+
+    const newTraining = training || session.training_types?.name || "Unknown";
+    const newDate = date || session.session_date;
 
     return Response.json({
       success: true,

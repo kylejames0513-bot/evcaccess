@@ -1,23 +1,24 @@
-import { readRange, readRangeFresh, writeRange, appendRows } from "@/lib/google-sheets";
-import { invalidateAll } from "@/lib/cache";
+import { createServerClient } from "@/lib/supabase";
 
-// Stores name mappings in Hub Settings: Type="name_map", Key=paylocity name, Value=training sheet name
-// This lets the audit and import match people whose names differ between systems
-
-const SETTINGS_SHEET = "Hub Settings";
+// Name mappings are stored in hub_settings with type="name_map"
+// key = paylocity/source name, value = training sheet name
 
 export async function GET() {
   try {
-    const rows = await readRange(`'${SETTINGS_SHEET}'`);
-    const mappings: Array<{ paylocityName: string; trainingName: string }> = [];
-    for (let i = 1; i < rows.length; i++) {
-      if ((rows[i][0] || "").trim() === "name_map") {
-        mappings.push({
-          paylocityName: (rows[i][1] || "").trim(),
-          trainingName: (rows[i][2] || "").trim(),
-        });
-      }
-    }
+    const supabase = createServerClient();
+
+    const { data: settings, error } = await supabase
+      .from("hub_settings")
+      .select("key, value")
+      .eq("type", "name_map");
+
+    if (error) throw new Error(`Failed to load name mappings: ${error.message}`);
+
+    const mappings = (settings || []).map((s) => ({
+      paylocityName: s.key,
+      trainingName: s.value,
+    }));
+
     return Response.json({ mappings });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -29,39 +30,31 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { action, paylocityName, trainingName } = body;
+    const supabase = createServerClient();
 
     if (action === "add" && paylocityName && trainingName) {
-      // Always read fresh so rapid saves don't use stale cache
-      const rows = await readRangeFresh(`'${SETTINGS_SHEET}'`);
-      // Check for existing mapping to update
-      for (let i = 1; i < rows.length; i++) {
-        if ((rows[i][0] || "").trim() === "name_map" &&
-            (rows[i][1] || "").trim().toLowerCase() === paylocityName.toLowerCase()) {
-          const rowNum = i + 1;
-          await writeRange(`'${SETTINGS_SHEET}'!C${rowNum}`, [[trainingName]]);
-          invalidateAll();
-          return Response.json({ success: true, message: `Updated mapping: ${paylocityName} → ${trainingName}` });
-        }
-      }
-      // Append new row — safer than writing to rows.length+1 for concurrent saves
-      await appendRows(`'${SETTINGS_SHEET}'`, [["name_map", paylocityName, trainingName]]);
-      invalidateAll();
-      return Response.json({ success: true, message: `Added mapping: ${paylocityName} → ${trainingName}` });
+      const { error } = await supabase
+        .from("hub_settings")
+        .upsert(
+          { type: "name_map", key: paylocityName, value: trainingName },
+          { onConflict: "type,key" }
+        );
+
+      if (error) throw new Error(`Failed to save mapping: ${error.message}`);
+
+      return Response.json({ success: true, message: `Updated mapping: ${paylocityName} → ${trainingName}` });
     }
 
     if (action === "remove" && paylocityName) {
-      const rows = await readRangeFresh(`'${SETTINGS_SHEET}'`);
-      // Find and clear the row
-      for (let i = 1; i < rows.length; i++) {
-        if ((rows[i][0] || "").trim() === "name_map" &&
-            (rows[i][1] || "").trim().toLowerCase() === paylocityName.toLowerCase()) {
-          const rowNum = i + 1;
-          await writeRange(`'${SETTINGS_SHEET}'!A${rowNum}:C${rowNum}`, [["", "", ""]]);
-          invalidateAll();
-          return Response.json({ success: true, message: `Removed mapping for ${paylocityName}` });
-        }
-      }
-      return Response.json({ success: true, message: "Mapping not found" });
+      const { error } = await supabase
+        .from("hub_settings")
+        .delete()
+        .eq("type", "name_map")
+        .eq("key", paylocityName);
+
+      if (error) throw new Error(`Failed to remove mapping: ${error.message}`);
+
+      return Response.json({ success: true, message: `Removed mapping for ${paylocityName}` });
     }
 
     return Response.json({ error: "Invalid action" }, { status: 400 });

@@ -1,4 +1,5 @@
-import { applyFixes } from "@/lib/import-utils";
+import { applyFixesToSupabase } from "@/lib/import-utils";
+import { createServerClient } from "@/lib/supabase";
 
 export async function POST(request: Request) {
   try {
@@ -10,7 +11,8 @@ export async function POST(request: Request) {
       return Response.json({ error: "No fixes provided" }, { status: 400 });
     }
 
-    const result = await applyFixes(fixes);
+    const supabase = createServerClient();
+    const result = await applyFixesToSupabase(supabase, fixes);
     return Response.json({
       success: true,
       message: `Imported ${result.matched} record(s)${result.errors.length > 0 ? ". Errors: " + result.errors.slice(0, 5).join("; ") : ""}`,

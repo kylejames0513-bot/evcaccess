@@ -1,16 +1,13 @@
-import { readRange } from "@/lib/google-sheets";
+import { createServerClient } from "@/lib/supabase";
 import { namesMatch, suggestNameMatches, type NameSuggestion } from "@/lib/name-utils";
-import { normalizeDate, datesEqual, loadNameMappings } from "@/lib/import-utils";
+import { normalizeDate, datesEqual, loadNameMappingsFromSupabase } from "@/lib/import-utils";
 
-// All known Training column keys from PHS data
-// Maps (Upload Category, Upload Type) → Training sheet column key
-// For "Additional Training", Upload Type itself is the training name — use keyword matching below
+// Maps (Upload Category, Upload Type) → Training column key
 const CATEGORY_TYPE_MAP: Record<string, string> = {
   "med admin": "MED_TRAIN",
   "cpr/fa": "CPR",
 };
 
-// For "Additional Training" rows, match the Upload Type against known training names
 const ADDITIONAL_TRAINING_MAP: Record<string, string | null> = {
   "ukeru": "Ukeru",
   "safety care": "Safety Care",
@@ -44,23 +41,20 @@ const ADDITIONAL_TRAINING_MAP: Record<string, string | null> = {
   "health passport": "Health Passport",
   "hco": "HCO Training",
   "hco training": "HCO Training",
-  "in-service": null, // too generic — skip unless matched by keyword below
-  "general training": null, // too generic
+  "in-service": null,
+  "general training": null,
 };
 
 function resolveTrainingColumn(category: string, uploadType: string): string | null {
   const catLower = category.toLowerCase().trim();
   const typeLower = uploadType.toLowerCase().trim();
 
-  // Direct category mapping (non-Additional Training)
   if (CATEGORY_TYPE_MAP[catLower]) return CATEGORY_TYPE_MAP[catLower];
 
-  // Additional Training: match on Upload Type value
   if (catLower === "additional training") {
     if (ADDITIONAL_TRAINING_MAP[typeLower] !== undefined) {
-      return ADDITIONAL_TRAINING_MAP[typeLower]; // may be null for generic types
+      return ADDITIONAL_TRAINING_MAP[typeLower];
     }
-    // Partial match
     for (const [key, val] of Object.entries(ADDITIONAL_TRAINING_MAP)) {
       if (val && (typeLower.includes(key) || key.includes(typeLower))) return val;
     }
@@ -79,48 +73,73 @@ interface Discrepancy {
 
 export async function GET() {
   try {
-    let trainingRows: string[][] = [];
-    let phsRows: string[][] = [];
-    let settingsRows: string[][] = [];
+    const supabase = createServerClient();
 
-    try {
-      [trainingRows, phsRows, settingsRows] = await Promise.all([
-        readRange("Training"),
-        readRange("PHS Import"),
-        readRange("'Hub Settings'").catch(() => [] as string[][]),
-      ]);
-    } catch {
-      return Response.json({
-        error: "Could not read sheets. Make sure both 'Training' and 'PHS Import' tabs exist.",
-        discrepancies: [],
-        noMatch: [],
-        summary: { total: 0, mismatches: 0, missingOnTraining: 0, naButHasDate: 0, noMatchCount: 0 },
-      });
+    // Load name mappings
+    const nameMappings = await loadNameMappingsFromSupabase(supabase);
+
+    // Fetch active employees
+    const { data: employees } = await supabase
+      .from("employees")
+      .select("id, first_name, last_name, is_active")
+      .order("last_name");
+
+    if (!employees || employees.length === 0) {
+      return Response.json({ error: "No employees found" }, { status: 400 });
     }
 
-    const nameMappings = loadNameMappings(settingsRows);
+    // Fetch training types
+    const { data: trainingTypes } = await supabase
+      .from("training_types")
+      .select("id, column_key");
 
-    if (trainingRows.length < 2) return Response.json({ error: "Training sheet is empty" }, { status: 400 });
-    if (phsRows.length < 2) return Response.json({ error: "PHS Import tab is empty" }, { status: 400 });
-
-    // Parse Training sheet
-    const tHeaders = trainingRows[0];
-    const tHdr = (label: string) => tHeaders.findIndex((h) => h.trim().toUpperCase() === label.toUpperCase());
-    const tLName = tHdr("L NAME");
-    const tFName = tHdr("F NAME");
-    const tActive = tHdr("ACTIVE");
-
-    if (tLName < 0 || tFName < 0) {
-      return Response.json({ error: "Training sheet missing L NAME / F NAME columns" }, { status: 400 });
+    const typeIdToColKey = new Map<string, string>();
+    for (const tt of trainingTypes || []) {
+      typeIdToColKey.set(tt.id, tt.column_key);
     }
 
-    // Collect all known training column keys for lookup
+    // Collect all known training column keys
     const allTrainingCols = new Set<string>([
       ...Object.values(CATEGORY_TYPE_MAP).filter(Boolean),
       ...Object.values(ADDITIONAL_TRAINING_MAP).filter((v): v is string => !!v),
     ]);
 
-    // Build Training sheet lookup: active employees with their current training dates
+    // Fetch training records and excusals
+    const empIds = employees.map((e: any) => e.id);
+    const { data: records } = await supabase
+      .from("training_records")
+      .select("employee_id, training_type_id, completion_date")
+      .in("employee_id", empIds);
+
+    const { data: excusals } = await supabase
+      .from("excusals")
+      .select("employee_id, training_type_id, reason")
+      .in("employee_id", empIds);
+
+    // Build emp training map
+    const empTrainingMap = new Map<string, Record<string, string>>();
+    for (const rec of records || []) {
+      const colKey = typeIdToColKey.get(rec.training_type_id);
+      if (!colKey || !allTrainingCols.has(colKey)) continue;
+      if (!empTrainingMap.has(rec.employee_id)) empTrainingMap.set(rec.employee_id, {});
+      const map = empTrainingMap.get(rec.employee_id)!;
+      if (rec.completion_date) {
+        const d = new Date(rec.completion_date);
+        map[colKey] = `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+      }
+    }
+
+    for (const exc of excusals || []) {
+      const colKey = typeIdToColKey.get(exc.training_type_id);
+      if (!colKey || !allTrainingCols.has(colKey)) continue;
+      if (!empTrainingMap.has(exc.employee_id)) empTrainingMap.set(exc.employee_id, {});
+      const map = empTrainingMap.get(exc.employee_id)!;
+      if (!map[colKey]) {
+        map[colKey] = exc.reason || "NA";
+      }
+    }
+
+    // Build training lookup
     const trainingLookup: Array<{
       name: string;
       row: number;
@@ -128,72 +147,73 @@ export async function GET() {
     }> = [];
     const inactiveNames: string[] = [];
 
-    for (let i = 1; i < trainingRows.length; i++) {
-      const last = (trainingRows[i][tLName] || "").trim();
-      const first = (trainingRows[i][tFName] || "").trim();
+    for (let i = 0; i < employees.length; i++) {
+      const emp = employees[i];
+      const last = (emp.last_name || "").trim();
+      const first = (emp.first_name || "").trim();
       if (!last) continue;
-      const active = tActive >= 0 ? (trainingRows[i][tActive] || "").toString().trim().toUpperCase() : "Y";
-      if (active !== "Y") {
-        inactiveNames.push(first ? `${last}, ${first}` : last);
+      const name = first ? `${last}, ${first}` : last;
+
+      if (!emp.is_active) {
+        inactiveNames.push(name);
         continue;
       }
 
-      const values: Record<string, string> = {};
-      for (const colKey of allTrainingCols) {
-        const colIdx = tHeaders.findIndex((h) => h.trim() === colKey);
-        if (colIdx >= 0) {
-          values[colKey] = (trainingRows[i][colIdx] || "").toString().trim();
-        }
-      }
-      const name = first ? `${last}, ${first}` : last;
-      trainingLookup.push({ name, row: i + 1, values });
+      trainingLookup.push({
+        name,
+        row: i + 2,
+        values: empTrainingMap.get(emp.id) || {},
+      });
     }
 
     const allActiveNames = trainingLookup.map((t) => t.name);
 
-    // Parse PHS Import headers
-    const pHeaders = phsRows[0];
-    const pHdr = (label: string) => pHeaders.findIndex((h) => h.trim().toLowerCase() === label.toLowerCase());
+    // Fetch PHS import data from Supabase
+    const { data: phsRows, error: phsError } = await supabase
+      .from("phs_imports")
+      .select("employee_name, upload_category, upload_type, effective_date, termination_date");
 
-    const pName = pHdr("employee name");
-    const pCategory = pHdr("upload category");
-    const pType = pHdr("upload type");
-    const pEffective = pHdr("effective date");
-    const pTermination = pHdr("termination date");
-
-    if (pName < 0 || pCategory < 0 || pType < 0 || pEffective < 0) {
+    if (phsError) {
       return Response.json({
-        error: "PHS Import tab missing required columns. Expected: Employee Name, Upload Category, Upload Type, Effective Date.",
-      }, { status: 400 });
+        error: "Could not read PHS imports. Make sure the phs_imports table exists.",
+        discrepancies: [],
+        noMatch: [],
+        summary: { total: 0, mismatches: 0, missingOnTraining: 0, naButHasDate: 0, noMatchCount: 0 },
+      });
     }
 
-    // Step 1: Deduplicate — for each (employee, training column), keep most recent valid record
-    // Valid = not Fail/No Show, no Termination Date, with an Effective Date
-    type BestRecord = { name: string; category: string; uploadType: string; date: string; timestamp: number };
-    const bestRecords = new Map<string, BestRecord>(); // key = "name_lower|training_col"
+    if (!phsRows || phsRows.length === 0) {
+      return Response.json({
+        error: "PHS import table is empty",
+        discrepancies: [],
+        noMatch: [],
+        summary: { total: 0, mismatches: 0, missingOnTraining: 0, naButHasDate: 0, noMatchCount: 0 },
+      });
+    }
 
-    for (let i = 1; i < phsRows.length; i++) {
-      const row = phsRows[i];
-      const empName = (row[pName] || "").trim();
-      const category = (row[pCategory] || "").trim();
-      const uploadType = (row[pType] || "").trim();
-      const effectiveDateRaw = (row[pEffective] || "").toString().trim();
-      const terminationDateRaw = pTermination >= 0 ? (row[pTermination] || "").toString().trim() : "";
+    // Deduplicate: best date per (employee, training column)
+    type BestRecord = { name: string; category: string; uploadType: string; date: string; timestamp: number };
+    const bestRecords = new Map<string, BestRecord>();
+
+    for (const row of phsRows) {
+      const empName = (row.employee_name || "").trim();
+      const category = (row.upload_category || "").trim();
+      const uploadType = (row.upload_type || "").trim();
+      const effectiveDateRaw = (row.effective_date || "").toString().trim();
+      const terminationDateRaw = (row.termination_date || "").toString().trim();
 
       if (!empName || !category || !uploadType || !effectiveDateRaw) continue;
 
-      // Skip invalid records
       const typeLower = uploadType.toLowerCase();
       if (typeLower === "fail" || typeLower === "no show") continue;
-      if (terminationDateRaw) continue; // terminated cert
+      if (terminationDateRaw) continue;
 
       const trainingCol = resolveTrainingColumn(category, uploadType);
-      if (!trainingCol) continue; // can't map to a Training column
+      if (!trainingCol) continue;
 
       const normalizedDate = normalizeDate(effectiveDateRaw);
       if (!normalizedDate) continue;
 
-      // Parse date to timestamp for comparison
       const parts = normalizedDate.split("/");
       let ts = 0;
       if (parts.length === 3) {
@@ -208,14 +228,13 @@ export async function GET() {
       }
     }
 
-    // Step 2: Compare each best record against Training sheet
+    // Compare each best record against training data
     const discrepancies: Discrepancy[] = [];
     const noMatch: Array<{ name: string; category: string; date: string; suggestions: NameSuggestion[] }> = [];
 
     for (const [dedupeKey, record] of bestRecords) {
-      const trainingCol = dedupeKey.split("|").slice(1).join("|"); // everything after first pipe
+      const trainingCol = dedupeKey.split("|").slice(1).join("|");
 
-      // Find employee on Training sheet
       const mappedName = nameMappings.get(record.name.toLowerCase());
       let match = mappedName
         ? trainingLookup.find((t) => namesMatch(t.name, mappedName))
@@ -225,7 +244,6 @@ export async function GET() {
       }
 
       if (!match) {
-        // Skip inactive employees — still in PHS until payroll removes them
         const isInactive = inactiveNames.some((n) => namesMatch(n, record.name));
         if (!isInactive) {
           noMatch.push({

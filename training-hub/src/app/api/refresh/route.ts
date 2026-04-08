@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { invalidateAll } from "@/lib/cache";
 
 export async function POST() {
-  invalidateAll();
+  // No cache to invalidate -- Supabase queries are always fresh
   return NextResponse.json({ success: true });
 }
