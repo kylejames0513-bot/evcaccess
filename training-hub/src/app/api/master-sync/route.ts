@@ -179,6 +179,8 @@ export async function GET() {
       row: number;
       values: Record<string, string>;
     }> = [];
+    // Track inactive employee names so we don't flag them as roster gaps
+    const inactiveNames: string[] = [];
 
     for (let i = 1; i < trainingRows.length; i++) {
       const last = (trainingRows[i][tLName] || "").trim();
@@ -188,7 +190,10 @@ export async function GET() {
         tActive >= 0
           ? (trainingRows[i][tActive] || "").toString().trim().toUpperCase()
           : "Y";
-      if (active !== "Y") continue;
+      if (active !== "Y") {
+        inactiveNames.push(first ? `${last}, ${first}` : last);
+        continue;
+      }
 
       const values: Record<string, string> = {};
       for (const col of ALL_TRAINING_COLS) {
@@ -442,12 +447,22 @@ export async function GET() {
     });
 
     // ── Roster gaps: Paylocity names not on Training sheet ───────────────────
+    // Helper: check if a name matches a known inactive employee (ACTIVE=N)
+    function isInactiveEmployee(rawName: string): boolean {
+      const mappedName = nameMappings.get(rawName.toLowerCase());
+      const checkName = mappedName || rawName;
+      return inactiveNames.some((n) => namesMatch(n, checkName));
+    }
+
     const payRosterGaps = new Map<string, { name: string; skill: string; date: string; count: number }>();
     for (const [k, v] of bestPaylocity) {
       const col = k.split("|").slice(-1)[0];
       const rawName = k.split("|").slice(0, -1).join("|");
       const matched = findEmployee(v.name) || findEmployee(rawName);
       if (matched) continue;
+      // Skip employees who are inactive on the Training sheet — they may still
+      // appear in Paylocity/PHS until payroll removes them
+      if (isInactiveEmployee(v.name) || isInactiveEmployee(rawName)) continue;
       const existingGap = payRosterGaps.get(v.name.toLowerCase());
       if (!existingGap || parseToTimestamp(v.date) > parseToTimestamp(existingGap.date)) {
         payRosterGaps.set(v.name.toLowerCase(), { name: v.name, skill: col, date: v.date, count: (existingGap?.count || 0) + 1 });
@@ -462,6 +477,7 @@ export async function GET() {
       const rawName = k.split("|").slice(0, -1).join("|");
       const matched = findEmployee(v.name) || findEmployee(rawName);
       if (matched) continue;
+      if (isInactiveEmployee(v.name) || isInactiveEmployee(rawName)) continue;
       const existingGap = phsRosterGaps.get(v.name.toLowerCase());
       if (!existingGap || parseToTimestamp(v.date) > parseToTimestamp(existingGap.date)) {
         phsRosterGaps.set(v.name.toLowerCase(), { name: v.name, category: col, date: v.date, count: (existingGap?.count || 0) + 1 });

@@ -129,12 +129,17 @@ export async function GET() {
       values: Record<string, string>; // columnKey → date string
     }> = [];
 
+    const inactiveNames: string[] = [];
+
     for (let i = 1; i < trainingRows.length; i++) {
       const last = (trainingRows[i][tLName] || "").trim();
       const first = (trainingRows[i][tFName] || "").trim();
       if (!last) continue;
       const active = tActive >= 0 ? (trainingRows[i][tActive] || "").toString().trim().toUpperCase() : "Y";
-      if (active !== "Y") continue;
+      if (active !== "Y") {
+        inactiveNames.push(first ? `${last}, ${first}` : last);
+        continue;
+      }
 
       const values: Record<string, string> = {};
       for (const colKey of Object.values(PAYLOCITY_SKILL_MAP)) {
@@ -187,7 +192,11 @@ export async function GET() {
       }
 
       if (!match) {
-        noMatch.push({ name: payName, skill, date: payDate });
+        // Skip inactive employees — they may still appear in Paylocity until payroll removes them
+        const isInactive = inactiveNames.some((n) => namesMatch(n, payName) || namesMatch(n, `${pLastName}, ${pFirstName}`));
+        if (!isInactive) {
+          noMatch.push({ name: payName, skill, date: payDate });
+        }
         continue;
       }
 
