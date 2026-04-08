@@ -112,14 +112,6 @@ export const TRAINING_DEFINITIONS: TrainingDef[] = [
     aliases: ["pct training", "person centered thinking"],
   },
   {
-    name: "Van/Lift Training",
-    columnKey: "VR",
-    renewalYears: 0,
-    isRequired: false,
-    classCapacity: 10,
-    aliases: ["van lyft"],
-  },
-  {
     name: "Safety Care",
     columnKey: "Safety Care",
     renewalYears: 0,

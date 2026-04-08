@@ -1,30 +1,64 @@
 import { readRange } from "@/lib/google-sheets";
-import { namesMatch } from "@/lib/name-utils";
+import { namesMatch, suggestNameMatches, type NameSuggestion } from "@/lib/name-utils";
 import { normalizeDate, datesEqual, loadNameMappings } from "@/lib/import-utils";
 
 // Same mapping as Core.gs PAYLOCITY_SKILL_MAP
 export const PAYLOCITY_SKILL_MAP: Record<string, string> = {
+  // CPR / First Aid
   "cpr.fa": "CPR",
   "cpr/fa": "CPR",
-  "ukeru": "Ukeru",
-  "mealtime instructions": "Mealtime",
+  "cpr": "CPR",
+  "first aid": "FIRSTAID",
+  "firstaid": "FIRSTAID",
+  "cpr/first aid": "CPR",
+  // Med
   "med training": "MED_TRAIN",
+  "med cert": "MED_TRAIN",
+  "med recert": "MED_TRAIN",
+  "medication training": "MED_TRAIN",
+  "initial med training": "MED_TRAIN",
   "post med": "POST MED",
+  // Core trainings
+  "ukeru": "Ukeru",
+  "safety care": "Safety Care",
+  "mealtime instructions": "Mealtime",
+  "mealtime": "Mealtime",
   "pom": "POM",
+  "poms": "POM",
   "pers cent thnk": "Pers Cent Thnk",
   "person centered thinking": "Pers Cent Thnk",
-  "safety care": "Safety Care",
+  "person centered": "Pers Cent Thnk",
   "meaningful day": "Meaningful Day",
+  "md refresh": "MD refresh",
   "rights training": "Rights Training",
   "title vi": "Title VI",
   "active shooter": "Active Shooter",
   "skills system": "Skills System",
+  "cpi": "CPI",
   "cpm": "CPM",
   "pfh/didd": "PFH/DIDD",
+  // VCRM
   "basic vcrm": "Basic VCRM",
+  "advanced vcrm": "Advanced VCRM",
+  "adv vcrm": "Advanced VCRM",
+  // Other
   "trn": "TRN",
   "asl": "ASL",
   "shift": "SHIFT",
+  "adv shift": "ADV SHIFT",
+  "advanced shift": "ADV SHIFT",
+  "mc": "MC",
+  "skills online": "Skills Online",
+  "etis": "ETIS",
+  // Health / clinical
+  "gerd": "GERD",
+  "dysphagia": "Dysphagia Overview",
+  "dysphagia overview": "Dysphagia Overview",
+  "diabetes": "Diabetes",
+  "falls": "Falls",
+  "health passport": "Health Passport",
+  "hco": "HCO Training",
+  "hco training": "HCO Training",
 };
 
 interface Discrepancy {
@@ -89,12 +123,17 @@ export async function GET() {
       values: Record<string, string>; // columnKey → date string
     }> = [];
 
+    const inactiveNames: string[] = [];
+
     for (let i = 1; i < trainingRows.length; i++) {
       const last = (trainingRows[i][tLName] || "").trim();
       const first = (trainingRows[i][tFName] || "").trim();
       if (!last) continue;
       const active = tActive >= 0 ? (trainingRows[i][tActive] || "").toString().trim().toUpperCase() : "Y";
-      if (active !== "Y") continue;
+      if (active !== "Y") {
+        inactiveNames.push(first ? `${last}, ${first}` : last);
+        continue;
+      }
 
       const values: Record<string, string> = {};
       for (const colKey of Object.values(PAYLOCITY_SKILL_MAP)) {
@@ -107,9 +146,12 @@ export async function GET() {
       trainingLookup.push({ name, row: i + 1, values });
     }
 
+    // All active Training sheet names for suggestion matching
+    const allActiveNames = trainingLookup.map((t) => t.name);
+
     // Process Paylocity Import — compare each entry
     const discrepancies: Discrepancy[] = [];
-    const noMatch: Array<{ name: string; skill: string; date: string }> = [];
+    const noMatch: Array<{ name: string; skill: string; date: string; suggestions: NameSuggestion[] }> = [];
     const seen = new Map<string, Set<string>>(); // track processed name+training combos
 
     for (let i = 1; i < paylocityRows.length; i++) {
@@ -147,7 +189,12 @@ export async function GET() {
       }
 
       if (!match) {
-        noMatch.push({ name: payName, skill, date: payDate });
+        // Skip inactive employees — they may still appear in Paylocity until payroll removes them
+        const isInactive = inactiveNames.some((n) => namesMatch(n, payName) || namesMatch(n, `${pLastName}, ${pFirstName}`));
+        if (!isInactive) {
+          const suggestions = suggestNameMatches(payName, allActiveNames);
+          noMatch.push({ name: payName, skill, date: payDate, suggestions });
+        }
         continue;
       }
 
