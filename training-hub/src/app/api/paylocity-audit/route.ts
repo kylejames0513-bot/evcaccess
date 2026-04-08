@@ -20,6 +20,7 @@ export const PAYLOCITY_SKILL_MAP: Record<string, string> = {
   "post med": "POST MED",
   // Core trainings
   "ukeru": "Ukeru",
+  "behavior training": "Ukeru",
   "safety care": "Safety Care",
   "mealtime instructions": "Mealtime",
   "mealtime": "Mealtime",

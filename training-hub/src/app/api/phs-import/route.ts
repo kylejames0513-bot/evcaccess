@@ -8,9 +8,6 @@ import { normalizeDate, datesEqual, loadNameMappings } from "@/lib/import-utils"
 const CATEGORY_TYPE_MAP: Record<string, string> = {
   "med admin": "MED_TRAIN",
   "cpr/fa": "CPR",
-  "drivers license": "VR",
-  "driver's license": "VR",
-  "drivers licence": "VR",
 };
 
 // For "Additional Training" rows, match the Upload Type against known training names
@@ -35,17 +32,18 @@ const ADDITIONAL_TRAINING_MAP: Record<string, string | null> = {
   "cpm": "CPM",
   "pfh/didd": "PFH/DIDD",
   "basic vcrm": "Basic VCRM",
-  "advanced vcrm": "Adv VCRM",
+  "advanced vcrm": "Advanced VCRM",
   "trn": "TRN",
   "asl": "ASL",
   "shift": "SHIFT",
-  "van/lift": "VR",
   "gerd": "GERD",
-  "dysphagia": "Dysphagia",
+  "dysphagia": "Dysphagia Overview",
+  "dysphagia overview": "Dysphagia Overview",
   "diabetes": "Diabetes",
   "falls": "Falls",
   "health passport": "Health Passport",
-  "hco": "HCO",
+  "hco": "HCO Training",
+  "hco training": "HCO Training",
   "in-service": null, // too generic — skip unless matched by keyword below
   "general training": null, // too generic
 };
