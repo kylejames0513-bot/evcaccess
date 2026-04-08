@@ -1,4 +1,4 @@
-import { readRange, writeRange } from "@/lib/google-sheets";
+import { readRange, readRangeFresh, writeRange, appendRows } from "@/lib/google-sheets";
 import { invalidateAll } from "@/lib/cache";
 
 // Stores name mappings in Hub Settings: Type="name_map", Key=paylocity name, Value=training sheet name
@@ -31,27 +31,26 @@ export async function POST(request: Request) {
     const { action, paylocityName, trainingName } = body;
 
     if (action === "add" && paylocityName && trainingName) {
-      const rows = await readRange(`'${SETTINGS_SHEET}'`);
-      // Check for existing mapping
+      // Always read fresh so rapid saves don't use stale cache
+      const rows = await readRangeFresh(`'${SETTINGS_SHEET}'`);
+      // Check for existing mapping to update
       for (let i = 1; i < rows.length; i++) {
         if ((rows[i][0] || "").trim() === "name_map" &&
             (rows[i][1] || "").trim().toLowerCase() === paylocityName.toLowerCase()) {
-          // Update existing
           const rowNum = i + 1;
           await writeRange(`'${SETTINGS_SHEET}'!C${rowNum}`, [[trainingName]]);
           invalidateAll();
           return Response.json({ success: true, message: `Updated mapping: ${paylocityName} → ${trainingName}` });
         }
       }
-      // Add new
-      const nextRow = rows.length + 1;
-      await writeRange(`'${SETTINGS_SHEET}'!A${nextRow}:C${nextRow}`, [["name_map", paylocityName, trainingName]]);
+      // Append new row — safer than writing to rows.length+1 for concurrent saves
+      await appendRows(`'${SETTINGS_SHEET}'`, [["name_map", paylocityName, trainingName]]);
       invalidateAll();
       return Response.json({ success: true, message: `Added mapping: ${paylocityName} → ${trainingName}` });
     }
 
     if (action === "remove" && paylocityName) {
-      const rows = await readRange(`'${SETTINGS_SHEET}'`);
+      const rows = await readRangeFresh(`'${SETTINGS_SHEET}'`);
       // Find and clear the row
       for (let i = 1; i < rows.length; i++) {
         if ((rows[i][0] || "").trim() === "name_map" &&

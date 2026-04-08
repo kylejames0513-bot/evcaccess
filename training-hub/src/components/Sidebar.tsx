@@ -18,6 +18,8 @@ import {
   UserPlus,
   FileUp,
   BarChart3,
+  Layers,
+  Zap,
 } from "lucide-react";
 
 const mainNav = [
@@ -26,6 +28,7 @@ const mainNav = [
   { href: "/employees", label: "Employees", icon: Users },
   { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
   { href: "/attendance", label: "Attendance", icon: UserCheck },
+  { href: "/master-sync", label: "Master Sync", icon: Layers },
   { href: "/records", label: "Records", icon: FileText },
   { href: "/reports", label: "Reports", icon: BarChart3 },
   { href: "/notifications", label: "Notifications", icon: Bell },
@@ -41,7 +44,11 @@ const secondaryNav = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  onQuickRecord?: () => void;
+}
+
+export default function Sidebar({ onQuickRecord }: SidebarProps) {
   const pathname = usePathname();
 
   function navLink(item: { href: string; label: string; icon: React.ComponentType<{ className?: string }> }) {
@@ -78,8 +85,19 @@ export default function Sidebar() {
         </div>
       </div>
 
+      {/* Quick Record button */}
+      <div className="px-3 mb-3">
+        <button
+          onClick={onQuickRecord}
+          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-semibold transition-colors shadow-lg shadow-emerald-900/30"
+        >
+          <Zap className="h-4 w-4 shrink-0" />
+          Record Training
+        </button>
+      </div>
+
       {/* Main nav */}
-      <nav className="flex-1 px-3 space-y-6 mt-2">
+      <nav className="flex-1 px-3 space-y-6 overflow-y-auto">
         <div>
           <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-blue-300/50">
             Main

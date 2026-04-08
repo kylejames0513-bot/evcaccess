@@ -1,5 +1,5 @@
 import { readRange } from "@/lib/google-sheets";
-import { namesMatch } from "@/lib/name-utils";
+import { namesMatch, suggestNameMatches, type NameSuggestion } from "@/lib/name-utils";
 import { normalizeDate, datesEqual, loadNameMappings } from "@/lib/import-utils";
 
 // All known Training column keys from PHS data
@@ -128,13 +128,17 @@ export async function GET() {
       row: number;
       values: Record<string, string>;
     }> = [];
+    const inactiveNames: string[] = [];
 
     for (let i = 1; i < trainingRows.length; i++) {
       const last = (trainingRows[i][tLName] || "").trim();
       const first = (trainingRows[i][tFName] || "").trim();
       if (!last) continue;
       const active = tActive >= 0 ? (trainingRows[i][tActive] || "").toString().trim().toUpperCase() : "Y";
-      if (active !== "Y") continue;
+      if (active !== "Y") {
+        inactiveNames.push(first ? `${last}, ${first}` : last);
+        continue;
+      }
 
       const values: Record<string, string> = {};
       for (const colKey of allTrainingCols) {
@@ -146,6 +150,8 @@ export async function GET() {
       const name = first ? `${last}, ${first}` : last;
       trainingLookup.push({ name, row: i + 1, values });
     }
+
+    const allActiveNames = trainingLookup.map((t) => t.name);
 
     // Parse PHS Import headers
     const pHeaders = phsRows[0];
@@ -206,7 +212,7 @@ export async function GET() {
 
     // Step 2: Compare each best record against Training sheet
     const discrepancies: Discrepancy[] = [];
-    const noMatch: Array<{ name: string; category: string; date: string }> = [];
+    const noMatch: Array<{ name: string; category: string; date: string; suggestions: NameSuggestion[] }> = [];
 
     for (const [dedupeKey, record] of bestRecords) {
       const trainingCol = dedupeKey.split("|").slice(1).join("|"); // everything after first pipe
@@ -221,7 +227,16 @@ export async function GET() {
       }
 
       if (!match) {
-        noMatch.push({ name: record.name, category: `${record.category} / ${record.uploadType}`, date: record.date });
+        // Skip inactive employees — still in PHS until payroll removes them
+        const isInactive = inactiveNames.some((n) => namesMatch(n, record.name));
+        if (!isInactive) {
+          noMatch.push({
+            name: record.name,
+            category: `${record.category} / ${record.uploadType}`,
+            date: record.date,
+            suggestions: suggestNameMatches(record.name, allActiveNames),
+          });
+        }
         continue;
       }
 

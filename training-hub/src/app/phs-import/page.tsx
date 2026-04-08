@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { RefreshCw, AlertTriangle, ArrowRight, Loader2, Check, XCircle, CheckCircle2 } from "lucide-react";
+import { RefreshCw, AlertTriangle, ArrowRight, Loader2, Check, XCircle, CheckCircle2, FileUp } from "lucide-react";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 
@@ -13,9 +13,12 @@ interface Discrepancy {
   issue: "mismatch" | "missing_on_training" | "na_but_has_date";
 }
 
+interface NameSuggestion { name: string; score: number; confidence: "high" | "medium"; }
+
 interface AuditData {
+  error?: string;
   discrepancies: Discrepancy[];
-  noMatch: Array<{ name: string; category: string; date: string }>;
+  noMatch: Array<{ name: string; category: string; date: string; suggestions: NameSuggestion[] }>;
   summary: {
     total: number;
     mismatches: number;
@@ -167,6 +170,41 @@ export default function PHSAuditPage() {
   if (loading) return <Loading message="Reading PHS Import sheet and comparing with Training..." />;
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
+
+  // PHS Import sheet tab doesn't exist yet
+  if (data.error) {
+    return (
+      <div className="max-w-2xl mx-auto mt-12 px-4">
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-8 text-center">
+          <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+            <FileUp className="h-7 w-7 text-amber-500" />
+          </div>
+          <h2 className="text-lg font-bold text-slate-900 mb-2">PHS Import Not Set Up</h2>
+          <p className="text-sm text-slate-600 mb-4 leading-relaxed">
+            Add a sheet tab named <code className="bg-amber-100 px-1.5 py-0.5 rounded font-mono text-amber-800">PHS Import</code> to
+            your Google Spreadsheet and paste your PHS export data there.
+          </p>
+          <div className="bg-white rounded-xl border border-amber-100 p-4 text-left text-xs text-slate-500 mb-5 space-y-1">
+            <p className="font-semibold text-slate-700 mb-2">Expected column headers (row 1):</p>
+            <p>• <code className="font-mono">Employee Name</code> — full name</p>
+            <p>• <code className="font-mono">Upload Category</code> — e.g. "CPR/FA", "Med Admin"</p>
+            <p>• <code className="font-mono">Upload Type</code> — e.g. "CPR Card", "Certification"</p>
+            <p>• <code className="font-mono">Effective Date</code> — date the cert was issued</p>
+            <p>• <code className="font-mono">Termination Date</code> — leave blank if still active</p>
+            <p>• <code className="font-mono">View File</code> — optional file link</p>
+          </div>
+          <button
+            onClick={doRefresh}
+            disabled={refreshing}
+            className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold flex items-center gap-2 mx-auto"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            Check Again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const discrepancies = data.discrepancies || [];
   const noMatch = data.noMatch || [];
@@ -371,76 +409,70 @@ export default function PHSAuditPage() {
           <div className="px-6 py-4 border-b border-slate-200">
             <h2 className="font-semibold text-slate-900">No Name Match ({summary.noMatchCount})</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              PHS names that could not be matched to an active employee. Click &quot;Match&quot; to link them permanently.
+              PHS names that could not be matched. Approve a suggestion or search manually — saved permanently.
             </p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[11px] text-slate-400 uppercase tracking-wide border-b border-slate-100">
-                  <th className="px-5 py-3">PHS Name</th>
-                  <th className="px-5 py-3">Category / Type</th>
-                  <th className="px-5 py-3">Date</th>
-                  <th className="px-5 py-3">Match To</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {noMatch.map((n, i) => (
-                  <tr key={i}>
-                    <td className="px-5 py-3 text-slate-900">{n.name}</td>
-                    <td className="px-5 py-3 text-slate-600">{n.category}</td>
-                    <td className="px-5 py-3 font-mono text-xs text-slate-500">{n.date}</td>
-                    <td className="px-5 py-3">
-                      {matchingName === n.name ? (
-                        <div className="flex items-center gap-2">
-                          <div className="relative">
-                            <input
-                              type="text"
-                              value={matchSearch}
-                              onChange={(e) => setMatchSearch(e.target.value)}
-                              onFocus={loadEmployees}
-                              placeholder="Search employee..."
-                              className="w-44 px-2 py-1 border border-slate-200 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              autoFocus
-                            />
-                            {matchSearch && employees.length > 0 && (
-                              <div className="absolute z-10 top-full left-0 w-56 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
-                                {employees
-                                  .filter((e) => e.toLowerCase().includes(matchSearch.toLowerCase()))
-                                  .slice(0, 15)
-                                  .map((emp) => (
-                                    <button
-                                      key={emp}
-                                      onClick={() => handleMapName(n.name, emp)}
-                                      disabled={savingMatch}
-                                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 text-slate-700"
-                                    >
-                                      {emp}
-                                    </button>
-                                  ))}
-                              </div>
-                            )}
-                          </div>
-                          <button
-                            onClick={() => { setMatchingName(null); setMatchSearch(""); }}
-                            className="text-xs text-slate-400 hover:text-slate-600"
-                          >
-                            Cancel
-                          </button>
+          <div className="divide-y divide-slate-50">
+            {noMatch.map((n, i) => (
+              <div key={i} className="px-6 py-4">
+                <div className="flex items-start gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-900 text-sm">{n.name}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">{n.category} · {n.date}</p>
+                  </div>
+                  <div className="ml-auto flex items-center gap-2">
+                    {matchingName === n.name ? (
+                      <>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={matchSearch}
+                            onChange={(e) => setMatchSearch(e.target.value)}
+                            onFocus={loadEmployees}
+                            placeholder="Search employee..."
+                            className="w-44 px-2 py-1 border border-slate-200 rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            autoFocus
+                          />
+                          {matchSearch && employees.length > 0 && (
+                            <div className="absolute z-10 top-full right-0 w-56 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                              {employees.filter((e) => e.toLowerCase().includes(matchSearch.toLowerCase())).slice(0, 15).map((emp) => (
+                                <button key={emp} onClick={() => handleMapName(n.name, emp)} disabled={savingMatch}
+                                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 text-slate-700">
+                                  {emp}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      ) : (
-                        <button
-                          onClick={() => setMatchingName(n.name)}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700"
-                        >
-                          Match
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        <button onClick={() => { setMatchingName(null); setMatchSearch(""); }} className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+                      </>
+                    ) : (
+                      <button onClick={() => setMatchingName(n.name)}
+                        className="px-2 py-1 text-[11px] font-medium rounded bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-700">
+                        Search
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {n.suggestions && n.suggestions.length > 0 && (
+                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] text-slate-400 shrink-0">Suggested:</span>
+                    {n.suggestions.map((s) => (
+                      <button key={s.name} onClick={() => handleMapName(n.name, s.name)} disabled={savingMatch}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors disabled:opacity-50 ${
+                          s.confidence === "high"
+                            ? "bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100"
+                            : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+                        }`}>
+                        <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${s.confidence === "high" ? "bg-emerald-500" : "bg-amber-400"}`} />
+                        {s.name}
+                        <span className="text-[10px] opacity-60">{Math.round(s.score * 100)}%</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
