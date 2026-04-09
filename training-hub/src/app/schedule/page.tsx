@@ -10,7 +10,7 @@ import { namesMatch } from "@/lib/name-utils";
 import { trainingMatchesAny } from "@/lib/training-match";
 
 interface SessionData {
-  rowIndex: number;
+  id: string;
   training: string;
   date: string;
   sortDateMs: number;
@@ -38,13 +38,13 @@ interface NeedEmployee {
 export default function SchedulePage() {
   const { data, loading, error } = useFetch<ScheduleData>("/api/schedule");
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [enrollingSession, setEnrollingSession] = useState<number | null>(null);
-  const [finalizingSession, setFinalizingSession] = useState<number | null>(null);
+  const [enrollingSession, setEnrollingSession] = useState<string | null>(null);
+  const [finalizingSession, setFinalizingSession] = useState<string | null>(null);
   const [editingSession, setEditingSession] = useState<SessionData | null>(null);
-  const [deletingSession, setDeletingSession] = useState<number | null>(null);
+  const [deletingSession, setDeletingSession] = useState<string | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
-  const [archiving, setArchiving] = useState<number | null>(null);
-  const [autoFilling, setAutoFilling] = useState<number | null>(null);
+  const [archiving, setArchiving] = useState<string | null>(null);
+  const [autoFilling, setAutoFilling] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -74,7 +74,7 @@ export default function SchedulePage() {
   }
 
   async function handleAutoFill(session: SessionData) {
-    setAutoFilling(session.rowIndex);
+    setAutoFilling(session.id);
     try {
       // Get employees who need this training
       const res = await fetch(`/api/needs-training?training=${encodeURIComponent(session.training)}`);
@@ -107,7 +107,7 @@ export default function SchedulePage() {
       const enrollRes = await fetch("/api/enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionRowIndex: session.rowIndex, names: toEnroll }),
+        body: JSON.stringify({ sessionId: session.id, names: toEnroll }),
       });
       const enrollData = await enrollRes.json();
       if (!enrollRes.ok) throw new Error(enrollData.error);
@@ -118,14 +118,14 @@ export default function SchedulePage() {
     setAutoFilling(null);
   }
 
-  async function handleDelete(rowIndex: number) {
+  async function handleDelete(id: string) {
     setDeleteLoading(true);
     try {
       // Archive instead of delete — preserves the record
       await fetch("/api/archive-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionRowIndex: rowIndex }),
+        body: JSON.stringify({ sessionId: id }),
       });
       refresh();
     } catch {}
@@ -133,13 +133,13 @@ export default function SchedulePage() {
     setDeletingSession(null);
   }
 
-  async function handleArchive(rowIndex: number) {
-    setArchiving(rowIndex);
+  async function handleArchive(id: string) {
+    setArchiving(id);
     try {
       await fetch("/api/archive-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionRowIndex: rowIndex }),
+        body: JSON.stringify({ sessionId: id }),
       });
       refresh();
     } catch {}
@@ -201,7 +201,7 @@ export default function SchedulePage() {
       {/* Enroll Modal */}
       {enrollingSession !== null && (
         <EnrollModal
-          session={sessions.find((s) => s.rowIndex === enrollingSession)!}
+          session={sessions.find((s) => s.id ===enrollingSession)!}
           allSessions={sessions}
           onClose={() => setEnrollingSession(null)}
           onEnrolled={() => { setEnrollingSession(null); refresh(); }}
@@ -211,7 +211,7 @@ export default function SchedulePage() {
       {/* Finalize Modal */}
       {finalizingSession !== null && (
         <FinalizeModal
-          session={sessions.find((s) => s.rowIndex === finalizingSession)!}
+          session={sessions.find((s) => s.id ===finalizingSession)!}
           onClose={() => setFinalizingSession(null)}
           onFinalized={() => { setFinalizingSession(null); refresh(); }}
         />
@@ -234,7 +234,7 @@ export default function SchedulePage() {
               const isFull = spotsLeft <= 0;
 
               return (
-                <div key={session.rowIndex} className="px-6 py-4">
+                <div key={session.id} className="px-6 py-4">
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <span className="font-semibold text-slate-900 text-lg">{session.training}</span>
@@ -262,7 +262,7 @@ export default function SchedulePage() {
                         Edit
                       </button>
                       <button
-                        onClick={() => setFinalizingSession(session.rowIndex)}
+                        onClick={() => setFinalizingSession(session.id)}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-amber-50 text-amber-700 hover:bg-amber-100"
                       >
                         <ClipboardCheck className="h-4 w-4" />
@@ -270,7 +270,7 @@ export default function SchedulePage() {
                       </button>
                       <button
                         onClick={() => handleAutoFill(session)}
-                        disabled={isFull || autoFilling === session.rowIndex}
+                        disabled={isFull || autoFilling === session.id}
                         className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                           isFull
                             ? "bg-slate-100 text-slate-400 cursor-not-allowed"
@@ -278,11 +278,11 @@ export default function SchedulePage() {
                         }`}
                         title="Auto-fill with employees who need this training"
                       >
-                        {autoFilling === session.rowIndex ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                        {autoFilling === session.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
                         Auto-Fill
                       </button>
                       <button
-                        onClick={() => setEnrollingSession(session.rowIndex)}
+                        onClick={() => setEnrollingSession(session.id)}
                         disabled={isFull}
                         className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
                           isFull
@@ -293,10 +293,10 @@ export default function SchedulePage() {
                         <UserPlus className="h-4 w-4" />
                         Enroll
                       </button>
-                      {deletingSession === session.rowIndex ? (
+                      {deletingSession === session.id ? (
                         <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => handleDelete(session.rowIndex)}
+                            onClick={() => handleDelete(session.id)}
                             disabled={deleteLoading}
                             className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700"
                           >
@@ -311,7 +311,7 @@ export default function SchedulePage() {
                         </div>
                       ) : (
                         <button
-                          onClick={() => setDeletingSession(session.rowIndex)}
+                          onClick={() => setDeletingSession(session.id)}
                           className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
                           title="Archive session"
                         >
@@ -329,7 +329,7 @@ export default function SchedulePage() {
                           key={name}
                           name={name}
                           training={session.training}
-                          sessionRowIndex={session.rowIndex}
+                          sessionId={session.id}
                           onRemoved={refresh}
                         />
                       ))}
@@ -365,7 +365,7 @@ export default function SchedulePage() {
           </div>
           <div className="divide-y divide-slate-100">
             {past.map((session) => (
-              <div key={session.rowIndex} className="px-6 py-3 flex items-center justify-between group">
+              <div key={session.id} className="px-6 py-3 flex items-center justify-between group">
                 <div>
                   <span className="font-medium text-slate-900">{session.training}</span>
                   <span className="ml-3 text-sm text-slate-500">{session.date}</span>
@@ -374,12 +374,12 @@ export default function SchedulePage() {
                   <span className="text-sm text-slate-500">{session.enrolled.length}/{session.capacity}</span>
                   <StatusBadge status="completed" type="session" />
                   <button
-                    onClick={() => handleArchive(session.rowIndex)}
-                    disabled={archiving === session.rowIndex}
+                    onClick={() => handleArchive(session.id)}
+                    disabled={archiving === session.id}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-slate-50 text-slate-600 hover:bg-blue-50 hover:text-blue-700 opacity-0 group-hover:opacity-100"
                     title="Move to Archive sheet"
                   >
-                    {archiving === session.rowIndex ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+                    {archiving === session.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
                     Archive
                   </button>
                 </div>
@@ -509,7 +509,7 @@ function EnrollModal({
   onClose,
   onEnrolled,
 }: {
-  session: { rowIndex: number; training: string; enrolled: string[]; capacity: number };
+  session: { id: string; training: string; enrolled: string[]; capacity: number };
   allSessions: SessionData[];
   onClose: () => void;
   onEnrolled: () => void;
@@ -572,7 +572,7 @@ function EnrollModal({
       const res = await fetch("/api/enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionRowIndex: session.rowIndex, names: Array.from(selected) }),
+        body: JSON.stringify({ sessionId: session.id, names: Array.from(selected) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -708,12 +708,12 @@ function EnrollModal({
 function EnrolledChip({
   name,
   training,
-  sessionRowIndex,
+  sessionId,
   onRemoved,
 }: {
   name: string;
   training: string;
-  sessionRowIndex: number;
+  sessionId: string;
   onRemoved: () => void;
 }) {
   const [showOptions, setShowOptions] = useState(false);
@@ -734,7 +734,7 @@ function EnrolledChip({
       await fetch("/api/remove-enrollee", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionRowIndex, name }),
+        body: JSON.stringify({ sessionId, name }),
       });
       onRemoved();
     } catch {} finally { setRemoving(false); }
@@ -873,7 +873,7 @@ function FinalizeModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionRowIndex: session.rowIndex,
+          sessionId: session.id,
           names: Array.from(noShows),
         }),
       });
@@ -1001,7 +1001,7 @@ function EditSessionModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sessionRowIndex: session.rowIndex,
+          sessionId: session.id,
           training,
           date,
           time,

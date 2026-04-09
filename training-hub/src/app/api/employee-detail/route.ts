@@ -37,7 +37,7 @@ export async function GET(request: Request) {
           s.enrolled.length < s.capacity &&
           !s.enrolled.some((n) => namesMatch(n, employee.name))
       ).map((s) => ({
-        rowIndex: s.rowIndex,
+        id: s.id,
         training: s.training,
         date: s.date,
         time: s.time,

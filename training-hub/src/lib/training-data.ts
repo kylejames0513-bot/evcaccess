@@ -42,7 +42,6 @@ export interface EmployeeTrainingRow {
   employeeId: string; // UUID
   position: string;   // department
   hireDate: string;   // Hire Date
-  rowIndex: number;   // kept for backward compat (uses numeric hash)
   trainings: Record<string, {
     value: string;        // raw value (date string or excusal code)
     date: Date | null;    // parsed date or null
@@ -164,7 +163,6 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
       employeeId: emp.id,
       position,
       hireDate: emp.hire_date || "",
-      rowIndex: Math.abs(hashCode(emp.id)) % 100000,
       trainings: {},
     };
 
@@ -250,16 +248,6 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
   }
 
   return Array.from(employeeMap.values());
-}
-
-function hashCode(s: string): number {
-  let hash = 0;
-  for (let i = 0; i < s.length; i++) {
-    const char = s.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash |= 0;
-  }
-  return hash;
 }
 
 function formatDateMDY(d: Date): string {
@@ -348,7 +336,7 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 // --------------------------------------------------------
 
 export interface ScheduledSession {
-  rowIndex: number;
+  id: string;           // session UUID
   training: string;
   date: string;
   sortDateMs: number;
@@ -374,12 +362,13 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
       enrollments ( status, employees ( first_name, last_name ) )
     `)
     .in("status", ["scheduled", "in_progress", "completed"])
-    .order("session_date", { ascending: true });
+    .order("session_date", { ascending: true })
+    .limit(5000);
 
   if (error) throw new Error(`Failed to load sessions: ${error.message}`);
   if (!sessions) return [];
 
-  return sessions.map((s: any, idx: number) => {
+  return sessions.map((s: any) => {
     const trainingName = s.training_types?.name || "Unknown";
     const sessionDate = new Date(s.session_date);
     const enrolledNames: string[] = [];
@@ -395,7 +384,7 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
     }
 
     return {
-      rowIndex: idx + 2,
+      id: s.id,
       training: trainingName,
       date: formatDateMDY(sessionDate),
       sortDateMs: sessionDate.getTime(),
@@ -663,13 +652,12 @@ export async function createSession(
  * Add enrollees to an existing session.
  */
 export async function addEnrollees(
-  sessionRowIndex: number,
+  sessionId: string,
   newNames: string[]
 ): Promise<{ success: boolean; message: string }> {
   const supabase = createServerClient();
 
-  // Find session by looking up all sessions sorted by date
-  const session = await findSessionByIndex(supabase, sessionRowIndex);
+  const session = await fetchSessionById(supabase, sessionId);
   if (!session) return { success: false, message: "Session not found" };
 
   // Check all sessions of same training type to prevent double-enrollment
@@ -710,13 +698,10 @@ export async function addEnrollees(
  * Remove an enrollee from an existing session.
  */
 export async function removeEnrollee(
-  sessionRowIndex: number,
+  sessionId: string,
   nameToRemove: string
 ): Promise<{ success: boolean; message: string }> {
   const supabase = createServerClient();
-
-  const session = await findSessionByIndex(supabase, sessionRowIndex);
-  if (!session) return { success: false, message: "Session not found" };
 
   const employee = await findEmployee(supabase, nameToRemove);
   if (!employee) return { success: false, message: `"${nameToRemove}" not found` };
@@ -724,7 +709,7 @@ export async function removeEnrollee(
   const { error, count } = await supabase
     .from("enrollments")
     .delete()
-    .eq("session_id", session.id)
+    .eq("session_id", sessionId)
     .eq("employee_id", employee.id);
 
   if (error || count === 0) {
@@ -738,11 +723,11 @@ export async function removeEnrollee(
  * Delete a scheduled session.
  */
 export async function deleteSession(
-  sessionRowIndex: number
+  sessionId: string
 ): Promise<{ success: boolean; message: string }> {
   const supabase = createServerClient();
 
-  const session = await findSessionByIndex(supabase, sessionRowIndex);
+  const session = await fetchSessionById(supabase, sessionId);
   if (!session) return { success: false, message: "Session not found" };
 
   const { error } = await supabase
@@ -759,11 +744,11 @@ export async function deleteSession(
  * Archive a session: mark completed and record training completions.
  */
 export async function archiveSession(
-  sessionRowIndex: number
+  sessionId: string
 ): Promise<{ success: boolean; message: string }> {
   const supabase = createServerClient();
 
-  const session = await findSessionByIndex(supabase, sessionRowIndex);
+  const session = await fetchSessionById(supabase, sessionId);
   if (!session) return { success: false, message: "Session not found" };
 
   // Get enrollments with employee details
@@ -852,13 +837,13 @@ export async function getArchivedSessions(): Promise<
  * Record no-shows for a session.
  */
 export async function recordNoShows(
-  sessionRowIndex: number,
+  sessionId: string,
   noShowNames: string[]
 ): Promise<{ success: boolean; message: string }> {
   if (noShowNames.length === 0) return { success: false, message: "No names provided" };
 
   const supabase = createServerClient();
-  const session = await findSessionByIndex(supabase, sessionRowIndex);
+  const session = await fetchSessionById(supabase, sessionId);
   if (!session) return { success: false, message: "Session not found" };
 
   for (const name of noShowNames) {
@@ -910,30 +895,25 @@ async function findEmployee(
 }
 
 // --------------------------------------------------------
-// Helper: find session by row index (maps to sorted position)
+// Helper: find session by UUID
 // --------------------------------------------------------
 
-async function findSessionByIndex(
+async function fetchSessionById(
   supabase: ReturnType<typeof createServerClient>,
-  rowIndex: number
-): Promise<{ id: string; session_date: string; training_type_id: number; training_name: string } | null> {
-  const { data: sessions } = await supabase
+  sessionId: string
+): Promise<{ id: string; session_date: string; training_type_id: string; training_name: string } | null> {
+  const { data: s } = await supabase
     .from("training_sessions")
     .select("id, session_date, training_type_id, training_types(name)")
-    .in("status", ["scheduled", "in_progress"])
-    .order("session_date", { ascending: true });
+    .eq("id", sessionId)
+    .maybeSingle();
 
-  if (!sessions) return null;
+  if (!s) return null;
 
-  // rowIndex is 1-based offset from getScheduledSessions (which returns rowIndex = idx + 2)
-  const idx = rowIndex - 2;
-  if (idx < 0 || idx >= sessions.length) return null;
-
-  const s = sessions[idx] as any;
   return {
-    id: s.id,
-    session_date: s.session_date,
-    training_type_id: s.training_type_id,
-    training_name: s.training_types?.name || "Unknown",
+    id: (s as any).id,
+    session_date: (s as any).session_date,
+    training_type_id: (s as any).training_type_id,
+    training_name: (s as any).training_types?.name || "Unknown",
   };
 }

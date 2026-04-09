@@ -9,10 +9,10 @@ import EmployeeDetailModal from "@/components/EmployeeDetailModal";
 
 interface NewHire {
   name: string;
+  employeeId: string;
   division: string;
   hireDate: string;
   daysEmployed: number;
-  row: number;
   totalTrainings: number;
   completedTrainings: number;
   missingTrainings: string[];
@@ -52,7 +52,7 @@ export default function NewHiresPage() {
       for (const training of hire.missingTrainings) {
         // Find next available session for this training
         const session = sessions.find(
-          (s: { status: string; training: string; enrolled: string[]; capacity: number }) =>
+          (s: { id: string; status: string; training: string; enrolled: string[]; capacity: number }) =>
             s.status === "scheduled" &&
             s.training.toLowerCase() === training.toLowerCase() &&
             s.enrolled.length < s.capacity
@@ -61,7 +61,7 @@ export default function NewHiresPage() {
           await fetch("/api/enroll", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ sessionRowIndex: session.rowIndex, names: [hire.name] }),
+            body: JSON.stringify({ sessionId: session.id, names: [hire.name] }),
           });
           enrolled++;
         }

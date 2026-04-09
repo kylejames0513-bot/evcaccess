@@ -32,8 +32,8 @@ export async function GET() {
 
       return {
         name: emp.name,
+        employeeId: emp.employeeId,
         position: emp.position,
-        rowIndex: emp.rowIndex,
         completedCount: completed,
         totalRequired: total,
         status: overallStatus,

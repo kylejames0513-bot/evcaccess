@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { Search, UserMinus, UserPlus, X, Loader2, RefreshCw } from "lucide-react";
-import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import StatusBadge from "@/components/ui/StatusBadge";
 import EmployeeDetailModal from "@/components/EmployeeDetailModal";
 import { Loading, ErrorState } from "@/components/ui/DataState";
@@ -12,35 +11,12 @@ import { formatDivision } from "@/lib/format-utils";
 interface EmployeesData {
   employees: Array<{
     name: string;
+    employeeId: string;
     position: string;
-    rowIndex: number;
     completedCount: number;
     totalRequired: number;
     status: string;
     noShowCount: number;
-  }>;
-}
-
-interface EmployeeDetail {
-  name: string;
-  noShowCount: number;
-  trainings: Array<{
-    columnKey: string;
-    value: string;
-    date: string | null;
-    status: string;
-    isExcused: boolean;
-    enrolledIn: { date: string; time: string } | null;
-    openSessions: Array<{
-      rowIndex: number;
-      training: string;
-      date: string;
-      time: string;
-      location: string;
-      enrolledCount: number;
-      capacity: number;
-      sortDateMs: number;
-    }>;
   }>;
 }
 

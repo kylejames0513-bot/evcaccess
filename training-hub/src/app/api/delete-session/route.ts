@@ -3,16 +3,16 @@ import { deleteSession } from "@/lib/training-data";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { sessionRowIndex } = body;
+    const { sessionId } = body;
 
-    if (!sessionRowIndex) {
+    if (!sessionId) {
       return Response.json(
-        { error: "Missing required field: sessionRowIndex" },
+        { error: "Missing required field: sessionId" },
         { status: 400 }
       );
     }
 
-    const result = await deleteSession(sessionRowIndex);
+    const result = await deleteSession(sessionId);
     if (!result.success) {
       return Response.json({ error: result.message }, { status: 400 });
     }

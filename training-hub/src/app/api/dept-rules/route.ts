@@ -59,7 +59,8 @@ async function applyRuleToSupabase(department: string, trackedSet: Set<string>) 
   const { data: employees, error: empError } = await supabase
     .from("employees")
     .select("id, first_name, last_name, department")
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .limit(10000);
 
   if (empError) throw new Error(`Failed to load employees: ${empError.message}`);
 

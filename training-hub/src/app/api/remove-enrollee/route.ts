@@ -3,16 +3,16 @@ import { removeEnrollee } from "@/lib/training-data";
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { sessionRowIndex, name } = body;
+    const { sessionId, name } = body;
 
-    if (!sessionRowIndex || !name) {
+    if (!sessionId || !name) {
       return Response.json(
-        { error: "Missing required fields: sessionRowIndex, name" },
+        { error: "Missing required fields: sessionId, name" },
         { status: 400 }
       );
     }
 
-    const result = await removeEnrollee(sessionRowIndex, name);
+    const result = await removeEnrollee(sessionId, name);
     if (!result.success) {
       return Response.json({ error: result.message }, { status: 400 });
     }

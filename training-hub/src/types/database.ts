@@ -149,3 +149,25 @@ export interface RemovalLog {
   reason: string | null;
   removed_at: string;
 }
+
+// hub_settings is a flexible key/value table used for runtime config
+// (excluded employees, dept rules, expiration thresholds, no-show flags,
+//  name maps, sync logs, etc.). The shape of `value` depends on `type`.
+export interface HubSetting {
+  id: string;
+  type: string;
+  key: string | null;
+  value: string | null;
+  updated_at: string;
+}
+
+export interface ArchivedSession {
+  id: string;
+  training_type_id: number;
+  session_date: string;
+  start_time: string | null;
+  location: string | null;
+  capacity: number;
+  archived_at: string;
+  archived_by: string | null;
+}

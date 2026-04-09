@@ -1,53 +1,72 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import {
   RefreshCw,
-  AlertTriangle,
   CheckCircle2,
-  Copy,
   Users,
-  FileWarning,
-  UserX,
   CalendarX,
-  ChevronDown,
-  ChevronRight,
+  UserX,
+  AlertTriangle,
   Loader2,
   Trash2,
-  Wrench,
-  MessageSquare,
+  Database,
 } from "lucide-react";
 import StatCard from "@/components/ui/StatCard";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 
-interface GarbledDate { row: number; name: string; column: string; value: string; suggestion: string; category: string; }
-interface DuplicateEmployee { name: string; rows: Array<{ row: number; trainings: Record<string, string> }>; }
-interface CprFaMismatch { row: number; name: string; cprDate: string; faDate: string; }
-
 interface DataHealthResponse {
-  issues: {
-    garbledDates: GarbledDate[];
-    duplicateEmployees: DuplicateEmployee[];
-    cprFaMismatch: CprFaMismatch[];
-    emptyRows: number[];
-    missingNames: number[];
+  summary: {
+    total: number;
+    missingDepartment: number;
+    missingHireDate: number;
+    badDates: number;
+    duplicates: number;
+    orphanRecords: number;
+    orphanExcusals: number;
+    totalEmployees: number;
+    totalRecords: number;
+    totalExcusals: number;
   };
-  summary: { total: number; garbled: number; duplicates: number; mismatches: number; empty: number; missing: number; };
+  issues: {
+    missingDepartment: Array<{ id: string; name: string }>;
+    missingHireDate: Array<{ id: string; name: string }>;
+    badDates: Array<{ recordId: string; employeeId: string; date: string | null }>;
+    duplicateEmployees: Array<{ name: string; ids: string[] }>;
+    orphanRecords: Array<{ recordId: string; employeeId: string }>;
+    orphanExcusals: Array<{ excusalId: string; employeeId: string }>;
+  };
 }
 
-function Section({ title, count, icon: Icon, action, children }: {
-  title: string; count: number; icon: React.ComponentType<{ className?: string }>; action?: React.ReactNode; children: React.ReactNode;
+function Section({
+  title,
+  count,
+  icon: Icon,
+  action,
+  children,
+}: {
+  title: string;
+  count: number;
+  icon: React.ComponentType<{ className?: string }>;
+  action?: React.ReactNode;
+  children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(count > 0);
   return (
     <div className="bg-white rounded-xl border border-slate-200">
       <div className="flex items-center gap-3 px-5 py-4">
-        <button onClick={() => setOpen(!open)} className="flex items-center gap-3 flex-1 text-left hover:opacity-80 transition-opacity">
-          {open ? <ChevronDown className="h-4 w-4 text-slate-400 shrink-0" /> : <ChevronRight className="h-4 w-4 text-slate-400 shrink-0" />}
+        <button
+          onClick={() => setOpen(!open)}
+          className="flex items-center gap-3 flex-1 text-left hover:opacity-80 transition-opacity"
+        >
           <Icon className="h-4 w-4 text-slate-500 shrink-0" />
           <span className="text-sm font-semibold text-slate-800">{title}</span>
-          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${count > 0 ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+          <span
+            className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+              count > 0 ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"
+            }`}
+          >
             {count > 0 ? `${count} issue${count !== 1 ? "s" : ""}` : "Clean"}
           </span>
         </button>
@@ -61,590 +80,339 @@ function Section({ title, count, icon: Icon, action, children }: {
 export default function DataHealthPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
-  const { data, loading, error } = useFetch<DataHealthResponse>(`/api/data-health?r=${refreshKey}`);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [keepIds, setKeepIds] = useState<Record<string, string>>({});
+  const { data, loading, error } = useFetch<DataHealthResponse>(
+    `/api/data-health?r=${refreshKey}`
+  );
 
-  // Garbled dates state
-  const [selectedGarbled, setSelectedGarbled] = useState<Set<string>>(new Set());
-  const [garbledEdits, setGarbledEdits] = useState<Record<string, string>>({});
-  const [clearingGarbled, setClearingGarbled] = useState(false);
-  const [garbledColFilter, setGarbledColFilter] = useState<string>("all");
-  const [garbledCatFilter, setGarbledCatFilter] = useState<string>("all");
-  const [garbledBulkValue, setGarbledBulkValue] = useState("");
-
-  // Duplicate state — which row to keep per group
-  const [keepRows, setKeepRows] = useState<Record<string, number>>({});
-  const [removingDupe, setRemovingDupe] = useState<string | null>(null);
-
-  // CPR/FA state
-  const [fixingCpr, setFixingCpr] = useState(false);
-  const [fixingCprRow, setFixingCprRow] = useState<number | null>(null);
-  const [cprFixResult, setCprFixResult] = useState("");
-
-  // Training notes state
-  const [allNotes, setAllNotes] = useState<Record<string, string>>({});
-  const [editingNoteKey, setEditingNoteKey] = useState<string | null>(null);
-  const [noteText, setNoteText] = useState("");
-  const [savingNote, setSavingNote] = useState(false);
-
-  const loadNotes = useCallback(() => {
-    fetch("/api/training-notes")
-      .then((r) => r.json())
-      .then((d) => setAllNotes(d.notes || {}))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => { loadNotes(); }, [loadNotes]);
-
-  async function handleSaveNote(employee: string, training: string) {
-    setSavingNote(true);
-    try {
-      await fetch("/api/training-notes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee, training, note: noteText.trim() }),
-      });
-      const key = `${employee}|${training}`;
-      if (noteText.trim()) {
-        setAllNotes((prev) => ({ ...prev, [key]: noteText.trim() }));
-      } else {
-        setAllNotes((prev) => { const next = { ...prev }; delete next[key]; return next; });
-      }
-      setEditingNoteKey(null);
-      setNoteText("");
-    } catch {}
-    setSavingNote(false);
-  }
-
-  if (loading) return <Loading message="Scanning training data..." />;
+  if (loading) return <Loading message="Scanning Supabase data..." />;
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
 
-  const { issues, summary } = data;
+  const { summary, issues } = data;
 
   async function doRefresh() {
     setRefreshing(true);
-    try { await fetch("/api/refresh", { method: "POST" }); setRefreshKey((k) => k + 1); } catch {}
+    try {
+      await fetch("/api/refresh", { method: "POST" });
+      setRefreshKey((k) => k + 1);
+    } catch {}
     setRefreshing(false);
-    setSelectedGarbled(new Set());
-    setKeepRows({});
   }
 
-  // ── Garbled dates actions ──
-  function toggleGarbled(key: string) {
-    const next = new Set(selectedGarbled);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    setSelectedGarbled(next);
-  }
-  function toggleAllGarbled() {
-    if (selectedGarbled.size === issues.garbledDates.length) setSelectedGarbled(new Set());
-    else setSelectedGarbled(new Set(issues.garbledDates.map((d) => `${d.row}|${d.column}`)));
-  }
-
-  function setGarbledEdit(key: string, value: string) {
-    setGarbledEdits({ ...garbledEdits, [key]: value });
-  }
-
-  function acceptAllSuggestions() {
-    const edits: Record<string, string> = { ...garbledEdits };
-    for (const d of issues.garbledDates) {
-      if (d.suggestion) {
-        const key = `${d.row}|${d.column}`;
-        edits[key] = d.suggestion;
-        selectedGarbled.add(key);
-      }
-    }
-    setGarbledEdits(edits);
-    setSelectedGarbled(new Set(selectedGarbled));
-  }
-
-  async function handleFixGarbled() {
-    setClearingGarbled(true);
+  async function deleteOrphanRecords() {
+    if (issues.orphanRecords.length === 0) return;
+    setBusy("orphan_records");
     try {
-      const items = Array.from(selectedGarbled).map((k) => {
-        const [row, column] = k.split("|");
-        return { row: parseInt(row), column, newValue: garbledEdits[k] || "" };
+      await fetch("/api/data-health-fix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete_orphan_records",
+          recordIds: issues.orphanRecords.map((r) => r.recordId),
+        }),
       });
-      const res = await fetch("/api/data-health-fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "clear_garbled", items }) });
-      const data = await res.json();
-      if (!res.ok) alert("Fix error: " + (data.error || res.status));
-      else await doRefresh();
-    } catch (err) {
-      alert("Fix error: " + (err instanceof Error ? err.message : "unknown"));
-    }
-    setClearingGarbled(false);
-  }
-
-  // ── Duplicate actions ──
-  async function handleRemoveDupe(name: string, rowDetails: Array<{ row: number }>) {
-    const keep = keepRows[name];
-    if (!keep) return;
-    setRemovingDupe(name);
-    try {
-      const deleteRows = rowDetails.map((r) => r.row).filter((r) => r !== keep);
-      await fetch("/api/data-health-fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "remove_duplicates", keepRow: keep, deleteRows }) });
       doRefresh();
     } catch {}
-    setRemovingDupe(null);
+    setBusy(null);
   }
 
-  // ── CPR/FA actions ──
-  async function handleFixAllCpr() {
-    setFixingCpr(true);
-    setCprFixResult("");
+  async function deleteOrphanExcusals() {
+    if (issues.orphanExcusals.length === 0) return;
+    setBusy("orphan_excusals");
     try {
-      const res = await fetch("/api/data-health-fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "fix_cpr_fa", items: issues.cprFaMismatch.map((d) => ({ row: d.row })) }) });
-      const data = await res.json();
-      if (!res.ok) {
-        setCprFixResult("API Error: " + (data.error || res.status));
-      } else {
-        setCprFixResult(data.message || `Fixed ${data.fixed}`);
-        await doRefresh();
-      }
-    } catch (err) {
-      setCprFixResult("Network Error: " + (err instanceof Error ? err.message : "unknown"));
-    }
-    setFixingCpr(false);
-  }
-
-  async function handleFixOneCpr(row: number) {
-    setFixingCprRow(row);
-    try {
-      await fetch("/api/data-health-fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "fix_cpr_fa", items: [{ row }] }) });
-      await doRefresh();
+      await fetch("/api/data-health-fix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "delete_orphan_excusals",
+          excusalIds: issues.orphanExcusals.map((e) => e.excusalId),
+        }),
+      });
+      doRefresh();
     } catch {}
-    setFixingCprRow(null);
+    setBusy(null);
+  }
+
+  async function deleteBadDateRecord(recordId: string) {
+    setBusy(`bad_date_${recordId}`);
+    try {
+      await fetch("/api/data-health-fix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_bad_date_record", recordId }),
+      });
+      doRefresh();
+    } catch {}
+    setBusy(null);
+  }
+
+  async function mergeDuplicates(name: string, ids: string[]) {
+    const keepId = keepIds[name];
+    if (!keepId) return;
+    const removeIds = ids.filter((id) => id !== keepId);
+    setBusy(`dup_${name}`);
+    try {
+      await fetch("/api/data-health-fix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "merge_duplicates",
+          keepId,
+          removeIds,
+        }),
+      });
+      doRefresh();
+    } catch {}
+    setBusy(null);
   }
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center gap-3">
+    <div className="space-y-6 max-w-6xl mx-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Data Health</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Data Quality</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {summary.total === 0 ? "No issues found" : `${summary.total} issue${summary.total !== 1 ? "s" : ""} found`}
+            Scans Supabase for missing fields, bad dates, duplicates, and orphan
+            records.
           </p>
         </div>
-        <button onClick={doRefresh} disabled={refreshing} className="ml-auto px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-700 text-sm font-medium flex items-center gap-1.5">
-          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh Scan
+        <button
+          onClick={doRefresh}
+          disabled={refreshing}
+          className="inline-flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white text-slate-600 hover:text-slate-900 text-sm font-medium rounded-lg"
+        >
+          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          Rescan
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-        <StatCard title="Garbled Dates" value={summary.garbled} icon={summary.garbled > 0 ? CalendarX : CheckCircle2} color={summary.garbled > 0 ? "red" : "green"} />
-        <StatCard title="Duplicates" value={summary.duplicates} icon={summary.duplicates > 0 ? Copy : CheckCircle2} color={summary.duplicates > 0 ? "red" : "green"} />
-        <StatCard title="CPR/FA Mismatch" value={summary.mismatches} icon={summary.mismatches > 0 ? AlertTriangle : CheckCircle2} color={summary.mismatches > 0 ? "yellow" : "green"} />
-        <StatCard title="Empty Rows" value={summary.empty} icon={summary.empty > 0 ? FileWarning : CheckCircle2} color={summary.empty > 0 ? "yellow" : "green"} />
-        <StatCard title="Missing Names" value={summary.missing} icon={summary.missing > 0 ? UserX : CheckCircle2} color={summary.missing > 0 ? "yellow" : "green"} />
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatCard
+          title="Total Issues"
+          value={summary.total}
+          icon={AlertTriangle}
+          color={summary.total > 0 ? "red" : "green"}
+        />
+        <StatCard title="Employees" value={summary.totalEmployees} icon={Users} />
+        <StatCard
+          title="Training Records"
+          value={summary.totalRecords}
+          icon={Database}
+        />
+        <StatCard title="Excusals" value={summary.totalExcusals} icon={Database} />
       </div>
 
-      <div className="space-y-3">
-        {/* ── Garbled Dates ── */}
-        <Section
-          title="Garbled Dates" count={issues.garbledDates.length} icon={CalendarX}
-          action={issues.garbledDates.length > 0 ? (
-            <div className="flex items-center gap-2">
-              {issues.garbledDates.some((d) => d.suggestion) && (
-                <button onClick={acceptAllSuggestions} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100">
-                  <Wrench className="h-3 w-3" /> Accept All Suggestions
+      {summary.total === 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 flex items-center gap-4">
+          <CheckCircle2 className="h-8 w-8 text-emerald-600 shrink-0" />
+          <div>
+            <h3 className="text-base font-semibold text-emerald-900">
+              All clean!
+            </h3>
+            <p className="text-sm text-emerald-700">
+              No data quality issues found in Supabase.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Missing department */}
+      <Section
+        title="Employees missing department"
+        count={issues.missingDepartment.length}
+        icon={Users}
+      >
+        {issues.missingDepartment.length > 0 ? (
+          <ul className="text-sm text-slate-700 space-y-1">
+            {issues.missingDepartment.map((e) => (
+              <li key={e.id} className="px-3 py-1.5 rounded bg-slate-50">
+                {e.name}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-slate-400">No issues.</p>
+        )}
+      </Section>
+
+      {/* Missing hire date */}
+      <Section
+        title="Employees missing hire date"
+        count={issues.missingHireDate.length}
+        icon={CalendarX}
+      >
+        {issues.missingHireDate.length > 0 ? (
+          <ul className="text-sm text-slate-700 space-y-1">
+            {issues.missingHireDate.map((e) => (
+              <li key={e.id} className="px-3 py-1.5 rounded bg-slate-50">
+                {e.name}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-slate-400">No issues.</p>
+        )}
+      </Section>
+
+      {/* Bad dates */}
+      <Section
+        title="Training records with bad dates"
+        count={issues.badDates.length}
+        icon={CalendarX}
+      >
+        {issues.badDates.length > 0 ? (
+          <ul className="text-sm text-slate-700 space-y-1">
+            {issues.badDates.map((r) => (
+              <li
+                key={r.recordId}
+                className="flex items-center justify-between px-3 py-2 rounded bg-slate-50"
+              >
+                <span>
+                  Record <code className="text-xs">{r.recordId.slice(0, 8)}…</code> —{" "}
+                  date <code className="text-xs">{r.date}</code>
+                </span>
+                <button
+                  onClick={() => deleteBadDateRecord(r.recordId)}
+                  disabled={busy === `bad_date_${r.recordId}`}
+                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50"
+                >
+                  {busy === `bad_date_${r.recordId}` ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3 w-3" />
+                  )}
+                  Delete
                 </button>
-              )}
-              {selectedGarbled.size > 0 && (
-                <button onClick={handleFixGarbled} disabled={clearingGarbled} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
-                  {clearingGarbled ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
-                  Fix {selectedGarbled.size} Selected
-                </button>
-              )}
-            </div>
-          ) : null}
-        >
-          {issues.garbledDates.length === 0 ? (
-            <p className="text-sm text-slate-500">All date values are in M/D/YYYY format.</p>
-          ) : (() => {
-            const CATEGORY_LABELS: Record<string, string> = {
-              legacy_excusal: "Legacy Excusals",
-              failed_code: "Failed Codes",
-              date_format: "Date Format",
-              missing_day: "Missing Day",
-              status_code: "Status Codes",
-              random: "Random/Invalid",
-              other: "Other",
-            };
-            const CATEGORY_COLORS: Record<string, string> = {
-              legacy_excusal: "bg-indigo-100 text-indigo-800",
-              failed_code: "bg-orange-100 text-orange-800",
-              date_format: "bg-blue-100 text-blue-800",
-              missing_day: "bg-amber-100 text-amber-800",
-              status_code: "bg-purple-100 text-purple-800",
-              random: "bg-red-100 text-red-800",
-              other: "bg-slate-100 text-slate-800",
-            };
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-slate-400">No issues.</p>
+        )}
+      </Section>
 
-            // Filters
-            const columns = [...new Set(issues.garbledDates.map((d) => d.column))].sort();
-            const categories = [...new Set(issues.garbledDates.map((d) => d.category))];
-            let filtered = issues.garbledDates;
-            if (garbledColFilter !== "all") filtered = filtered.filter((d) => d.column === garbledColFilter);
-            if (garbledCatFilter !== "all") filtered = filtered.filter((d) => d.category === garbledCatFilter);
-
-            // Group filtered items by value for bulk actions
-            const valueGroups: Record<string, GarbledDate[]> = {};
-            for (const d of filtered) {
-              const short = d.value.length > 25 ? d.value.substring(0, 25) + "..." : d.value;
-              if (!valueGroups[short]) valueGroups[short] = [];
-              valueGroups[short].push(d);
-            }
-
-            return (
-              <div className="space-y-3">
-                {/* Category filter */}
-                <div>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-1">Category</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      onClick={() => setGarbledCatFilter("all")}
-                      className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${garbledCatFilter === "all" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-                    >
-                      All ({garbledColFilter === "all" ? issues.garbledDates.length : issues.garbledDates.filter((d) => d.column === garbledColFilter).length})
-                    </button>
-                    {categories.map((cat) => {
-                      const catItems = garbledColFilter === "all"
-                        ? issues.garbledDates.filter((d) => d.category === cat)
-                        : issues.garbledDates.filter((d) => d.category === cat && d.column === garbledColFilter);
-                      if (catItems.length === 0) return null;
-                      return (
-                        <button
-                          key={cat}
-                          onClick={() => setGarbledCatFilter(cat)}
-                          className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${garbledCatFilter === cat ? CATEGORY_COLORS[cat] || "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-                        >
-                          {CATEGORY_LABELS[cat] || cat} ({catItems.length})
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Column filter */}
-                <div>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wide font-semibold mb-1">Column</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      onClick={() => setGarbledColFilter("all")}
-                      className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${garbledColFilter === "all" ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-                    >
-                      All
-                    </button>
-                    {columns.map((col) => {
-                      const count = garbledCatFilter === "all"
-                        ? issues.garbledDates.filter((d) => d.column === col).length
-                        : issues.garbledDates.filter((d) => d.column === col && d.category === garbledCatFilter).length;
-                      if (count === 0) return null;
-                      return (
-                        <button
-                          key={col}
-                          onClick={() => setGarbledColFilter(col)}
-                          className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${garbledColFilter === col ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-                        >
-                          {col} ({count})
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Bulk value setter */}
-                <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-lg border border-slate-100">
-                  <span className="text-xs text-slate-500 shrink-0">Set all selected to:</span>
-                  <input
-                    type="text"
-                    value={garbledBulkValue}
-                    onChange={(e) => setGarbledBulkValue(e.target.value)}
-                    placeholder="M/D/YYYY, excusal code, or empty to clear"
-                    className="flex-1 px-2 py-1 border border-slate-200 rounded text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <button
-                    onClick={() => {
-                      const edits = { ...garbledEdits };
-                      const sel = new Set(selectedGarbled);
-                      for (const d of filtered) {
-                        const key = `${d.row}|${d.column}`;
-                        edits[key] = garbledBulkValue;
-                        sel.add(key);
-                      }
-                      setGarbledEdits(edits);
-                      setSelectedGarbled(sel);
-                    }}
-                    className="px-3 py-1 text-xs font-medium rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 shrink-0"
-                  >
-                    Apply to All Filtered ({filtered.length})
-                  </button>
-                </div>
-
-                {/* Value groups for quick selection */}
-                {Object.keys(valueGroups).length > 1 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    <span className="text-xs text-slate-400 self-center mr-1">Quick select by value:</span>
-                    {Object.entries(valueGroups).map(([val, items]) => (
-                      <button
-                        key={val}
-                        onClick={() => {
-                          const sel = new Set(selectedGarbled);
-                          for (const d of items) sel.add(`${d.row}|${d.column}`);
-                          setSelectedGarbled(sel);
-                        }}
-                        className="px-2 py-1 text-[10px] font-mono rounded bg-red-50 text-red-700 hover:bg-red-100 border border-red-200"
-                        title={`Select all ${items.length} with this value`}
+      {/* Duplicates */}
+      <Section
+        title="Duplicate employees"
+        count={issues.duplicateEmployees.length}
+        icon={Users}
+      >
+        {issues.duplicateEmployees.length > 0 ? (
+          <div className="space-y-3">
+            {issues.duplicateEmployees.map((dup) => {
+              const selectedKeep = keepIds[dup.name];
+              return (
+                <div
+                  key={dup.name}
+                  className="border border-slate-200 rounded-lg p-3 bg-slate-50"
+                >
+                  <p className="text-sm font-semibold text-slate-900 mb-2">
+                    {dup.name}
+                  </p>
+                  <div className="space-y-1.5 mb-3">
+                    {dup.ids.map((id) => (
+                      <label
+                        key={id}
+                        className="flex items-center gap-2 text-xs text-slate-700"
                       >
-                        {val} ({items.length})
-                      </button>
+                        <input
+                          type="radio"
+                          name={`keep-${dup.name}`}
+                          checked={selectedKeep === id}
+                          onChange={() =>
+                            setKeepIds((prev) => ({ ...prev, [dup.name]: id }))
+                          }
+                        />
+                        <code className="font-mono">{id}</code>
+                      </label>
                     ))}
                   </div>
-                )}
-
-                {/* Table */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-xs text-slate-400 uppercase tracking-wide border-b border-slate-100">
-                        <th className="pb-2 pr-2 w-8">
-                          <input type="checkbox" checked={filtered.every((d) => selectedGarbled.has(`${d.row}|${d.column}`))} onChange={() => {
-                            const keys = filtered.map((d) => `${d.row}|${d.column}`);
-                            const allSelected = keys.every((k) => selectedGarbled.has(k));
-                            const next = new Set(selectedGarbled);
-                            if (allSelected) keys.forEach((k) => next.delete(k));
-                            else keys.forEach((k) => next.add(k));
-                            setSelectedGarbled(next);
-                          }} className="rounded border-slate-300" />
-                        </th>
-                        <th className="pb-2 pr-4">Row</th>
-                        <th className="pb-2 pr-4">Employee</th>
-                        {garbledColFilter === "all" && <th className="pb-2 pr-4">Column</th>}
-                        {garbledCatFilter === "all" && <th className="pb-2 pr-4">Type</th>}
-                        <th className="pb-2 pr-4">Current Value</th>
-                        <th className="pb-2 pr-4">Fix To</th>
-                        <th className="pb-2 w-8"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filtered.map((d, i) => {
-                        const key = `${d.row}|${d.column}`;
-                        const noteKey = `${d.name}|${d.column}`;
-                        const checked = selectedGarbled.has(key);
-                        const editValue = garbledEdits[key] ?? d.suggestion ?? "";
-                        const existingNote = allNotes[noteKey];
-                        return (
-                          <tr key={i} className={`border-b border-slate-50 last:border-0 ${checked ? "bg-blue-50/50" : ""}`}>
-                            <td className="py-2 pr-2"><input type="checkbox" checked={checked} onChange={() => toggleGarbled(key)} className="rounded border-slate-300" /></td>
-                            <td className="py-2 pr-4 text-slate-500 font-mono text-xs">{d.row}</td>
-                            <td className="py-2 pr-4 text-slate-800 text-xs">{d.name}</td>
-                            {garbledColFilter === "all" && <td className="py-2 pr-4 text-slate-600 font-mono text-xs">{d.column}</td>}
-                            {garbledCatFilter === "all" && <td className="py-2 pr-4"><span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${CATEGORY_COLORS[d.category] || "bg-slate-100 text-slate-600"}`}>{CATEGORY_LABELS[d.category] || d.category}</span></td>}
-                            <td className="py-2 pr-4"><span className="bg-red-50 text-red-700 px-2 py-0.5 rounded text-xs font-mono">{d.value.substring(0, 35)}</span></td>
-                            <td className="py-2 pr-4">
-                              <input
-                                type="text"
-                                value={editValue}
-                                onChange={(e) => { setGarbledEdit(key, e.target.value); if (!checked) toggleGarbled(key); }}
-                                placeholder={d.suggestion || "M/D/YYYY or empty"}
-                                className={`w-28 px-2 py-1 border rounded text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 ${d.suggestion && !garbledEdits[key] ? "border-emerald-300 bg-emerald-50/50 text-emerald-700" : "border-slate-200 text-slate-700"}`}
-                              />
-                            </td>
-                            <td className="py-2">
-                              {editingNoteKey === noteKey ? (
-                                <div className="flex items-center gap-1">
-                                  <input
-                                    type="text"
-                                    value={noteText}
-                                    onChange={(e) => setNoteText(e.target.value)}
-                                    onKeyDown={(e) => { if (e.key === "Enter") handleSaveNote(d.name, d.column); if (e.key === "Escape") { setEditingNoteKey(null); setNoteText(""); } }}
-                                    placeholder="Add note..."
-                                    className="w-32 px-1.5 py-0.5 border border-slate-200 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-amber-400"
-                                    autoFocus
-                                  />
-                                  <button onClick={() => handleSaveNote(d.name, d.column)} disabled={savingNote} className="text-amber-600 hover:text-amber-800 disabled:opacity-40">
-                                    {savingNote ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-                                  </button>
-                                </div>
-                              ) : existingNote ? (
-                                <button
-                                  onClick={() => { setEditingNoteKey(noteKey); setNoteText(existingNote); }}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-700 text-[10px] font-medium rounded border border-amber-200 hover:bg-amber-100 max-w-[140px] truncate"
-                                  title={existingNote}
-                                >
-                                  <MessageSquare className="h-2.5 w-2.5 shrink-0" />
-                                  {existingNote}
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => { setEditingNoteKey(noteKey); setNoteText(""); }}
-                                  className="text-slate-300 hover:text-amber-500 transition-colors"
-                                  title="Add note"
-                                >
-                                  <MessageSquare className="h-3 w-3" />
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                  <button
+                    onClick={() => mergeDuplicates(dup.name, dup.ids)}
+                    disabled={!selectedKeep || busy === `dup_${dup.name}`}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {busy === `dup_${dup.name}` ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : null}
+                    Merge into selected
+                  </button>
                 </div>
-              </div>
-            );
-          })()}
-        </Section>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400">No issues.</p>
+        )}
+      </Section>
 
-        {/* ── Duplicate Employees ── */}
-        <Section title="Duplicate Employees" count={issues.duplicateEmployees.length} icon={Users}>
-          {issues.duplicateEmployees.length === 0 ? (
-            <p className="text-sm text-slate-500">No duplicates found.</p>
-          ) : (
-            <div className="space-y-4">
-              {issues.duplicateEmployees.map((d) => {
-                // Collect all training columns across both rows
-                const allTrainingKeys = new Set<string>();
-                for (const r of d.rows) {
-                  for (const key of Object.keys(r.trainings)) allTrainingKeys.add(key);
-                }
-                const trainingKeys = [...allTrainingKeys].sort();
-
-                return (
-                  <div key={d.name} className="border border-slate-100 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-medium text-slate-800">{d.name}</span>
-                      <button
-                        onClick={() => handleRemoveDupe(d.name, d.rows)}
-                        disabled={!keepRows[d.name] || removingDupe === d.name}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-lg bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-40 transition-colors"
-                      >
-                        {removingDupe === d.name ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
-                        Remove Duplicate
-                      </button>
-                    </div>
-
-                    {/* Training comparison table */}
-                    <div className="overflow-x-auto mb-2">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="text-left text-[10px] text-slate-400 uppercase tracking-wide border-b border-slate-100">
-                            <th className="pb-1 pr-3 w-16">Keep</th>
-                            <th className="pb-1 pr-3">Row</th>
-                            {trainingKeys.map((key) => (
-                              <th key={key} className="pb-1 pr-2 font-medium">{key}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {d.rows.map((r) => {
-                            const isKeep = keepRows[d.name] === r.row;
-                            const isRemove = keepRows[d.name] && keepRows[d.name] !== r.row;
-                            return (
-                              <tr key={r.row} className={isKeep ? "bg-emerald-50" : isRemove ? "bg-red-50/50" : ""}>
-                                <td className="py-1.5 pr-3">
-                                  <label className="flex items-center gap-1.5 cursor-pointer">
-                                    <input type="radio" name={`keep-${d.name}`} checked={isKeep} onChange={() => setKeepRows({ ...keepRows, [d.name]: r.row })} className="text-blue-600" />
-                                    <span className={`font-medium ${isKeep ? "text-emerald-700" : isRemove ? "text-red-500" : "text-slate-500"}`}>
-                                      {isKeep ? "Keep" : isRemove ? "Remove" : ""}
-                                    </span>
-                                  </label>
-                                </td>
-                                <td className="py-1.5 pr-3 font-mono text-slate-500">{r.row}</td>
-                                {trainingKeys.map((key) => {
-                                  const val = r.trainings[key] || "";
-                                  const otherRows = d.rows.filter((o) => o.row !== r.row);
-                                  const otherVal = otherRows.length > 0 ? (otherRows[0].trainings[key] || "") : "";
-                                  const differs = val !== otherVal && (val || otherVal);
-                                  return (
-                                    <td key={key} className={`py-1.5 pr-2 font-mono ${differs ? (val ? "text-slate-900 font-semibold" : "text-slate-300") : "text-slate-500"} ${isRemove ? "line-through opacity-50" : ""}`}>
-                                      {val || "—"}
-                                    </td>
-                                  );
-                                })}
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    <p className="text-[11px] text-slate-400">Dates from removed row merge into kept row (newest wins). Differences shown in bold.</p>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Section>
-
-        {/* ── CPR/FA Mismatch ── */}
-        <Section
-          title="CPR/FA Date Mismatch" count={issues.cprFaMismatch.length} icon={AlertTriangle}
-          action={issues.cprFaMismatch.length > 0 ? (
-            <button onClick={handleFixAllCpr} disabled={fixingCpr} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
-              {fixingCpr ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
-              Fix All ({issues.cprFaMismatch.length})
+      {/* Orphan records */}
+      <Section
+        title="Orphan training records"
+        count={issues.orphanRecords.length}
+        icon={UserX}
+        action={
+          issues.orphanRecords.length > 0 ? (
+            <button
+              onClick={deleteOrphanRecords}
+              disabled={busy === "orphan_records"}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50"
+            >
+              {busy === "orphan_records" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5" />
+              )}
+              Delete all
             </button>
-          ) : null}
-        >
-          {cprFixResult && (
-            <div className={`mb-3 p-3 rounded-lg text-xs font-medium ${cprFixResult.startsWith("Error") ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>
-              {cprFixResult}
-            </div>
-          )}
-          {issues.cprFaMismatch.length === 0 ? (
-            <p className="text-sm text-slate-500">All CPR and First Aid dates match.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs text-slate-400 uppercase tracking-wide border-b border-slate-100">
-                    <th className="pb-2 pr-4">Row</th>
-                    <th className="pb-2 pr-4">Employee</th>
-                    <th className="pb-2 pr-4">CPR</th>
-                    <th className="pb-2 pr-4">First Aid</th>
-                    <th className="pb-2 pr-4">Fix Preview</th>
-                    <th className="pb-2 w-16"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {issues.cprFaMismatch.map((d) => (
-                    <tr key={d.row} className="border-b border-slate-50 last:border-0">
-                      <td className="py-2 pr-4 text-slate-500 font-mono text-xs">{d.row}</td>
-                      <td className="py-2 pr-4 text-slate-800">{d.name}</td>
-                      <td className="py-2 pr-4 font-mono text-xs text-emerald-700">{d.cprDate}</td>
-                      <td className="py-2 pr-4 font-mono text-xs text-red-600"><s>{d.faDate || "(empty)"}</s></td>
-                      <td className="py-2 pr-4 font-mono text-xs text-slate-500">→ {d.cprDate}</td>
-                      <td className="py-2">
-                        <button
-                          onClick={() => handleFixOneCpr(d.row)}
-                          disabled={fixingCprRow === d.row || fixingCpr}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40"
-                        >
-                          {fixingCprRow === d.row ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wrench className="h-3 w-3" />}
-                          Fix
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Section>
+          ) : null
+        }
+      >
+        {issues.orphanRecords.length > 0 ? (
+          <p className="text-xs text-slate-500">
+            Records pointing at deleted/inactive employees:{" "}
+            {issues.orphanRecords.length}
+          </p>
+        ) : (
+          <p className="text-sm text-slate-400">No issues.</p>
+        )}
+      </Section>
 
-        {/* ── Empty Rows ── */}
-        <Section title="Empty Rows" count={issues.emptyRows.length} icon={FileWarning}>
-          {issues.emptyRows.length === 0 ? <p className="text-sm text-slate-500">No empty rows.</p> : (
-            <p className="text-sm text-slate-700"><span className="text-slate-500">Rows: </span><span className="font-mono text-xs">{issues.emptyRows.join(", ")}</span></p>
-          )}
-        </Section>
-
-        {/* ── Missing Names ── */}
-        <Section title="Missing First Names" count={issues.missingNames.length} icon={UserX}>
-          {issues.missingNames.length === 0 ? <p className="text-sm text-slate-500">All employees have names.</p> : (
-            <p className="text-sm text-slate-700"><span className="text-slate-500">Rows: </span><span className="font-mono text-xs">{issues.missingNames.join(", ")}</span></p>
-          )}
-        </Section>
-      </div>
+      {/* Orphan excusals */}
+      <Section
+        title="Orphan excusals"
+        count={issues.orphanExcusals.length}
+        icon={UserX}
+        action={
+          issues.orphanExcusals.length > 0 ? (
+            <button
+              onClick={deleteOrphanExcusals}
+              disabled={busy === "orphan_excusals"}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50"
+            >
+              {busy === "orphan_excusals" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="h-3.5 w-3.5" />
+              )}
+              Delete all
+            </button>
+          ) : null
+        }
+      >
+        {issues.orphanExcusals.length > 0 ? (
+          <p className="text-xs text-slate-500">
+            Excusals pointing at deleted/inactive employees:{" "}
+            {issues.orphanExcusals.length}
+          </p>
+        ) : (
+          <p className="text-sm text-slate-400">No issues.</p>
+        )}
+      </Section>
     </div>
   );
 }

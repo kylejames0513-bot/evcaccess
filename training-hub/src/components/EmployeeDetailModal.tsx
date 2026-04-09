@@ -16,7 +16,7 @@ interface EmployeeDetail {
     isExcused: boolean;
     enrolledIn: { date: string; time: string } | null;
     openSessions: Array<{
-      rowIndex: number;
+      id: string;
       training: string;
       date: string;
       time: string;
@@ -130,13 +130,13 @@ export default function EmployeeDetailModal({ name, onClose, onEnrolled }: { nam
     setSavingNote(false);
   }
 
-  async function handleEnroll(sessionRowIndex: number, trainingName: string) {
+  async function handleEnroll(sessionId: string, trainingName: string) {
     setEnrolling(trainingName);
     try {
       const res = await fetch("/api/enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionRowIndex, names: [name] }),
+        body: JSON.stringify({ sessionId, names: [name] }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -406,8 +406,8 @@ export default function EmployeeDetailModal({ name, onClose, onEnrolled }: { nam
                           const isEnrolling = enrolling === t.columnKey;
                           return (
                             <button
-                              key={s.rowIndex}
-                              onClick={() => handleEnroll(s.rowIndex, displayName)}
+                              key={s.id}
+                              onClick={() => handleEnroll(s.id, displayName)}
                               disabled={isEnrolling}
                               className="w-full flex items-center justify-between p-2.5 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50/50 transition-all text-left"
                             >

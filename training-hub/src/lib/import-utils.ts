@@ -55,16 +55,6 @@ export function datesEqual(a: string, b: string): boolean {
   return false;
 }
 
-export function colToLetter(col: number): string {
-  let letter = "";
-  let c = col;
-  while (c >= 0) {
-    letter = String.fromCharCode(65 + (c % 26)) + letter;
-    c = Math.floor(c / 26) - 1;
-  }
-  return letter;
-}
-
 export interface FixEntry {
   employee: string;
   training: string;
@@ -217,58 +207,3 @@ export async function loadNameMappingsFromSupabase(
   return mappings;
 }
 
-/**
- * Load name mappings from Hub Settings rows (legacy format).
- * Returns a Map of lowercase source name → training sheet name.
- * @deprecated Use loadNameMappingsFromSupabase instead.
- */
-export function loadNameMappings(settingsRows: string[][]): Map<string, string> {
-  const mappings = new Map<string, string>();
-  for (let i = 1; i < settingsRows.length; i++) {
-    if ((settingsRows[i][0] || "").trim() === "name_map") {
-      const sourceName = (settingsRows[i][1] || "").trim().toLowerCase();
-      const targetName = (settingsRows[i][2] || "").trim();
-      if (sourceName && targetName) mappings.set(sourceName, targetName);
-    }
-  }
-  return mappings;
-}
-
-/**
- * Parse a CSV string into rows.
- */
-export function parseCSV(text: string): string[][] {
-  const rows: string[][] = [];
-  const lines = text.split(/\r?\n/);
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    const cells: string[] = [];
-    let current = "";
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (inQuotes) {
-        if (ch === '"' && line[i + 1] === '"') {
-          current += '"';
-          i++;
-        } else if (ch === '"') {
-          inQuotes = false;
-        } else {
-          current += ch;
-        }
-      } else {
-        if (ch === '"') {
-          inQuotes = true;
-        } else if (ch === ",") {
-          cells.push(current.trim());
-          current = "";
-        } else {
-          current += ch;
-        }
-      }
-    }
-    cells.push(current.trim());
-    rows.push(cells);
-  }
-  return rows;
-}
