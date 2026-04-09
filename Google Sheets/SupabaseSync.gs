@@ -112,6 +112,7 @@ function buildMergedSheet() {
 
   var trData = trSheet.getDataRange().getValues();
   var trH = trData[0];
+  var idCol = findCol_(trH, "ID");
   var lnCol = findCol_(trH, "L NAME");
   var fnCol = findCol_(trH, "F NAME");
   var actCol = findCol_(trH, "ACTIVE");
@@ -139,6 +140,7 @@ function buildMergedSheet() {
 
     var active = actCol >= 0 ? String(row[actCol] || "").trim().toUpperCase() === "Y" : true;
     var dept = divCol >= 0 ? String(row[divCol] || "").trim() : "";
+    var empNum = idCol >= 0 ? String(row[idCol] || "").trim() : "";
     var hd = "";
     if (hireCol >= 0 && row[hireCol]) {
       var hDate = new Date(row[hireCol]);
@@ -146,7 +148,14 @@ function buildMergedSheet() {
     }
 
     var empKey = ln + "|" + fn;
-    employees[empKey] = { last_name: ln, first_name: fn, department: dept, hire_date: hd, is_active: active };
+    employees[empKey] = {
+      last_name: ln,
+      first_name: fn,
+      department: dept,
+      hire_date: hd,
+      is_active: active,
+      employee_number: empNum,
+    };
 
     if (!active) continue;
 
@@ -273,7 +282,7 @@ function buildMergedSheet() {
     merged = ss.insertSheet(MERGED_SHEET);
   }
 
-  var headerRow = ["L NAME", "F NAME", "ACTIVE", "Division", "Hire Date"].concat(MERGED_TRAINING_COLS);
+  var headerRow = ["ID", "L NAME", "F NAME", "ACTIVE", "Division", "Hire Date"].concat(MERGED_TRAINING_COLS);
   merged.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
   merged.getRange(1, 1, 1, headerRow.length).setFontWeight("bold").setBackground("#1e3a5f").setFontColor("#ffffff");
   merged.setFrozenRows(1);
@@ -286,6 +295,7 @@ function buildMergedSheet() {
     var key = empKeys[ei];
     var emp = employees[key];
     var rowOut = [
+      emp.employee_number || "",
       emp.last_name,
       emp.first_name,
       emp.is_active ? "Y" : "N",
@@ -361,6 +371,7 @@ function pushMergedToSupabase() {
   if (data.length < 2) { ui.alert("Merged sheet is empty"); return; }
 
   var headers = data[0];
+  var idC = findCol_(headers, "ID");
   var lnC = findCol_(headers, "L NAME");
   var fnC = findCol_(headers, "F NAME");
   var actC = findCol_(headers, "ACTIVE");
@@ -374,7 +385,7 @@ function pushMergedToSupabase() {
   var unmatchedHeaders = [];
   for (var h = 0; h < headers.length; h++) {
     var hdr = String(headers[h] || "").trim();
-    if (!hdr || h === lnC || h === fnC || h === actC || h === divC || h === hireC) continue;
+    if (!hdr || h === idC || h === lnC || h === fnC || h === actC || h === divC || h === hireC) continue;
     var key = matchTrainingCol_(hdr);
     if (key) {
       colMap[key] = h;
@@ -416,6 +427,7 @@ function pushMergedToSupabase() {
 
     var active = actC >= 0 ? String(row[actC] || "").trim().toUpperCase() === "Y" : true;
     var dept = divC >= 0 ? String(row[divC] || "").trim() : "";
+    var empNum = idC >= 0 ? String(row[idC] || "").trim() : "";
     var hd = null;
     if (hireC >= 0 && row[hireC]) {
       var hDate = tryParseDate_(String(row[hireC]));
@@ -428,6 +440,7 @@ function pushMergedToSupabase() {
       is_active: active,
       department: dept || null,
       hire_date: hd,
+      employee_number: empNum || null,
     });
 
     if (!active) continue;
@@ -486,8 +499,14 @@ function pushMergedToSupabase() {
     var existingId = empLookup[lookupKey];
 
     if (existingId) {
-      // PATCH the existing row so department / hire_date / is_active
-      // propagate from the sheet.
+      // PATCH the existing row so department / hire_date / is_active /
+      // employee_number propagate from the sheet.
+      var patchPayload = {
+        department: empRow.department,
+        hire_date: empRow.hire_date,
+        is_active: empRow.is_active,
+      };
+      if (empRow.employee_number) patchPayload.employee_number = empRow.employee_number;
       var patchResp = UrlFetchApp.fetch(
         SUPABASE_URL + "/rest/v1/employees?id=eq." + existingId,
         {
@@ -498,11 +517,7 @@ function pushMergedToSupabase() {
             "Content-Type": "application/json",
             "Prefer": "return=minimal",
           },
-          payload: JSON.stringify({
-            department: empRow.department,
-            hire_date: empRow.hire_date,
-            is_active: empRow.is_active,
-          }),
+          payload: JSON.stringify(patchPayload),
           muteHttpExceptions: true,
         }
       );
