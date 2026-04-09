@@ -466,95 +466,68 @@ function pushMergedToSupabase() {
     }
   }
 
-  // ─── Step 2: Fetch existing employees (case-insensitive lookup)
-  //             then PATCH existing / POST new ───
+  // ─── Step 2: Bulk upsert employees via RPC ───
   //
-  // We can't use PostgREST ON CONFLICT upsert here because the
-  // unique index is functional (lower(last_name), lower(first_name))
-  // and PostgREST's on_conflict=col1,col2 doesn't speak functional
-  // indexes. So we fetch first, then decide per-row.
+  // We call a Postgres function (upsert_employees_from_sheet) that
+  // takes the whole employee batch as a single JSONB array and does
+  // ON CONFLICT against the case-insensitive functional index server-
+  // side. This is MUCH faster than per-row PATCH — 2000+ employees
+  // go through in one or two HTTP calls instead of hitting the
+  // 6-minute Apps Script limit.
   var empLookup = {}; // lowercase "last|first" → id
-  (function prefetchEmployees() {
+  var empInserted = 0; // RPC returns upsertedrows; we don't distinguish insert vs update
+  var empErrors = 0;
+
+  var UPSERT_BATCH = 500;
+  for (var ub = 0; ub < employees.length; ub += UPSERT_BATCH) {
+    var batch = employees.slice(ub, ub + UPSERT_BATCH);
+    var rpcResp = UrlFetchApp.fetch(
+      SUPABASE_URL + "/rest/v1/rpc/upsert_employees_from_sheet",
+      {
+        method: "post",
+        headers: {
+          "apikey": SUPABASE_KEY,
+          "Authorization": "Bearer " + SUPABASE_KEY,
+          "Content-Type": "application/json",
+        },
+        payload: JSON.stringify({ emps: batch }),
+        muteHttpExceptions: true,
+      }
+    );
+    if (rpcResp.getResponseCode() >= 200 && rpcResp.getResponseCode() < 300) {
+      try {
+        var returned = JSON.parse(rpcResp.getContentText());
+        for (var ri = 0; ri < returned.length; ri++) {
+          var rk = (String(returned[ri].last_name || "") + "|" + String(returned[ri].first_name || "")).toLowerCase();
+          empLookup[rk] = returned[ri].id;
+        }
+        empInserted += returned.length;
+      } catch (parseErr) {
+        Logger.log("RPC response parse failed: " + parseErr);
+      }
+    } else {
+      empErrors += batch.length;
+      Logger.log("Employee RPC upsert failed (" + rpcResp.getResponseCode() + "): " + rpcResp.getContentText());
+    }
+    Utilities.sleep(100);
+  }
+
+  // Fallback: if any employees didn't get an ID back from the RPC
+  // (shouldn't happen unless the RPC failed partially), fetch them
+  // by name so the training_records insert below can still find them.
+  if (Object.keys(empLookup).length < employees.length) {
     var offset = 0;
     while (true) {
       var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name&limit=1000&offset=" + offset);
       var empList = JSON.parse(empResp.getContentText());
       if (empList.length === 0) break;
       for (var el = 0; el < empList.length; el++) {
-        var k = (String(empList[el].last_name || "") + "|" + String(empList[el].first_name || "")).toLowerCase();
-        if (!empLookup[k]) empLookup[k] = empList[el].id;
+        var key2 = (String(empList[el].last_name || "") + "|" + String(empList[el].first_name || "")).toLowerCase();
+        if (!empLookup[key2]) empLookup[key2] = empList[el].id;
       }
       offset += empList.length;
       if (empList.length < 1000) break;
     }
-  })();
-
-  var empInserted = 0;
-  var empUpdated = 0;
-  var empErrors = 0;
-  var toInsert = [];
-  for (var ei = 0; ei < employees.length; ei++) {
-    var empRow = employees[ei];
-    var lookupKey = (String(empRow.last_name || "") + "|" + String(empRow.first_name || "")).toLowerCase();
-    var existingId = empLookup[lookupKey];
-
-    if (existingId) {
-      // PATCH the existing row so department / hire_date / is_active /
-      // employee_number propagate from the sheet.
-      var patchPayload = {
-        department: empRow.department,
-        hire_date: empRow.hire_date,
-        is_active: empRow.is_active,
-      };
-      if (empRow.employee_number) patchPayload.employee_number = empRow.employee_number;
-      var patchResp = UrlFetchApp.fetch(
-        SUPABASE_URL + "/rest/v1/employees?id=eq." + existingId,
-        {
-          method: "patch",
-          headers: {
-            "apikey": SUPABASE_KEY,
-            "Authorization": "Bearer " + SUPABASE_KEY,
-            "Content-Type": "application/json",
-            "Prefer": "return=minimal",
-          },
-          payload: JSON.stringify(patchPayload),
-          muteHttpExceptions: true,
-        }
-      );
-      if (patchResp.getResponseCode() >= 200 && patchResp.getResponseCode() < 300) {
-        empUpdated++;
-      } else {
-        empErrors++;
-        Logger.log("PATCH failed (" + patchResp.getResponseCode() + "): " + patchResp.getContentText());
-      }
-    } else {
-      toInsert.push(empRow);
-    }
-  }
-
-  // Batch INSERT new employees
-  var INS_BATCH = 100;
-  for (var bi = 0; bi < toInsert.length; bi += INS_BATCH) {
-    var batch = toInsert.slice(bi, bi + INS_BATCH);
-    var insResp = supabasePost(
-      "/rest/v1/employees",
-      batch,
-      { "Prefer": "return=representation" }
-    );
-    if (insResp.getResponseCode() >= 200 && insResp.getResponseCode() < 300) {
-      try {
-        var returned = JSON.parse(insResp.getContentText());
-        for (var ri = 0; ri < returned.length; ri++) {
-          var rk = (String(returned[ri].last_name || "") + "|" + String(returned[ri].first_name || "")).toLowerCase();
-          empLookup[rk] = returned[ri].id;
-        }
-        empInserted += returned.length;
-      } catch (_) {}
-    } else {
-      empErrors += batch.length;
-      Logger.log("Employee insert failed (" + insResp.getResponseCode() + "): " + insResp.getContentText());
-    }
-    Utilities.sleep(100);
   }
 
   // ─── Step 3: Wipe existing training_records and excusals ───
@@ -633,7 +606,7 @@ function pushMergedToSupabase() {
 
   // ─── Step 6: Report ───
   var msg = "Push Complete!\n\n" +
-    "Employees: " + empInserted + " inserted, " + empUpdated + " updated  (of " + employees.length + ")";
+    "Employees upserted: " + empInserted + " of " + employees.length;
   if (empErrors > 0) msg += "   [" + empErrors + " failed]";
   msg += "\n" +
     "Training records: " + recInserted + " of " + records.length +
