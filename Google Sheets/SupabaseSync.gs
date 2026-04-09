@@ -760,12 +760,60 @@ function pushTrainingRecordsToSupabase() {
     return null;
   }
 
+  // Fetch nicknames table for bidirectional name expansion.
+  // Schema: nicknames(name TEXT, alias TEXT) — e.g. name='Christopher' alias='Chris'.
+  // We build a bidirectional map: "chris" ↔ "christopher", "mike" ↔ "michael", etc.
+  var nickMap = {}; // lower(name) → Set of lower(alias or name)
+  function addNickPair_(a, b) {
+    var al = String(a || "").trim().toLowerCase();
+    var bl = String(b || "").trim().toLowerCase();
+    if (!al || !bl) return;
+    if (!nickMap[al]) nickMap[al] = {};
+    if (!nickMap[bl]) nickMap[bl] = {};
+    nickMap[al][bl] = true;
+    nickMap[bl][al] = true;
+    nickMap[al][al] = true;
+    nickMap[bl][bl] = true;
+  }
+  var nickOffset = 0;
+  while (true) {
+    var nickResp = supabaseGet("/rest/v1/nicknames?select=name,alias&limit=1000&offset=" + nickOffset);
+    var nickRows = JSON.parse(nickResp.getContentText());
+    if (nickRows.length === 0) break;
+    for (var ni = 0; ni < nickRows.length; ni++) {
+      addNickPair_(nickRows[ni].name, nickRows[ni].alias);
+    }
+    nickOffset += nickRows.length;
+    if (nickRows.length < 1000) break;
+  }
+  function expandFirstName_(first) {
+    var key = String(first || "").trim().toLowerCase();
+    if (!key) return [];
+    if (nickMap[key]) {
+      var out = [];
+      for (var k in nickMap[key]) out.push(k);
+      return out;
+    }
+    return [key];
+  }
+
+  // Normalize a name chunk for key building: lowercase + strip punctuation
+  // (apostrophes, periods, dashes) so "Ny'Lexis" matches "NyLexis",
+  // "O'Brien" matches "OBrien", "St. John" matches "St John", etc.
+  function normKey_(s) {
+    return String(s || "")
+      .toLowerCase()
+      .replace(/[''`´.,\-]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   // Fetch employees (paginated). Build multiple lookups:
-  //   1. (last|first) lowercased — primary
+  //   1. (last|first) normalized (lowercased + punctuation stripped)
   //   2. (last|nickname) for "Michael \"Mike\"" / "Michael (Mike)" style names
-  //   3. (last|bareFirst) where bareFirst strips any middle initial or
-  //      extra whitespace so "Aletha C." matches "Aletha"
-  //   4. firstNameIndex[first] → [{id, last, first}, ...] for last-resort
+  //   3. (last|bareFirst) where bareFirst strips any middle initial
+  //   4. (last|nickname-alias) via the nicknames table (chris↔christopher)
+  //   5. firstNameIndex[first] → [{id, last, first}, ...] for last-resort
   //      single-match-by-first-name fallback
   var empLookup = {};
   var firstNameIndex = {};
@@ -779,42 +827,46 @@ function pushTrainingRecordsToSupabase() {
       var rawFirst = String(empList[el].first_name || "").trim();
       if (!rawLast) continue;
 
-      var lastL = rawLast.toLowerCase();
-      var firstL = rawFirst.toLowerCase();
+      var lastK = normKey_(rawLast);
+      var firstK = normKey_(rawFirst);
 
-      // Primary: last|first exact
-      empLookup[lastL + "|" + firstL] = empList[el].id;
-
-      // Strip trailing initials / periods: "Aletha C." → "aletha"
-      var bareFirst = firstL.replace(/\s+[a-z]\.?$/i, "").trim();
-      if (bareFirst && bareFirst !== firstL) {
-        if (!empLookup[lastL + "|" + bareFirst]) empLookup[lastL + "|" + bareFirst] = empList[el].id;
+      function addEmpKey_(last, first) {
+        if (!last || !first) return;
+        var k = last + "|" + first;
+        if (!empLookup[k]) empLookup[k] = empList[el].id;
       }
 
-      // Pull nicknames out of quotes or parens: Michael "Mike" / Susie (Ester)
-      var nickMatch = firstL.match(/["'(]([^"')]+)["')]/);
-      if (nickMatch && nickMatch[1]) {
-        var nick = nickMatch[1].trim().toLowerCase();
-        if (nick && !empLookup[lastL + "|" + nick]) {
-          empLookup[lastL + "|" + nick] = empList[el].id;
-        }
-      }
-      // Also index on the part BEFORE the quoted nickname: "Michael" from `Michael "Mike"`
-      var beforeNick = firstL.replace(/\s*["'(][^"')]+["')].*$/, "").trim();
-      if (beforeNick && beforeNick !== firstL && !empLookup[lastL + "|" + beforeNick]) {
-        empLookup[lastL + "|" + beforeNick] = empList[el].id;
-      }
+      // Primary
+      addEmpKey_(lastK, firstK);
 
-      // First-name index (list of candidates for fallback)
-      var indexKeys = [firstL];
-      if (bareFirst && bareFirst !== firstL) indexKeys.push(bareFirst);
-      if (nickMatch && nickMatch[1]) indexKeys.push(nickMatch[1].trim().toLowerCase());
-      if (beforeNick && beforeNick !== firstL) indexKeys.push(beforeNick);
-      for (var ik = 0; ik < indexKeys.length; ik++) {
-        var idxKey = indexKeys[ik];
-        if (!idxKey) continue;
-        if (!firstNameIndex[idxKey]) firstNameIndex[idxKey] = [];
-        firstNameIndex[idxKey].push({ id: empList[el].id, last: lastL, first: firstL });
+      // Strip trailing initials: "Aletha C" → "aletha"
+      var bareFirst = firstK.replace(/\s+[a-z]$/i, "").trim();
+      if (bareFirst && bareFirst !== firstK) addEmpKey_(lastK, bareFirst);
+
+      // Pull nicknames out of quotes or parens: Michael "Mike" → "mike", "michael"
+      var nickMatch = firstK.match(/["'(]([^"')]+)["')]/);
+      var nickInQuotes = nickMatch && nickMatch[1] ? normKey_(nickMatch[1]) : "";
+      if (nickInQuotes) addEmpKey_(lastK, nickInQuotes);
+      var beforeNick = firstK.replace(/\s*["'(][^"')]+["')].*$/, "").trim();
+      if (beforeNick && beforeNick !== firstK) addEmpKey_(lastK, beforeNick);
+
+      // Nickname table expansion on every first-name variant we have so far
+      var variants = {};
+      variants[firstK] = true;
+      if (bareFirst) variants[bareFirst] = true;
+      if (nickInQuotes) variants[nickInQuotes] = true;
+      if (beforeNick) variants[beforeNick] = true;
+      var expandedSet = {};
+      for (var v in variants) {
+        var exp = expandFirstName_(v);
+        for (var ei = 0; ei < exp.length; ei++) expandedSet[exp[ei]] = true;
+      }
+      for (var ek in expandedSet) addEmpKey_(lastK, ek);
+
+      // First-name index for fallback
+      for (var fk in expandedSet) {
+        if (!firstNameIndex[fk]) firstNameIndex[fk] = [];
+        firstNameIndex[fk].push({ id: empList[el].id, last: lastK, first: firstK });
       }
     }
     offset += empList.length;
@@ -823,14 +875,31 @@ function pushTrainingRecordsToSupabase() {
 
   function lookupByLastFirst_(last, first) {
     if (!last || !first) return null;
-    var k = (last + "|" + first).toLowerCase();
-    if (empLookup[k]) return empLookup[k];
-    // Strip trailing initial/period on the attendee's first name
-    var bare = first.toLowerCase().replace(/\s+[a-z]\.?$/i, "").trim();
-    if (bare && bare !== first.toLowerCase()) {
-      var k2 = (last + "|" + bare).toLowerCase();
-      if (empLookup[k2]) return empLookup[k2];
+    var lastN = normKey_(last);
+    var firstN = normKey_(first);
+    if (!lastN || !firstN) return null;
+
+    // 1) direct
+    if (empLookup[lastN + "|" + firstN]) return empLookup[lastN + "|" + firstN];
+
+    // 2) strip trailing initial on attendee side
+    var bare = firstN.replace(/\s+[a-z]$/i, "").trim();
+    if (bare && bare !== firstN && empLookup[lastN + "|" + bare]) {
+      return empLookup[lastN + "|" + bare];
     }
+
+    // 3) expand attendee first-name through nickname table
+    var expanded = expandFirstName_(firstN);
+    for (var ei = 0; ei < expanded.length; ei++) {
+      if (empLookup[lastN + "|" + expanded[ei]]) return empLookup[lastN + "|" + expanded[ei]];
+    }
+    if (bare && bare !== firstN) {
+      var expanded2 = expandFirstName_(bare);
+      for (var ei2 = 0; ei2 < expanded2.length; ei2++) {
+        if (empLookup[lastN + "|" + expanded2[ei2]]) return empLookup[lastN + "|" + expanded2[ei2]];
+      }
+    }
+
     return null;
   }
 
@@ -871,13 +940,16 @@ function pushTrainingRecordsToSupabase() {
       var id3 = lookupByLastFirst_(tryLast3, tryFirst3);
       if (id3) return id3;
 
-      // Fallback: first-name-only match if there's exactly one candidate
-      var candidates = firstNameIndex[tryFirst3.toLowerCase()] || [];
+      // Fallback: first-name-only match (using nickname expansion)
+      var firstVariants = expandFirstName_(normKey_(tryFirst3));
+      var candidates = [];
+      for (var fvi = 0; fvi < firstVariants.length; fvi++) {
+        var bucket = firstNameIndex[firstVariants[fvi]] || [];
+        for (var bi = 0; bi < bucket.length; bi++) candidates.push(bucket[bi]);
+      }
       if (candidates.length === 1) return candidates[0].id;
-      // If multiple candidates, pick the one whose last_name matches one of
-      // the remaining tokens
       if (candidates.length > 1) {
-        var tail = sp.slice(1).join(" ").toLowerCase();
+        var tail = normKey_(sp.slice(1).join(" "));
         for (var ci = 0; ci < candidates.length; ci++) {
           if (candidates[ci].last === tail || tail.indexOf(candidates[ci].last) >= 0) {
             return candidates[ci].id;
@@ -886,9 +958,13 @@ function pushTrainingRecordsToSupabase() {
       }
     }
 
-    // Case C: single token — first-name only
-    var single = trimmed.toLowerCase();
-    var singleCandidates = firstNameIndex[single] || [];
+    // Case C: single token — first-name only (with nickname expansion)
+    var singleVariants = expandFirstName_(normKey_(trimmed));
+    var singleCandidates = [];
+    for (var svi = 0; svi < singleVariants.length; svi++) {
+      var b2 = firstNameIndex[singleVariants[svi]] || [];
+      for (var b2i = 0; b2i < b2.length; b2i++) singleCandidates.push(b2[b2i]);
+    }
     if (singleCandidates.length === 1) return singleCandidates[0].id;
 
     return null;
@@ -897,12 +973,16 @@ function pushTrainingRecordsToSupabase() {
   // Wipe existing training_records
   supabaseDelete("/rest/v1/training_records?id=not.is.null");
 
-  // Build payload
+  // Build payload, deduping by (emp, tt, date) as we go so the
+  // sheet can have repeated sign-ins for the same person/session/date
+  // without blowing the unique index.
   var payload = [];
-  var skippedNoEmp = 0, skippedNoTT = 0, skippedNoDate = 0;
+  var seenRecordKey = {};
+  var skippedNoEmp = 0, skippedNoTT = 0, skippedNoDate = 0, dedupedInSheet = 0;
   var unmatchedNames = {}; // attendee → count
   var unmatchedSessions = {}; // session → count
   var failedBatches = 0;
+  var failedRows = 0;
 
   for (var r = 1; r < data.length; r++) {
     var row = data[r];
@@ -930,6 +1010,13 @@ function pushTrainingRecordsToSupabase() {
     if (!d) { skippedNoDate++; continue; }
     var isoDate = Utilities.formatDate(d, "America/New_York", "yyyy-MM-dd");
 
+    var recKey = empId + "|" + ttId + "|" + isoDate;
+    if (seenRecordKey[recKey]) {
+      dedupedInSheet++;
+      continue;
+    }
+    seenRecordKey[recKey] = true;
+
     payload.push({
       employee_id: empId,
       training_type_id: ttId,
@@ -946,18 +1033,24 @@ function pushTrainingRecordsToSupabase() {
     });
   }
 
-  // Batch insert. Kept small (25) because each INSERT fires the
-  // apply_auto_fill trigger, and large batches can blow the Postgres
-  // stack depth limit on Supabase managed instances.
+  // Batch insert. Small batch (25) because each INSERT fires the
+  // apply_auto_fill trigger. Uses ignore-duplicates + on_conflict so
+  // a duplicate row doesn't sink the whole batch (belt + suspenders
+  // with the in-memory dedupe above).
   var inserted = 0;
   var BATCH = 25;
   for (var p = 0; p < payload.length; p += BATCH) {
     var batch = payload.slice(p, p + BATCH);
-    var resp = supabasePost("/rest/v1/training_records", batch, {});
+    var resp = supabasePost(
+      "/rest/v1/training_records?on_conflict=employee_id,training_type_id,completion_date",
+      batch,
+      { "Prefer": "resolution=ignore-duplicates,return=minimal" }
+    );
     if (resp.getResponseCode() >= 200 && resp.getResponseCode() < 300) {
       inserted += batch.length;
     } else {
       failedBatches++;
+      failedRows += batch.length;
       Logger.log("Batch failed (" + resp.getResponseCode() + "): " + resp.getContentText());
     }
     Utilities.sleep(100);
@@ -967,12 +1060,13 @@ function pushTrainingRecordsToSupabase() {
   var msg = "Training Records Push Complete!\n\n" +
     "Rows in sheet: " + (data.length - 1) + "\n" +
     "Inserted: " + inserted + "\n" +
+    "Skipped (duplicate in sheet): " + dedupedInSheet + "\n" +
     "Skipped (no employee match): " + skippedNoEmp + "\n" +
     "Skipped (no training type match): " + skippedNoTT + "\n" +
     "Skipped (bad date): " + skippedNoDate;
 
   if (failedBatches > 0) {
-    msg += "\n\n⚠ " + failedBatches + " batch(es) failed on insert — check View → Logs for details.";
+    msg += "\n\n⚠ " + failedBatches + " batch(es) (" + failedRows + " rows) failed on insert — check View → Logs.";
   }
 
   // Show up to 15 unmatched names (with their row count)
