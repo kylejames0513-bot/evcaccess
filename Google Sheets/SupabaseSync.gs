@@ -68,9 +68,20 @@ const MERGED_TRAINING_COLS = [
   "Pers Cent Thnk", "Safety Care", "Meaningful Day", "MD refresh", "GERD",
   "HCO Training", "Health Passport", "Diabetes", "Falls", "Dysphagia Overview",
   "Rights Training", "Title VI", "Active Shooter", "Skills System", "CPI",
-  "CPM", "PFH/DIDD", "Basic VCRM", "Advanced VCRM", "TRN", "ASL",
+  "CPM", "PFH/DIDD", "Basic VCRM", "Advanced VCRM", "VR", "TRN", "ASL",
   "Skills Online", "ETIS", "SHIFT", "ADV SHIFT", "MC"
 ];
+
+// Alternate header spellings seen on upstream sheets → canonical col key.
+// Keeps us tolerant of typos (e.g. the Training tab currently has
+// "Dysphagia Oveview" — note the missing 'r') and the Access tab's
+// "PFH_DIDD" underscore variant.
+const MERGED_COL_ALIASES = {
+  "dysphagia oveview": "Dysphagia Overview",
+  "dysphagia": "Dysphagia Overview",
+  "pfh_didd": "PFH/DIDD",
+  "vr training": "VR",
+};
 
 function addSupabaseSyncMenu() {
   SpreadsheetApp.getUi().createMenu("Supabase Sync")
@@ -862,6 +873,8 @@ function matchTrainingCol_(header) {
   for (var i = 0; i < MERGED_TRAINING_COLS.length; i++) {
     if (MERGED_TRAINING_COLS[i].toLowerCase() === h) return MERGED_TRAINING_COLS[i];
   }
+  // Tolerate common misspellings / alternate header names.
+  if (MERGED_COL_ALIASES[h]) return MERGED_COL_ALIASES[h];
   return null;
 }
 
