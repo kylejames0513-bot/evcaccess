@@ -530,9 +530,15 @@ function pushMergedToSupabase() {
     }
   }
 
-  // ─── Step 3: Wipe existing training_records and excusals ───
-  supabaseDelete("/rest/v1/training_records?id=not.is.null");
-  supabaseDelete("/rest/v1/excusals?id=not.is.null");
+  // ─── Step 3: Wipe only this source's existing data ───
+  // Only delete training_records and excusals that came from a
+  // previous merged-sheet push. Leave rows from other sources
+  // (training_records_sheet, auto_fill, manual) alone so they
+  // don't get destroyed by running this sync. Also delete any
+  // auto_fill rows that were cascaded from merged_sheet inserts
+  // so we don't leave orphans.
+  supabaseDelete("/rest/v1/training_records?source=in.(merged_sheet,auto_fill)");
+  supabaseDelete("/rest/v1/excusals?source=eq.merged_sheet");
 
   // ─── Step 4: Push training records ───
   var recPayload = [];
@@ -585,6 +591,7 @@ function pushMergedToSupabase() {
       employee_id: empId2,
       training_type_id: tt2.id,
       reason: exc.reason,
+      source: "merged_sheet",
     });
   }
 
@@ -1319,8 +1326,10 @@ function pushTrainingRecordsToSupabase() {
     return null;
   }
 
-  // Wipe existing training_records
-  supabaseDelete("/rest/v1/training_records?id=not.is.null");
+  // Wipe only this source's existing training_records, so merged-sheet
+  // completion dates from pushMergedToSupabase don't get destroyed
+  // when we refresh the attendance history.
+  supabaseDelete("/rest/v1/training_records?source=eq.training_records_sheet");
 
   // Build payload, deduping by (emp, tt, date) as we go so the
   // sheet can have repeated sign-ins for the same person/session/date

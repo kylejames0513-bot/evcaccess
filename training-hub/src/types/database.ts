@@ -113,6 +113,7 @@ export interface Excusal {
   employee_id: string;
   training_type_id: number;
   reason: string;
+  source: string;
   created_at: string;
 }
 
