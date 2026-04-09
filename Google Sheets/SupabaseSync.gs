@@ -138,6 +138,99 @@ function buildMergedSheet() {
   // employees: "Last|First" → { department, hire_date, is_active }
   var employees = {};
 
+  // ── Read Employee tab (authoritative for legal vs preferred names) ──
+  // The HR-maintained Employee tab carries Last Name / First Name (legal) /
+  // Middle Name / Preferred Name for every person. The Training tab only
+  // has the preferred name in its F NAME column, so the Training tab alone
+  // can't tell us that Cindy Thompson is legally Mary Thompson, etc.
+  // We build two lookups from the Employee tab and merge aliases later:
+  //   empInfoById:   "AB04" → { legal, middle, preferred, last, status, ... }
+  //   empInfoByName: "thompson|cindy" → same
+  var empInfoById = {};
+  var empInfoByName = {};
+  var empSheet = ss.getSheetByName("Employee") || ss.getSheetByName("Employees");
+  if (empSheet && empSheet.getLastRow() >= 2) {
+    var eData = empSheet.getDataRange().getValues();
+    var eH = eData[0];
+    var eLnC   = findCol_(eH, "Last Name");
+    if (eLnC < 0) eLnC = findCol_(eH, "L NAME");
+    var eFnC   = findCol_(eH, "First Name");
+    if (eFnC < 0) eFnC = findCol_(eH, "F NAME");
+    var eMidC  = findCol_(eH, "Middle Name");
+    if (eMidC < 0) eMidC = findCol_(eH, "Middle");
+    var ePrefC = findCol_(eH, "Preferred Name");
+    if (ePrefC < 0) ePrefC = findCol_(eH, "Preferred/First Name");
+    if (ePrefC < 0) ePrefC = findCol_(eH, "Preferred");
+    var eIdC   = findCol_(eH, "ID");
+    var eStatC = findCol_(eH, "Status");
+
+    if (eLnC >= 0 && eFnC >= 0) {
+      for (var ei = 1; ei < eData.length; ei++) {
+        var eRow = eData[ei];
+        var eLn = String(eRow[eLnC] || "").trim();
+        var eLegal = String(eRow[eFnC] || "").trim();
+        if (!eLn || !eLegal) continue;
+        var eMid = eMidC >= 0 ? String(eRow[eMidC] || "").trim() : "";
+        var ePref = ePrefC >= 0 ? String(eRow[ePrefC] || "").trim() : "";
+        var eId = eIdC >= 0 ? String(eRow[eIdC] || "").trim() : "";
+        var eStat = eStatC >= 0 ? String(eRow[eStatC] || "").trim() : "";
+        var eCanon = ePref || eLegal;
+
+        var info = {
+          legal_first: eLegal,
+          middle: eMid,
+          preferred: ePref,
+          canonical_first: eCanon,
+          last_name: eLn,
+          status: eStat,
+          id: eId,
+        };
+
+        if (eId) empInfoById[eId] = info;
+        // Key by lowercase (last|canonical) so it matches the Training sheet's F NAME
+        empInfoByName[(eLn + "|" + eCanon).toLowerCase()] = info;
+        // Also index under (last|legal) in case the Training sheet uses the legal form
+        if (eLegal && eLegal.toLowerCase() !== eCanon.toLowerCase()) {
+          var legalKey = (eLn + "|" + eLegal).toLowerCase();
+          if (!empInfoByName[legalKey]) empInfoByName[legalKey] = info;
+        }
+      }
+    }
+  }
+
+  function aliasesFromEmpInfo_(info, currentFnLegacy) {
+    if (!info) return [];
+    var out = [];
+    var canonFull = (info.canonical_first + " " + info.last_name).toLowerCase();
+
+    function add(candidate) {
+      var c = String(candidate || "").trim();
+      if (!c) return;
+      var full = c + " " + info.last_name;
+      if (full.toLowerCase() === canonFull) return;
+      // Don't add the preferred name itself as an alias
+      for (var k = 0; k < out.length; k++) {
+        if (out[k].toLowerCase() === full.toLowerCase()) return;
+      }
+      out.push(full);
+    }
+
+    // Legal first name (when different from canonical/preferred)
+    if (info.legal_first && info.legal_first.toLowerCase() !== info.canonical_first.toLowerCase()) {
+      add(info.legal_first);
+    }
+    // Middle name — only if it's a full word (not a single-letter initial)
+    if (info.middle && info.middle.length > 1 && !/^[a-z]\.?$/i.test(info.middle)) {
+      add(info.middle);
+    }
+    // If the current Training-sheet F NAME is different from both legal and preferred,
+    // capture it too so it remains resolvable after the sheet is cleaned up.
+    if (currentFnLegacy && currentFnLegacy.toLowerCase() !== info.canonical_first.toLowerCase()) {
+      add(currentFnLegacy);
+    }
+    return out;
+  }
+
   // ── Read Training sheet ──
   var trSheet = ss.getSheetByName("Training");
   if (!trSheet) { notify_("Error", "Training sheet not found"); return; }
@@ -197,6 +290,25 @@ function buildMergedSheet() {
       if (!isNaN(hDate.getTime())) hd = Utilities.formatDate(hDate, "America/New_York", "M/d/yyyy");
     }
 
+    // Cross-reference the Employee tab. Match by ID first (most
+    // reliable), then fall back to (last|first) name match. Whichever
+    // we find becomes the source of truth for legal-vs-preferred
+    // aliases on this row.
+    var empInfo = null;
+    if (empNum && empInfoById[empNum]) {
+      empInfo = empInfoById[empNum];
+    } else {
+      empInfo = empInfoByName[(ln + "|" + legalFirst).toLowerCase()]
+             || empInfoByName[(ln + "|" + fn).toLowerCase()]
+             || null;
+    }
+
+    // If the Employee tab has a preferred name, that becomes the
+    // canonical first name on the Merged tab too.
+    if (empInfo && empInfo.canonical_first) {
+      fn = empInfo.canonical_first;
+    }
+
     // Build the alias list: every name variant the person might sign
     // in as that differs from the canonical "{fn} {ln}".
     var aliases = [];
@@ -210,14 +322,30 @@ function buildMergedSheet() {
       }
       aliases.push(full);
     }
-    // Legal first name (when different from preferred)
+
+    // 1) Legal first name vs preferred — from the Training sheet itself
+    //    (only meaningful if the Training sheet has its own Preferred column).
     if (legalFirst && legalFirst.toLowerCase() !== fn.toLowerCase()) addAliasIfDiff_(legalFirst);
-    // Middle name as a full-word alias (ignore single-letter initials)
     if (middle && middle.length > 1 && !/^[a-z]\.?$/i.test(middle)) addAliasIfDiff_(middle);
-    // Quoted nicknames inside the legal first name, e.g. Michael "Mike"
+
+    // 2) Legal first name vs preferred — from the Employee tab. This is
+    //    the main path for users who maintain legal/preferred on the
+    //    separate HR roster sheet.
+    if (empInfo) {
+      var empAliases = aliasesFromEmpInfo_(empInfo, legalFirst);
+      for (var eai = 0; eai < empAliases.length; eai++) {
+        // empAliases already include the " Last" suffix — split and
+        // pass just the first-name part to addAliasIfDiff_.
+        var ea = empAliases[eai];
+        var spaceIdx = ea.lastIndexOf(" ");
+        var eaFirst = spaceIdx > 0 ? ea.substring(0, spaceIdx) : ea;
+        addAliasIfDiff_(eaFirst);
+      }
+    }
+
+    // 3) Quoted nicknames inside the Training sheet's F NAME, e.g. Michael "Mike"
     var qMatch = legalFirst.match(/["'(]([^"')]+)["')]/);
     if (qMatch && qMatch[1]) addAliasIfDiff_(qMatch[1]);
-    // Also the part BEFORE the quoted nickname, e.g. "Michael" from `Michael "Mike"`
     var beforeQ = legalFirst.replace(/\s*["'(][^"')]+["')].*$/, "").trim();
     if (beforeQ && beforeQ !== legalFirst) addAliasIfDiff_(beforeQ);
 
