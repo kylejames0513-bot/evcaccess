@@ -88,10 +88,11 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     deptRequiredMap.set(rule.department.toLowerCase(), new Set(rule.required));
   }
 
-  // Query the employee_compliance view
+  // Query the employee_compliance view (override default 1000 row limit)
   const { data: complianceRows, error } = await supabase
     .from("employee_compliance")
-    .select("*");
+    .select("*")
+    .limit(50000);
 
   if (error) throw new Error(`Failed to load compliance data: ${error.message}`);
   if (!complianceRows || complianceRows.length === 0) return [];
@@ -100,7 +101,8 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
   const { data: employees } = await supabase
     .from("employees")
     .select("id, hire_date")
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .limit(10000);
 
   const hireDateMap = new Map<string, string>();
   for (const emp of employees || []) {
@@ -444,7 +446,8 @@ export async function getEmployeeList(): Promise<string[]> {
     .from("employees")
     .select("first_name, last_name")
     .eq("is_active", true)
-    .order("last_name");
+    .order("last_name")
+    .limit(10000);
 
   if (error) throw new Error(`Failed to load employees: ${error.message}`);
 
@@ -820,7 +823,8 @@ async function findEmployee(
   const { data: employees } = await supabase
     .from("employees")
     .select("id, first_name, last_name")
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .limit(10000);
 
   if (!employees) return null;
 
