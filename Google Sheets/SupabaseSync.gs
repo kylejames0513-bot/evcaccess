@@ -746,6 +746,19 @@ function levenshtein_(a, b, maxDist) {
 //   D: Notes           — script writes status here ("matched" / "unresolved" / "")
 // ────────────────────────────────────────────────────────────
 
+// Top-level version of normKey_ so it's usable outside
+// pushTrainingRecordsToSupabase (e.g. by the fix-sheet helpers).
+// Lowercases, strips apostrophes / periods / dashes, collapses
+// whitespace, trims. Keeps internal spaces so "mary thompson"
+// and "Mary Thompson" collapse to the same key but "mt" doesn't.
+function normAttendeeKey_(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[''`´.,\-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function loadAttendeeNameFixes_(ss) {
   var sheet = ss.getSheetByName(NAME_FIX_SHEET);
   if (!sheet || sheet.getLastRow() < 2) return {};
@@ -755,7 +768,9 @@ function loadAttendeeNameFixes_(ss) {
     var sheetName = String(rows[i][0] || "").trim();
     var canonical = String(rows[i][1] || "").trim();
     if (!sheetName || !canonical) continue;
-    map[sheetName.toLowerCase()] = canonical;
+    // Key by normalized sheet name so "Mary Thompson" and
+    // "mary thompson" resolve to the same canonical name.
+    map[normAttendeeKey_(sheetName)] = canonical;
   }
   return map;
 }
@@ -763,14 +778,9 @@ function loadAttendeeNameFixes_(ss) {
 function writeUnmatchedAttendeesToFixSheet_(ss, unmatchedNames) {
   var sheet = ss.getSheetByName(NAME_FIX_SHEET);
   var existingRows = [];
-  var existingByLower = {};
 
   if (sheet && sheet.getLastRow() >= 2) {
     existingRows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues();
-    for (var i = 0; i < existingRows.length; i++) {
-      var k = String(existingRows[i][0] || "").trim().toLowerCase();
-      if (k) existingByLower[k] = i;
-    }
   }
 
   if (!sheet) {
@@ -786,28 +796,55 @@ function writeUnmatchedAttendeesToFixSheet_(ss, unmatchedNames) {
     .setBackground("#1e3a5f")
     .setFontColor("#ffffff");
 
+  // Collapse the freshly-unmatched names by normalized key so
+  // "Tanytha Bingham" and "tanytha bingham" don't create two rows.
+  // Keep the most-frequently-used raw spelling as the display name.
+  var grouped = {}; // normKey → { display, count }
+  for (var nm in unmatchedNames) {
+    var nk = normAttendeeKey_(nm);
+    if (!nk) continue;
+    if (!grouped[nk]) {
+      grouped[nk] = { display: nm, count: 0, rawCounts: {} };
+    }
+    grouped[nk].count += unmatchedNames[nm];
+    grouped[nk].rawCounts[nm] = (grouped[nk].rawCounts[nm] || 0) + unmatchedNames[nm];
+  }
+  // Pick the highest-count raw spelling as the display name for each group
+  for (var gk in grouped) {
+    var best = "";
+    var bestCount = -1;
+    for (var rc in grouped[gk].rawCounts) {
+      if (grouped[gk].rawCounts[rc] > bestCount) {
+        best = rc;
+        bestCount = grouped[gk].rawCounts[rc];
+      }
+    }
+    grouped[gk].display = best;
+  }
+
   // Merge: keep any existing Canonical Name entries, update counts, add new
   var finalRows = [];
   var processedKeys = {};
 
-  // 1) Existing rows: keep canonical + refreshed count
+  // 1) Existing rows: keep canonical + refreshed count (keyed by normalized)
   for (var er = 0; er < existingRows.length; er++) {
     var name = String(existingRows[er][0] || "").trim();
     if (!name) continue;
-    var lower = name.toLowerCase();
-    processedKeys[lower] = true;
-    var count = unmatchedNames[name] || 0;
+    var ek = normAttendeeKey_(name);
+    if (!ek || processedKeys[ek]) continue;
+    processedKeys[ek] = true;
+    var count = grouped[ek] ? grouped[ek].count : 0;
     var canonical = String(existingRows[er][1] || "").trim();
     var notes = String(existingRows[er][3] || "");
     if (count === 0 && !canonical) continue; // drop stale empty rows
     finalRows.push([name, canonical, count, notes]);
   }
 
-  // 2) New unmatched names
-  for (var nm in unmatchedNames) {
-    var lower2 = nm.toLowerCase();
-    if (processedKeys[lower2]) continue;
-    finalRows.push([nm, "", unmatchedNames[nm], ""]);
+  // 2) New unmatched groups not already in the sheet
+  for (var gk2 in grouped) {
+    if (processedKeys[gk2]) continue;
+    finalRows.push([grouped[gk2].display, "", grouped[gk2].count, ""]);
+    processedKeys[gk2] = true;
   }
 
   // Sort by count DESC, then name
@@ -1167,8 +1204,10 @@ function pushTrainingRecordsToSupabase() {
 
     // Case 0: manual override from the "Attendee Name Fixes" sheet.
     // If the user has mapped this sheet name to a canonical name, try
-    // the canonical name through the rest of the matcher.
-    var fix = nameFixMap[trimmed.toLowerCase()];
+    // the canonical name through the rest of the matcher. Lookup uses
+    // the normalized key so case / punctuation variants all hit the
+    // same entry.
+    var fix = nameFixMap[normAttendeeKey_(trimmed)];
     if (fix) {
       trimmed = String(fix).trim();
     }
