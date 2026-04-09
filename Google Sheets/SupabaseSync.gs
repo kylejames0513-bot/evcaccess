@@ -76,6 +76,8 @@ function addSupabaseSyncMenu() {
     .addItem("1. Merge All 3 Sheets → Merged Tab", "buildMergedSheet")
     .addSeparator()
     .addItem("2. Push Merged Tab → Supabase", "pushMergedToSupabase")
+    .addSeparator()
+    .addItem("3. Push Training Records → Supabase", "pushTrainingRecordsToSupabase")
     .addToUi();
 }
 
@@ -589,4 +591,188 @@ function supabaseDelete(path) {
     headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY },
     muteHttpExceptions: true,
   });
+}
+
+// ════════════════════════════════════════════════════════════
+// STEP 3: Push the "Training Records" sheet → Supabase
+// ════════════════════════════════════════════════════════════
+// Reads every row of the Training Records sheet (QR-scan history:
+// arrival time, session, attendee, date, left early, reason, notes,
+// end time, session length, pass/fail, reviewed by) and inserts each
+// as a training_records row in Supabase.
+//
+// Requires migration 004_record_review_columns.sql to be applied.
+//
+// This wipes all existing training_records first, so run it AFTER
+// pushMergedToSupabase if you want the Merged-sheet latest-completion
+// data — or INSTEAD of pushMergedToSupabase if the Training Records
+// sheet is your source of truth for attendance history.
+// ════════════════════════════════════════════════════════════
+function pushTrainingRecordsToSupabase() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Training Records");
+  if (!sheet) {
+    ui.alert("Training Records sheet not found.");
+    return;
+  }
+
+  var answer = ui.alert(
+    "Push Training Records → Supabase",
+    "This will DELETE all existing training_records in Supabase,\n" +
+    "then push every row of the Training Records sheet as an\n" +
+    "individual attendance record (with pass/fail, arrival time,\n" +
+    "end time, session length, left-early flag, reason, and reviewer).\n\n" +
+    "Run migration 004_record_review_columns.sql first if you haven't.\n\n" +
+    "Continue?",
+    ui.ButtonSet.YES_NO
+  );
+  if (answer !== ui.Button.YES) return;
+
+  var data = sheet.getDataRange().getValues();
+  if (data.length < 2) { ui.alert("Training Records sheet is empty"); return; }
+
+  // Column layout (from Core.gs doPost):
+  //   A(0) Arrival Time | B(1) Session | C(2) Attendee | D(3) Date
+  //   E(4) Left Early   | F(5) Reason  | G(6) Notes    | H(7) End Time
+  //   I(8) Session Length | J(9) Pass/Fail | K(10) Reviewed By
+  var ARRIVAL_C = 0, SESSION_C = 1, ATTENDEE_C = 2, DATE_C = 3,
+      LEFTEARLY_C = 4, REASON_C = 5, NOTES_C = 6, ENDTIME_C = 7,
+      SESSLEN_C = 8, PASSFAIL_C = 9, REVIEWER_C = 10;
+
+  // Fetch training types (for session-name → training_type_id lookup)
+  var ttResp = supabaseGet("/rest/v1/training_types?select=id,name,column_key&is_active=eq.true&limit=200");
+  var trainingTypes = JSON.parse(ttResp.getContentText());
+  var ttByName = {}; // lowercase name → { id }
+  var ttByColKey = {}; // lowercase column_key → { id }
+  for (var t = 0; t < trainingTypes.length; t++) {
+    ttByName[String(trainingTypes[t].name || "").toLowerCase()] = trainingTypes[t];
+    ttByColKey[String(trainingTypes[t].column_key || "").toLowerCase()] = trainingTypes[t];
+  }
+
+  // Fetch training aliases for fuzzy session-name matching
+  var aliasResp = supabaseGet("/rest/v1/training_aliases?select=training_type_id,alias&limit=500");
+  var aliases = JSON.parse(aliasResp.getContentText());
+  var ttByAlias = {};
+  for (var a = 0; a < aliases.length; a++) {
+    ttByAlias[String(aliases[a].alias || "").toLowerCase()] = aliases[a].training_type_id;
+  }
+
+  function resolveTrainingTypeId_(sessionName) {
+    var s = String(sessionName || "").trim().toLowerCase();
+    if (!s) return null;
+    if (ttByName[s]) return ttByName[s].id;
+    if (ttByColKey[s]) return ttByColKey[s].id;
+    if (ttByAlias[s]) return ttByAlias[s];
+    // Try matching via SESSION_TO_COLUMN (Config.gs)
+    try {
+      var cols = (typeof SESSION_TO_COLUMN !== "undefined") ? SESSION_TO_COLUMN[sessionName] : null;
+      if (cols && cols.length > 0) {
+        var firstCol = String(cols[0] || "").toLowerCase();
+        if (ttByColKey[firstCol]) return ttByColKey[firstCol].id;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  // Fetch employees (paginated)
+  var empLookup = {};
+  var offset = 0;
+  while (true) {
+    var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name&limit=1000&offset=" + offset);
+    var empList = JSON.parse(empResp.getContentText());
+    if (empList.length === 0) break;
+    for (var el = 0; el < empList.length; el++) {
+      var key = (String(empList[el].last_name || "") + "|" + String(empList[el].first_name || "")).toLowerCase();
+      empLookup[key] = empList[el].id;
+    }
+    offset += empList.length;
+    if (empList.length < 1000) break;
+  }
+
+  function resolveEmployeeId_(attendee) {
+    if (!attendee) return null;
+    var ln = "", fn = "";
+    if (attendee.indexOf(",") > -1) {
+      var parts = attendee.split(",");
+      ln = parts[0].trim();
+      fn = parts[1] ? parts[1].trim() : "";
+    } else {
+      var sp = attendee.split(/\s+/);
+      if (sp.length >= 2) {
+        fn = sp[0].trim();
+        ln = sp.slice(1).join(" ").trim();
+      } else {
+        fn = attendee.trim();
+      }
+    }
+    var k = (ln + "|" + fn).toLowerCase();
+    return empLookup[k] || null;
+  }
+
+  // Wipe existing training_records
+  supabaseDelete("/rest/v1/training_records?id=not.is.null");
+
+  // Build payload
+  var payload = [];
+  var skippedNoEmp = 0, skippedNoTT = 0, skippedNoDate = 0;
+
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    var attendee = String(row[ATTENDEE_C] || "").trim();
+    var session  = String(row[SESSION_C]  || "").trim();
+    var rawDate  = row[DATE_C];
+
+    if (!attendee || !session || !rawDate) continue;
+
+    var empId = resolveEmployeeId_(attendee);
+    if (!empId) { skippedNoEmp++; continue; }
+
+    var ttId = resolveTrainingTypeId_(session);
+    if (!ttId) { skippedNoTT++; continue; }
+
+    var d = tryParseDate_(rawDate);
+    if (!d) { skippedNoDate++; continue; }
+    var isoDate = Utilities.formatDate(d, "America/New_York", "yyyy-MM-dd");
+
+    payload.push({
+      employee_id: empId,
+      training_type_id: ttId,
+      completion_date: isoDate,
+      source: "training_records_sheet",
+      arrival_time:   String(row[ARRIVAL_C]   || "") || null,
+      left_early:     String(row[LEFTEARLY_C] || "") || null,
+      reason:         String(row[REASON_C]    || "") || null,
+      notes:          String(row[NOTES_C]     || "") || null,
+      end_time:       String(row[ENDTIME_C]   || "") || null,
+      session_length: String(row[SESSLEN_C]   || "") || null,
+      pass_fail:      String(row[PASSFAIL_C]  || "") || null,
+      reviewed_by:    String(row[REVIEWER_C]  || "") || null,
+    });
+  }
+
+  // Batch insert
+  var inserted = 0;
+  var BATCH = 20;
+  for (var p = 0; p < payload.length; p += BATCH) {
+    var batch = payload.slice(p, p + BATCH);
+    var resp = supabasePost("/rest/v1/training_records", batch, {});
+    if (resp.getResponseCode() >= 200 && resp.getResponseCode() < 300) {
+      inserted += batch.length;
+    } else {
+      Logger.log("Batch failed (" + resp.getResponseCode() + "): " + resp.getContentText());
+    }
+    Utilities.sleep(100);
+  }
+
+  ui.alert(
+    "Done",
+    "Training Records Push Complete!\n\n" +
+    "Rows in sheet: " + (data.length - 1) + "\n" +
+    "Inserted: " + inserted + "\n" +
+    "Skipped (no employee match): " + skippedNoEmp + "\n" +
+    "Skipped (no training type match): " + skippedNoTT + "\n" +
+    "Skipped (bad date): " + skippedNoDate,
+    ui.ButtonSet.OK
+  );
 }
