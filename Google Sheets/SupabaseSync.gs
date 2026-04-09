@@ -82,20 +82,52 @@ function addSupabaseSyncMenu() {
     .addToUi();
 }
 
+// ────────────────────────────────────────────────────────────
+// UI helpers — tolerate being run from the Apps Script editor
+// or a trigger (where SpreadsheetApp.getUi() throws).
+// ────────────────────────────────────────────────────────────
+
+function safeGetUi_() {
+  try {
+    return SpreadsheetApp.getUi();
+  } catch (e) {
+    return null;
+  }
+}
+
+// Ask a yes/no question. If no UI is available, log the prompt and
+// default to YES so the script can still run unattended.
+function confirm_(title, message) {
+  var ui = safeGetUi_();
+  if (ui) {
+    var answer = ui.alert(title, message, ui.ButtonSet.YES_NO);
+    return answer === ui.Button.YES;
+  }
+  Logger.log("[confirm] " + title + ": " + message + "  (no UI — auto-YES)");
+  return true;
+}
+
+// Show an informational alert. Falls back to the Apps Script log.
+function notify_(title, message) {
+  var ui = safeGetUi_();
+  if (ui) {
+    ui.alert(title, message, ui.ButtonSet.OK);
+  } else {
+    Logger.log("[" + title + "]\n" + message);
+  }
+}
+
 // ════════════════════════════════════════════════════════════
 // STEP 1: Build the Merged sheet
 // ════════════════════════════════════════════════════════════
 function buildMergedSheet() {
-  var ui = SpreadsheetApp.getUi();
-  var answer = ui.alert(
+  if (!confirm_(
     "Build Merged Sheet",
     "This will read Training, Paylocity Import, and PHS Import,\n" +
     "pick the most recent date for each employee+training,\n" +
     "and write the result to a 'Merged' tab.\n\n" +
-    "Any existing 'Merged' tab will be cleared. Continue?",
-    ui.ButtonSet.YES_NO
-  );
-  if (answer !== ui.Button.YES) return;
+    "Any existing 'Merged' tab will be cleared. Continue?"
+  )) return;
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -108,7 +140,7 @@ function buildMergedSheet() {
 
   // ── Read Training sheet ──
   var trSheet = ss.getSheetByName("Training");
-  if (!trSheet) { ui.alert("Training sheet not found"); return; }
+  if (!trSheet) { notify_("Error", "Training sheet not found"); return; }
 
   var trData = trSheet.getDataRange().getValues();
   var trH = trData[0];
@@ -132,7 +164,7 @@ function buildMergedSheet() {
   if (prefCol < 0) prefCol = findCol_(trH, "Preferred First Name");
   if (prefCol < 0) prefCol = findCol_(trH, "Preferred");
 
-  if (lnCol < 0 || fnCol < 0) { ui.alert("Last/First Name columns not found on Training sheet"); return; }
+  if (lnCol < 0 || fnCol < 0) { notify_("Error", "Last/First Name columns not found on Training sheet"); return; }
 
   // Map each header index to a training col key (case-insensitive partial match)
   var headerKey = [];
@@ -382,7 +414,7 @@ function buildMergedSheet() {
     "Total excusals: " + Object.keys(excusals).length + "\n\n" +
     "Review the 'Merged' tab, then run 'Push Merged Tab → Supabase'.";
 
-  ui.alert("Merge Complete", msg, ui.ButtonSet.OK);
+  notify_("Merge Complete", msg);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -394,25 +426,22 @@ function buildMergedSheet() {
 // 005 to be applied.
 // ════════════════════════════════════════════════════════════
 function pushMergedToSupabase() {
-  var ui = SpreadsheetApp.getUi();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var merged = ss.getSheetByName(MERGED_SHEET);
-  if (!merged) { ui.alert("Merged sheet not found. Run Step 1 first."); return; }
+  if (!merged) { notify_("Error", "Merged sheet not found. Run Step 1 first."); return; }
 
-  var answer = ui.alert(
+  if (!confirm_(
     "Push to Supabase",
     "This will UPSERT employees from the Merged sheet, then DELETE\n" +
     "all existing training_records and excusals in Supabase and\n" +
     "push fresh ones from the Merged sheet.\n\n" +
     "Existing employee rows get their department, hire_date, and\n" +
     "is_active updated. No new duplicate employees will be created.\n\n" +
-    "Continue?",
-    ui.ButtonSet.YES_NO
-  );
-  if (answer !== ui.Button.YES) return;
+    "Continue?"
+  )) return;
 
   var data = merged.getDataRange().getValues();
-  if (data.length < 2) { ui.alert("Merged sheet is empty"); return; }
+  if (data.length < 2) { notify_("Empty", "Merged sheet is empty"); return; }
 
   var headers = data[0];
   var idC = findCol_(headers, "ID");
@@ -423,7 +452,7 @@ function pushMergedToSupabase() {
   var hireC = findCol_(headers, "Hire Date");
   var aliasC = findCol_(headers, "Aliases");
 
-  if (lnC < 0 || fnC < 0) { ui.alert("L NAME / F NAME columns not found"); return; }
+  if (lnC < 0 || fnC < 0) { notify_("Error", "L NAME / F NAME columns not found"); return; }
 
   // Find training column positions in merged sheet
   var colMap = {}; // col key → col index
@@ -691,7 +720,7 @@ function pushMergedToSupabase() {
       unmatchedHeaders.join(", ");
   }
 
-  ui.alert("Done", msg, ui.ButtonSet.OK);
+  notify_("Done", msg);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -975,28 +1004,26 @@ function supabaseDelete(path) {
 // sheet is your source of truth for attendance history.
 // ════════════════════════════════════════════════════════════
 function pushTrainingRecordsToSupabase() {
-  var ui = SpreadsheetApp.getUi();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName("Training Records");
   if (!sheet) {
-    ui.alert("Training Records sheet not found.");
+    notify_("Error", "Training Records sheet not found.");
     return;
   }
 
-  var answer = ui.alert(
+  if (!confirm_(
     "Push Training Records → Supabase",
-    "This will DELETE all existing training_records in Supabase,\n" +
-    "then push every row of the Training Records sheet as an\n" +
-    "individual attendance record (with pass/fail, arrival time,\n" +
-    "end time, session length, left-early flag, reason, and reviewer).\n\n" +
+    "This will DELETE existing training_records (source = 'training_records_sheet')\n" +
+    "in Supabase, then push every row of the Training Records sheet\n" +
+    "as an individual attendance record (with pass/fail, arrival\n" +
+    "time, end time, session length, left-early flag, reason, and\n" +
+    "reviewer).\n\n" +
     "Run migration 004_record_review_columns.sql first if you haven't.\n\n" +
-    "Continue?",
-    ui.ButtonSet.YES_NO
-  );
-  if (answer !== ui.Button.YES) return;
+    "Continue?"
+  )) return;
 
   var data = sheet.getDataRange().getValues();
-  if (data.length < 2) { ui.alert("Training Records sheet is empty"); return; }
+  if (data.length < 2) { notify_("Empty", "Training Records sheet is empty"); return; }
 
   // Manual name fix map — lowercase sheet name → canonical name
   var nameFixMap = loadAttendeeNameFixes_(ss);
@@ -1552,5 +1579,5 @@ function pushTrainingRecordsToSupabase() {
     }
   }
 
-  ui.alert("Done", msg, ui.ButtonSet.OK);
+  notify_("Done", msg);
 }
