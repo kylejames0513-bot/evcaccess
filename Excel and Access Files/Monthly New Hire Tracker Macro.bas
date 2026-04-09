@@ -46,8 +46,8 @@ Option Explicit
 ' ============================================================
 ' CONFIGURATION
 ' ============================================================
-Private Const SUPABASE_URL As String = "YOUR_SUPABASE_URL"
-Private Const SUPABASE_ANON_KEY As String = "YOUR_SUPABASE_ANON_KEY"
+Private Const SUPABASE_URL As String = "https://xkfvipcxnzwyskknkmpj.supabase.co"
+Private Const SUPABASE_ANON_KEY As String = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrZnZpcGN4bnp3eXNra25rbXBqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2OTY1OTAsImV4cCI6MjA5MTI3MjU5MH0.yPOC0l5oi03V7S7UUrlQhfE87zPkUp_NzAexdzHn2p4"
 
 ' New Hire column indices (1-based, rows 5-54)
 Private Const NH_LNAME As Long = 3
