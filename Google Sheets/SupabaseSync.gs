@@ -333,6 +333,11 @@ function buildMergedSheet() {
 // ════════════════════════════════════════════════════════════
 // STEP 2: Push Merged sheet to Supabase
 // ════════════════════════════════════════════════════════════
+// Idempotent upsert of employees (by last_name, first_name) plus
+// a full rebuild of training_records and excusals from the Merged
+// tab. Requires the employees_name_unique constraint from migration
+// 005 to be applied.
+// ════════════════════════════════════════════════════════════
 function pushMergedToSupabase() {
   var ui = SpreadsheetApp.getUi();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -341,8 +346,11 @@ function pushMergedToSupabase() {
 
   var answer = ui.alert(
     "Push to Supabase",
-    "This will DELETE all existing training records and excusals in Supabase,\n" +
-    "then push the contents of the Merged sheet.\n\n" +
+    "This will UPSERT employees from the Merged sheet, then DELETE\n" +
+    "all existing training_records and excusals in Supabase and\n" +
+    "push fresh ones from the Merged sheet.\n\n" +
+    "Existing employee rows get their department, hire_date, and\n" +
+    "is_active updated. No new duplicate employees will be created.\n\n" +
     "Continue?",
     ui.ButtonSet.YES_NO
   );
@@ -362,33 +370,48 @@ function pushMergedToSupabase() {
 
   // Find training column positions in merged sheet
   var colMap = {}; // col key → col index
+  var unmatchedHeaders = [];
   for (var h = 0; h < headers.length; h++) {
-    var key = matchTrainingCol_(String(headers[h]).trim());
-    if (key) colMap[key] = h;
+    var hdr = String(headers[h] || "").trim();
+    if (!hdr || h === lnC || h === fnC || h === actC || h === divC || h === hireC) continue;
+    var key = matchTrainingCol_(hdr);
+    if (key) {
+      colMap[key] = h;
+    } else {
+      unmatchedHeaders.push(hdr);
+    }
   }
 
-  // Get training types from Supabase
-  var ttResp = supabaseGet("/rest/v1/training_types?select=id,name,column_key&is_active=eq.true&limit=100");
+  // Fetch training types (look up by column_key)
+  var ttResp = supabaseGet("/rest/v1/training_types?select=id,name,column_key&is_active=eq.true&limit=200");
   var trainingTypes = JSON.parse(ttResp.getContentText());
   var ttByKey = {}; // lowercase col key → { id }
   for (var t = 0; t < trainingTypes.length; t++) {
     ttByKey[trainingTypes[t].column_key.toLowerCase()] = trainingTypes[t];
   }
 
-  // Step 1: Wipe existing records and excusals
-  supabaseDelete("/rest/v1/training_records?id=not.is.null");
-  supabaseDelete("/rest/v1/excusals?id=not.is.null");
+  // Flag any sheet columns whose training_type doesn't exist in Supabase
+  var missingTrainingTypes = [];
+  for (var ck in colMap) {
+    if (!ttByKey[ck.toLowerCase()]) missingTrainingTypes.push(ck);
+  }
 
-  // Step 2: Build employee upserts + collect records/excusals
+  // ─── Step 1: Build employee payload + collect records/excusals ───
   var employees = [];
   var records = [];
   var excusalList = [];
+  var seenNames = {}; // last|first lowercase → true, to skip merged-sheet dupes
 
   for (var r = 1; r < data.length; r++) {
     var row = data[r];
     var ln = String(row[lnC] || "").trim();
     var fn = String(row[fnC] || "").trim();
+    if (!ln && !fn) continue;
     if (!ln) continue;
+
+    var nameKey = (ln + "|" + fn).toLowerCase();
+    if (seenNames[nameKey]) continue; // skip intra-sheet dupes
+    seenNames[nameKey] = true;
 
     var active = actC >= 0 ? String(row[actC] || "").trim().toUpperCase() === "Y" : true;
     var dept = divC >= 0 ? String(row[divC] || "").trim() : "";
@@ -429,40 +452,65 @@ function pushMergedToSupabase() {
     }
   }
 
-  // Step 3: Push employees
+  // ─── Step 2: Upsert employees via on_conflict=last_name,first_name ───
+  var empLookup = {};
   var empInserted = 0;
-  var BATCH = 20;
+  var empErrors = 0;
+  var BATCH = 100;
   for (var e = 0; e < employees.length; e += BATCH) {
     var eb = employees.slice(e, e + BATCH);
-    var er = supabasePost("/rest/v1/employees", eb, { "Prefer": "resolution=ignore-duplicates" });
-    if (er.getResponseCode() >= 200 && er.getResponseCode() < 300) empInserted += eb.length;
+    var er = supabasePost(
+      "/rest/v1/employees?on_conflict=last_name,first_name",
+      eb,
+      { "Prefer": "resolution=merge-duplicates,return=representation" }
+    );
+    if (er.getResponseCode() >= 200 && er.getResponseCode() < 300) {
+      try {
+        var returned = JSON.parse(er.getContentText());
+        for (var ri = 0; ri < returned.length; ri++) {
+          var rk = (String(returned[ri].last_name || "") + "|" + String(returned[ri].first_name || "")).toLowerCase();
+          empLookup[rk] = returned[ri].id;
+        }
+        empInserted += returned.length;
+      } catch (_) {}
+    } else {
+      empErrors += eb.length;
+      Logger.log("Employee upsert failed (" + er.getResponseCode() + "): " + er.getContentText());
+    }
     Utilities.sleep(100);
   }
 
-  // Step 4: Get employee ID lookup (paginated)
-  var empLookup = {};
-  var offset = 0;
-  while (true) {
-    var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name&limit=1000&offset=" + offset);
-    var empList = JSON.parse(empResp.getContentText());
-    if (empList.length === 0) break;
-    for (var el = 0; el < empList.length; el++) {
-      var key2 = (empList[el].last_name + "|" + empList[el].first_name).toLowerCase();
-      empLookup[key2] = empList[el].id;
+  // If the upsert didn't return all rows (e.g. Prefer header got stripped),
+  // fall back to a paginated fetch to fill in any missing IDs.
+  if (Object.keys(empLookup).length < employees.length) {
+    var offset = 0;
+    while (true) {
+      var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name&limit=1000&offset=" + offset);
+      var empList = JSON.parse(empResp.getContentText());
+      if (empList.length === 0) break;
+      for (var el = 0; el < empList.length; el++) {
+        var key2 = (String(empList[el].last_name || "") + "|" + String(empList[el].first_name || "")).toLowerCase();
+        if (!empLookup[key2]) empLookup[key2] = empList[el].id;
+      }
+      offset += empList.length;
+      if (empList.length < 1000) break;
     }
-    offset += empList.length;
-    if (empList.length < 1000) break;
   }
 
-  // Step 5: Push training records
+  // ─── Step 3: Wipe existing training_records and excusals ───
+  supabaseDelete("/rest/v1/training_records?id=not.is.null");
+  supabaseDelete("/rest/v1/excusals?id=not.is.null");
+
+  // ─── Step 4: Push training records ───
   var recPayload = [];
+  var skippedNoEmp = 0, skippedNoTT = 0;
   for (var rc = 0; rc < records.length; rc++) {
     var rec = records[rc];
     var k = (rec.lastName + "|" + rec.firstName).toLowerCase();
     var empId = empLookup[k];
-    if (!empId) continue;
+    if (!empId) { skippedNoEmp++; continue; }
     var tt = ttByKey[rec.colKey.toLowerCase()];
-    if (!tt) continue;
+    if (!tt) { skippedNoTT++; continue; }
     recPayload.push({
       employee_id: empId,
       training_type_id: tt.id,
@@ -474,20 +522,29 @@ function pushMergedToSupabase() {
   var recInserted = 0;
   for (var rb = 0; rb < recPayload.length; rb += BATCH) {
     var rBatch = recPayload.slice(rb, rb + BATCH);
-    var rResp = supabasePost("/rest/v1/training_records", rBatch, {});
-    if (rResp.getResponseCode() >= 200 && rResp.getResponseCode() < 300) recInserted += rBatch.length;
+    var rResp = supabasePost(
+      "/rest/v1/training_records?on_conflict=employee_id,training_type_id",
+      rBatch,
+      { "Prefer": "resolution=merge-duplicates" }
+    );
+    if (rResp.getResponseCode() >= 200 && rResp.getResponseCode() < 300) {
+      recInserted += rBatch.length;
+    } else {
+      Logger.log("Record batch failed (" + rResp.getResponseCode() + "): " + rResp.getContentText());
+    }
     Utilities.sleep(100);
   }
 
-  // Step 6: Push excusals
+  // ─── Step 5: Push excusals ───
   var excPayload = [];
+  var excSkippedNoEmp = 0, excSkippedNoTT = 0;
   for (var xc = 0; xc < excusalList.length; xc++) {
     var exc = excusalList[xc];
     var k2 = (exc.lastName + "|" + exc.firstName).toLowerCase();
     var empId2 = empLookup[k2];
-    if (!empId2) continue;
+    if (!empId2) { excSkippedNoEmp++; continue; }
     var tt2 = ttByKey[exc.colKey.toLowerCase()];
-    if (!tt2) continue;
+    if (!tt2) { excSkippedNoTT++; continue; }
     excPayload.push({
       employee_id: empId2,
       training_type_id: tt2.id,
@@ -498,15 +555,38 @@ function pushMergedToSupabase() {
   var excInserted = 0;
   for (var xb = 0; xb < excPayload.length; xb += BATCH) {
     var xBatch = excPayload.slice(xb, xb + BATCH);
-    var xResp = supabasePost("/rest/v1/excusals", xBatch, { "Prefer": "resolution=merge-duplicates" });
-    if (xResp.getResponseCode() >= 200 && xResp.getResponseCode() < 300) excInserted += xBatch.length;
+    var xResp = supabasePost(
+      "/rest/v1/excusals?on_conflict=employee_id,training_type_id",
+      xBatch,
+      { "Prefer": "resolution=merge-duplicates" }
+    );
+    if (xResp.getResponseCode() >= 200 && xResp.getResponseCode() < 300) {
+      excInserted += xBatch.length;
+    } else {
+      Logger.log("Excusal batch failed (" + xResp.getResponseCode() + "): " + xResp.getContentText());
+    }
     Utilities.sleep(100);
   }
 
+  // ─── Step 6: Report ───
   var msg = "Push Complete!\n\n" +
-    "Employees: " + empInserted + " of " + employees.length + "\n" +
-    "Training records: " + recInserted + " of " + recPayload.length + "\n" +
-    "Excusals: " + excInserted + " of " + excPayload.length;
+    "Employees upserted: " + empInserted + " of " + employees.length;
+  if (empErrors > 0) msg += "  (" + empErrors + " failed)";
+  msg += "\n" +
+    "Training records: " + recInserted + " of " + records.length +
+    "   [skipped: " + skippedNoEmp + " no-emp, " + skippedNoTT + " no-tt]\n" +
+    "Excusals: " + excInserted + " of " + excusalList.length +
+    "   [skipped: " + excSkippedNoEmp + " no-emp, " + excSkippedNoTT + " no-tt]";
+
+  if (missingTrainingTypes.length > 0) {
+    msg += "\n\n⚠ Missing training_types in Supabase for columns:\n  " +
+      missingTrainingTypes.join(", ") +
+      "\nSeed them (e.g. via migration 003) before re-running.";
+  }
+  if (unmatchedHeaders.length > 0) {
+    msg += "\n\n⚠ Sheet headers that didn't map to a known training column:\n  " +
+      unmatchedHeaders.join(", ");
+  }
 
   ui.alert("Done", msg, ui.ButtonSet.OK);
 }
@@ -675,39 +755,138 @@ function pushTrainingRecordsToSupabase() {
     return null;
   }
 
-  // Fetch employees (paginated)
+  // Fetch employees (paginated). Build multiple lookups:
+  //   1. (last|first) lowercased — primary
+  //   2. (last|nickname) for "Michael \"Mike\"" / "Michael (Mike)" style names
+  //   3. (last|bareFirst) where bareFirst strips any middle initial or
+  //      extra whitespace so "Aletha C." matches "Aletha"
+  //   4. firstNameIndex[first] → [{id, last, first}, ...] for last-resort
+  //      single-match-by-first-name fallback
   var empLookup = {};
+  var firstNameIndex = {};
   var offset = 0;
   while (true) {
     var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name&limit=1000&offset=" + offset);
     var empList = JSON.parse(empResp.getContentText());
     if (empList.length === 0) break;
     for (var el = 0; el < empList.length; el++) {
-      var key = (String(empList[el].last_name || "") + "|" + String(empList[el].first_name || "")).toLowerCase();
-      empLookup[key] = empList[el].id;
+      var rawLast = String(empList[el].last_name || "").trim();
+      var rawFirst = String(empList[el].first_name || "").trim();
+      if (!rawLast) continue;
+
+      var lastL = rawLast.toLowerCase();
+      var firstL = rawFirst.toLowerCase();
+
+      // Primary: last|first exact
+      empLookup[lastL + "|" + firstL] = empList[el].id;
+
+      // Strip trailing initials / periods: "Aletha C." → "aletha"
+      var bareFirst = firstL.replace(/\s+[a-z]\.?$/i, "").trim();
+      if (bareFirst && bareFirst !== firstL) {
+        if (!empLookup[lastL + "|" + bareFirst]) empLookup[lastL + "|" + bareFirst] = empList[el].id;
+      }
+
+      // Pull nicknames out of quotes or parens: Michael "Mike" / Susie (Ester)
+      var nickMatch = firstL.match(/["'(]([^"')]+)["')]/);
+      if (nickMatch && nickMatch[1]) {
+        var nick = nickMatch[1].trim().toLowerCase();
+        if (nick && !empLookup[lastL + "|" + nick]) {
+          empLookup[lastL + "|" + nick] = empList[el].id;
+        }
+      }
+      // Also index on the part BEFORE the quoted nickname: "Michael" from `Michael "Mike"`
+      var beforeNick = firstL.replace(/\s*["'(][^"')]+["')].*$/, "").trim();
+      if (beforeNick && beforeNick !== firstL && !empLookup[lastL + "|" + beforeNick]) {
+        empLookup[lastL + "|" + beforeNick] = empList[el].id;
+      }
+
+      // First-name index (list of candidates for fallback)
+      var indexKeys = [firstL];
+      if (bareFirst && bareFirst !== firstL) indexKeys.push(bareFirst);
+      if (nickMatch && nickMatch[1]) indexKeys.push(nickMatch[1].trim().toLowerCase());
+      if (beforeNick && beforeNick !== firstL) indexKeys.push(beforeNick);
+      for (var ik = 0; ik < indexKeys.length; ik++) {
+        var idxKey = indexKeys[ik];
+        if (!idxKey) continue;
+        if (!firstNameIndex[idxKey]) firstNameIndex[idxKey] = [];
+        firstNameIndex[idxKey].push({ id: empList[el].id, last: lastL, first: firstL });
+      }
     }
     offset += empList.length;
     if (empList.length < 1000) break;
   }
 
+  function lookupByLastFirst_(last, first) {
+    if (!last || !first) return null;
+    var k = (last + "|" + first).toLowerCase();
+    if (empLookup[k]) return empLookup[k];
+    // Strip trailing initial/period on the attendee's first name
+    var bare = first.toLowerCase().replace(/\s+[a-z]\.?$/i, "").trim();
+    if (bare && bare !== first.toLowerCase()) {
+      var k2 = (last + "|" + bare).toLowerCase();
+      if (empLookup[k2]) return empLookup[k2];
+    }
+    return null;
+  }
+
   function resolveEmployeeId_(attendee) {
     if (!attendee) return null;
-    var ln = "", fn = "";
-    if (attendee.indexOf(",") > -1) {
-      var parts = attendee.split(",");
-      ln = parts[0].trim();
-      fn = parts[1] ? parts[1].trim() : "";
-    } else {
-      var sp = attendee.split(/\s+/);
-      if (sp.length >= 2) {
-        fn = sp[0].trim();
-        ln = sp.slice(1).join(" ").trim();
-      } else {
-        fn = attendee.trim();
+    var trimmed = String(attendee).trim();
+    if (!trimmed) return null;
+
+    // Case A: "Last, First" (canonical form from the sheet)
+    if (trimmed.indexOf(",") > -1) {
+      var parts = trimmed.split(",");
+      var ln = parts[0].trim();
+      var fn = parts.slice(1).join(",").trim();
+      var id = lookupByLastFirst_(ln, fn);
+      if (id) return id;
+    }
+
+    // Case B: "First Last" or "First Middle Last"
+    var sp = trimmed.split(/\s+/);
+    if (sp.length >= 2) {
+      // Try (last = last token, first = everything before)
+      var tryLast1 = sp[sp.length - 1];
+      var tryFirst1 = sp.slice(0, sp.length - 1).join(" ");
+      var id1 = lookupByLastFirst_(tryLast1, tryFirst1);
+      if (id1) return id1;
+
+      // Try (last = last 2 tokens) for names like "von der Lage"
+      if (sp.length >= 3) {
+        var tryLast2 = sp.slice(sp.length - 2).join(" ");
+        var tryFirst2 = sp.slice(0, sp.length - 2).join(" ");
+        var id2 = lookupByLastFirst_(tryLast2, tryFirst2);
+        if (id2) return id2;
+      }
+
+      // Try (first = first token, last = everything after)
+      var tryFirst3 = sp[0];
+      var tryLast3 = sp.slice(1).join(" ");
+      var id3 = lookupByLastFirst_(tryLast3, tryFirst3);
+      if (id3) return id3;
+
+      // Fallback: first-name-only match if there's exactly one candidate
+      var candidates = firstNameIndex[tryFirst3.toLowerCase()] || [];
+      if (candidates.length === 1) return candidates[0].id;
+      // If multiple candidates, pick the one whose last_name matches one of
+      // the remaining tokens
+      if (candidates.length > 1) {
+        var tail = sp.slice(1).join(" ").toLowerCase();
+        for (var ci = 0; ci < candidates.length; ci++) {
+          if (candidates[ci].last === tail || tail.indexOf(candidates[ci].last) >= 0) {
+            return candidates[ci].id;
+          }
+        }
       }
     }
-    var k = (ln + "|" + fn).toLowerCase();
-    return empLookup[k] || null;
+
+    // Case C: single token — first-name only
+    var single = trimmed.toLowerCase();
+    var singleCandidates = firstNameIndex[single] || [];
+    if (singleCandidates.length === 1) return singleCandidates[0].id;
+
+    return null;
   }
 
   // Wipe existing training_records
@@ -716,6 +895,9 @@ function pushTrainingRecordsToSupabase() {
   // Build payload
   var payload = [];
   var skippedNoEmp = 0, skippedNoTT = 0, skippedNoDate = 0;
+  var unmatchedNames = {}; // attendee → count
+  var unmatchedSessions = {}; // session → count
+  var failedBatches = 0;
 
   for (var r = 1; r < data.length; r++) {
     var row = data[r];
@@ -726,10 +908,18 @@ function pushTrainingRecordsToSupabase() {
     if (!attendee || !session || !rawDate) continue;
 
     var empId = resolveEmployeeId_(attendee);
-    if (!empId) { skippedNoEmp++; continue; }
+    if (!empId) {
+      skippedNoEmp++;
+      unmatchedNames[attendee] = (unmatchedNames[attendee] || 0) + 1;
+      continue;
+    }
 
     var ttId = resolveTrainingTypeId_(session);
-    if (!ttId) { skippedNoTT++; continue; }
+    if (!ttId) {
+      skippedNoTT++;
+      unmatchedSessions[session] = (unmatchedSessions[session] || 0) + 1;
+      continue;
+    }
 
     var d = tryParseDate_(rawDate);
     if (!d) { skippedNoDate++; continue; }
@@ -753,26 +943,53 @@ function pushTrainingRecordsToSupabase() {
 
   // Batch insert
   var inserted = 0;
-  var BATCH = 20;
+  var BATCH = 100;
   for (var p = 0; p < payload.length; p += BATCH) {
     var batch = payload.slice(p, p + BATCH);
     var resp = supabasePost("/rest/v1/training_records", batch, {});
     if (resp.getResponseCode() >= 200 && resp.getResponseCode() < 300) {
       inserted += batch.length;
     } else {
+      failedBatches++;
       Logger.log("Batch failed (" + resp.getResponseCode() + "): " + resp.getContentText());
     }
     Utilities.sleep(100);
   }
 
-  ui.alert(
-    "Done",
-    "Training Records Push Complete!\n\n" +
+  // Build detailed report
+  var msg = "Training Records Push Complete!\n\n" +
     "Rows in sheet: " + (data.length - 1) + "\n" +
     "Inserted: " + inserted + "\n" +
     "Skipped (no employee match): " + skippedNoEmp + "\n" +
     "Skipped (no training type match): " + skippedNoTT + "\n" +
-    "Skipped (bad date): " + skippedNoDate,
-    ui.ButtonSet.OK
-  );
+    "Skipped (bad date): " + skippedNoDate;
+
+  if (failedBatches > 0) {
+    msg += "\n\n⚠ " + failedBatches + " batch(es) failed on insert — check View → Logs for details.";
+  }
+
+  // Show up to 15 unmatched names (with their row count)
+  var nameEntries = [];
+  for (var nm in unmatchedNames) nameEntries.push({ name: nm, count: unmatchedNames[nm] });
+  nameEntries.sort(function(a, b) { return b.count - a.count; });
+  if (nameEntries.length > 0) {
+    msg += "\n\nUnmatched attendee names (top " + Math.min(15, nameEntries.length) + "):";
+    for (var nn = 0; nn < Math.min(15, nameEntries.length); nn++) {
+      msg += "\n  " + nameEntries[nn].name + " (" + nameEntries[nn].count + ")";
+    }
+    if (nameEntries.length > 15) msg += "\n  ...and " + (nameEntries.length - 15) + " more";
+  }
+
+  // Show all unmatched sessions
+  var sessionEntries = [];
+  for (var ss2 in unmatchedSessions) sessionEntries.push({ name: ss2, count: unmatchedSessions[ss2] });
+  sessionEntries.sort(function(a, b) { return b.count - a.count; });
+  if (sessionEntries.length > 0) {
+    msg += "\n\nUnmatched session names:";
+    for (var sn = 0; sn < sessionEntries.length; sn++) {
+      msg += "\n  " + sessionEntries[sn].name + " (" + sessionEntries[sn].count + ")";
+    }
+  }
+
+  ui.alert("Done", msg, ui.ButtonSet.OK);
 }
