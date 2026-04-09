@@ -1031,14 +1031,17 @@ function pushTrainingRecordsToSupabase() {
   //   2. (last|nickname) for "Michael \"Mike\"" / "Michael (Mike)" style names
   //   3. (last|bareFirst) where bareFirst strips any middle initial
   //   4. (last|nickname-alias) via the nicknames table (chris↔christopher)
-  //   5. firstNameIndex[first] → [{id, last, first}, ...] for last-resort
+  //   5. employees.aliases[] — per-employee full-name aliases (bridges
+  //      legal name vs preferred name, e.g. "Mary Thompson" → Cindy)
+  //   6. firstNameIndex[first] → [{id, last, first}, ...] for last-resort
   //      single-match-by-first-name fallback
-  var empLookup = {};
+  var empLookup = {};          // normalized "last|first" → id
+  var aliasLookup = {};        // normalized full alias → id
   var firstNameIndex = {};
   var allEmployees = []; // normalized list for fuzzy fallback
   var offset = 0;
   while (true) {
-    var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name&limit=1000&offset=" + offset);
+    var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name,aliases&limit=1000&offset=" + offset);
     var empList = JSON.parse(empResp.getContentText());
     if (empList.length === 0) break;
     for (var el = 0; el < empList.length; el++) {
@@ -1050,6 +1053,14 @@ function pushTrainingRecordsToSupabase() {
       var firstK = normKey_(rawFirst);
 
       allEmployees.push({ id: empList[el].id, lastK: lastK, firstK: firstK });
+
+      // Index every stored alias under the full-alias lookup so
+      // "Mary Thompson" → Cindy Thompson resolves directly.
+      var empAliases = empList[el].aliases || [];
+      for (var ai = 0; ai < empAliases.length; ai++) {
+        var ak = normKey_(empAliases[ai]);
+        if (ak && !aliasLookup[ak]) aliasLookup[ak] = empList[el].id;
+      }
 
       function addEmpKey_(last, first) {
         if (!last || !first) return;
@@ -1186,19 +1197,43 @@ function pushTrainingRecordsToSupabase() {
     return null;
   }
 
+  // List of {employeeId, aliasToAdd} pairs — populated whenever the
+  // matcher resolves a name via the fix sheet. After the main insert
+  // loop we batch-write these to Supabase so the mapping sticks.
+  var aliasesToPersist = [];
+
   function resolveEmployeeId_(attendee) {
     if (!attendee) return null;
     var trimmed = String(attendee).trim();
     if (!trimmed) return null;
+    var originalNorm = normAttendeeKey_(trimmed);
 
-    // Case 0: manual override from the "Attendee Name Fixes" sheet.
+    // Case 0a: direct alias hit — this attendee is already registered
+    // as an alias on an employee in Supabase, bypass everything else.
+    if (aliasLookup[originalNorm]) return aliasLookup[originalNorm];
+
+    // Case 0b: manual override from the "Attendee Name Fixes" sheet.
     // If the user has mapped this sheet name to a canonical name, try
-    // the canonical name through the rest of the matcher. Lookup uses
-    // the normalized key so case / punctuation variants all hit the
-    // same entry.
-    var fix = nameFixMap[normAttendeeKey_(trimmed)];
+    // the canonical name through the rest of the matcher. When it
+    // resolves, also queue the original attendee string to be added
+    // to that employee's aliases[] so future runs don't need the fix.
+    var fromFixSheet = false;
+    var fix = nameFixMap[originalNorm];
     if (fix) {
       trimmed = String(fix).trim();
+      fromFixSheet = true;
+    }
+
+    // Every successful return goes through this helper so we can
+    // queue an alias write back to Supabase when the resolution
+    // came from the fix sheet.
+    function found_(id) {
+      if (!id) return null;
+      if (fromFixSheet && attendee && !aliasLookup[originalNorm]) {
+        aliasesToPersist.push({ id: id, alias: String(attendee).trim() });
+        aliasLookup[originalNorm] = id; // don't re-queue on next row
+      }
+      return id;
     }
 
     // Case A: "Last, First" (canonical form from the sheet)
@@ -1207,7 +1242,7 @@ function pushTrainingRecordsToSupabase() {
       var ln = parts[0].trim();
       var fn = parts.slice(1).join(",").trim();
       var id = lookupByLastFirst_(ln, fn);
-      if (id) return id;
+      if (id) return found_(id);
     }
 
     // Case B: "First Last" or "First Middle Last"
@@ -1217,21 +1252,21 @@ function pushTrainingRecordsToSupabase() {
       var tryLast1 = sp[sp.length - 1];
       var tryFirst1 = sp.slice(0, sp.length - 1).join(" ");
       var id1 = lookupByLastFirst_(tryLast1, tryFirst1);
-      if (id1) return id1;
+      if (id1) return found_(id1);
 
       // Try (last = last 2 tokens) for names like "von der Lage"
       if (sp.length >= 3) {
         var tryLast2 = sp.slice(sp.length - 2).join(" ");
         var tryFirst2 = sp.slice(0, sp.length - 2).join(" ");
         var id2 = lookupByLastFirst_(tryLast2, tryFirst2);
-        if (id2) return id2;
+        if (id2) return found_(id2);
       }
 
       // Try (first = first token, last = everything after)
       var tryFirst3 = sp[0];
       var tryLast3 = sp.slice(1).join(" ");
       var id3 = lookupByLastFirst_(tryLast3, tryFirst3);
-      if (id3) return id3;
+      if (id3) return found_(id3);
 
       // Fallback: first-name-only match (using nickname expansion)
       var firstVariants = expandFirstName_(normKey_(tryFirst3));
@@ -1240,12 +1275,12 @@ function pushTrainingRecordsToSupabase() {
         var bucket = firstNameIndex[firstVariants[fvi]] || [];
         for (var bi = 0; bi < bucket.length; bi++) candidates.push(bucket[bi]);
       }
-      if (candidates.length === 1) return candidates[0].id;
+      if (candidates.length === 1) return found_(candidates[0].id);
       if (candidates.length > 1) {
         var tail = normKey_(sp.slice(1).join(" "));
         for (var ci = 0; ci < candidates.length; ci++) {
           if (candidates[ci].last === tail || tail.indexOf(candidates[ci].last) >= 0) {
-            return candidates[ci].id;
+            return found_(candidates[ci].id);
           }
         }
       }
@@ -1258,7 +1293,7 @@ function pushTrainingRecordsToSupabase() {
       var b2 = firstNameIndex[singleVariants[svi]] || [];
       for (var b2i = 0; b2i < b2.length; b2i++) singleCandidates.push(b2[b2i]);
     }
-    if (singleCandidates.length === 1) return singleCandidates[0].id;
+    if (singleCandidates.length === 1) return found_(singleCandidates[0].id);
 
     // Case D: fuzzy typo fallback. Try every reasonable (last, first)
     // split of the attendee name and keep the single closest match.
@@ -1278,7 +1313,7 @@ function pushTrainingRecordsToSupabase() {
     }
     for (var fci = 0; fci < fuzzyCandidates.length; fci++) {
       var fId = fuzzyLookup_(fuzzyCandidates[fci][0], fuzzyCandidates[fci][1]);
-      if (fId) return fId;
+      if (fId) return found_(fId);
     }
 
     return null;
@@ -1370,6 +1405,36 @@ function pushTrainingRecordsToSupabase() {
     Utilities.sleep(100);
   }
 
+  // Persist fix-sheet-resolved aliases back to employees.aliases so
+  // the next run matches them without needing the fix sheet.
+  var aliasesAdded = 0;
+  var seenAliasPersist = {};
+  for (var api = 0; api < aliasesToPersist.length; api++) {
+    var pair = aliasesToPersist[api];
+    var dedupeKey = pair.id + "|" + pair.alias.toLowerCase();
+    if (seenAliasPersist[dedupeKey]) continue;
+    seenAliasPersist[dedupeKey] = true;
+    var addResp = UrlFetchApp.fetch(
+      SUPABASE_URL + "/rest/v1/rpc/add_employee_alias",
+      {
+        method: "post",
+        headers: {
+          "apikey": SUPABASE_KEY,
+          "Authorization": "Bearer " + SUPABASE_KEY,
+          "Content-Type": "application/json",
+        },
+        payload: JSON.stringify({ emp_id: pair.id, new_alias: pair.alias }),
+        muteHttpExceptions: true,
+      }
+    );
+    if (addResp.getResponseCode() >= 200 && addResp.getResponseCode() < 300) {
+      aliasesAdded++;
+    } else {
+      Logger.log("add_employee_alias failed (" + addResp.getResponseCode() + "): " + addResp.getContentText());
+    }
+    Utilities.sleep(50);
+  }
+
   // Write unmatched attendees to the Attendee Name Fixes sheet so
   // the user can map them manually. Preserves any canonical names
   // they've already filled in from a previous run.
@@ -1390,6 +1455,10 @@ function pushTrainingRecordsToSupabase() {
     "Skipped (no employee match): " + skippedNoEmp + "\n" +
     "Skipped (no training type match): " + skippedNoTT + "\n" +
     "Skipped (bad date): " + skippedNoDate;
+
+  if (aliasesAdded > 0) {
+    msg += "\n\n✓ Registered " + aliasesAdded + " fix-sheet name(s) as permanent aliases.";
+  }
 
   if (failedBatches > 0) {
     msg += "\n\n⚠ " + failedBatches + " batch(es) (" + failedRows + " rows) failed on insert — check View → Logs.";

@@ -23,6 +23,7 @@ export interface Employee {
   is_active: boolean;
   excusal_codes: string[];
   employee_number: string | null;
+  aliases: string[];
   created_at: string;
   updated_at: string;
 }
