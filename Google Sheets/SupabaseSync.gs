@@ -55,8 +55,8 @@ const PHS_ADDITIONAL_MAP = {
   "health passport": "Health Passport", "hco": "HCO Training", "hco training": "HCO Training",
 };
 
-// Excusal codes
-const EXCUSAL_CODES = new Set([
+// Excusal codes (prefixed to avoid conflict with Core.gs)
+const SYNC_EXCUSAL_CODES = new Set([
   "NA", "N/A", "N/", "VP", "DIR", "DIRECTOR", "CEO", "CFO", "COO", "CMO",
   "AVP", "SVP", "EVP", "PRESIDENT", "MGR", "MANAGER", "SUPERVISOR", "SUPV",
   "ELC", "EI", "FACILITIES", "MAINT", "HR", "FINANCE", "FIN", "IT", "ADMIN",
@@ -65,7 +65,9 @@ const EXCUSAL_CODES = new Set([
 ]);
 
 // ── Menu ──
-function onOpen() {
+// Call addSupabaseSyncMenu() from the existing onOpen() in Core.gs,
+// or run it manually once from the script editor to add the menu.
+function addSupabaseSyncMenu() {
   SpreadsheetApp.getUi().createMenu("Supabase Sync")
     .addItem("Merge All 3 Sheets → Supabase", "mergeAndSync")
     .addItem("Sync Employees Only", "syncEmployees")
@@ -237,7 +239,7 @@ function readTrainingSheet(bestDates, excusalList) {
       if (!value) continue;
 
       const upper = value.toUpperCase();
-      if (EXCUSAL_CODES.has(upper)) {
+      if (SYNC_EXCUSAL_CODES.has(upper)) {
         excusalList[nameKey + "|" + tc.key] = value;
         excCount++;
         continue;
