@@ -1,12 +1,19 @@
 // ============================================================
-// Supabase Sync — Merge 3 Sheets + Push to Supabase
+// Supabase Sync — Merge 3 sheets → Merged tab → Supabase
 // ============================================================
-// Run addSupabaseSyncMenu() once to add the menu, then use
-// "Supabase Sync > Merge All 3 Sheets → Supabase"
+// Workflow:
+//   1. Run "Merge All 3 Sheets → Merged Tab"
+//      Reads Training, Paylocity Import, PHS Import
+//      Writes result to a "Merged" tab for review
+//   2. Review the Merged tab — edit as needed
+//   3. Run "Push Merged Tab → Supabase"
+//      Clears Supabase training data, pushes employees + records + excusals
 // ============================================================
 
 const SUPABASE_URL = "https://xkfvipcxnzwyskknkmpj.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrZnZpcGN4bnp3eXNra25rbXBqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTY5NjU5MCwiZXhwIjoyMDkxMjcyNTkwfQ.VjmNtuLvrZoSEGiSLAcHHBBsbx-I72jSH5eIoOHejrk";
+
+const MERGED_SHEET = "Merged";
 
 const PAYLOCITY_MAP = {
   "cpr.fa": "CPR", "cpr/fa": "CPR", "cpr": "CPR", "cpr/first aid": "CPR",
@@ -46,7 +53,6 @@ const PHS_TYPE_MAP = {
   "hco": "HCO Training", "hco training": "HCO Training",
 };
 
-// Only these exact codes count as excusals
 const SYNC_EXCUSALS = {
   "NA":1,"N/A":1,"N/":1,"VP":1,"DIR":1,"DIRECTOR":1,"CEO":1,"CFO":1,"COO":1,"CMO":1,
   "AVP":1,"SVP":1,"EVP":1,"PRESIDENT":1,"MGR":1,"MANAGER":1,"SUPERVISOR":1,"SUPV":1,
@@ -55,225 +61,383 @@ const SYNC_EXCUSALS = {
   "TRAINER":1,"LP":1,"NS":1,"LLL":1
 };
 
+// All training columns for the merged sheet (in order)
+const MERGED_TRAINING_COLS = [
+  "CPR", "FIRSTAID", "Ukeru", "MED_TRAIN", "POST MED", "Mealtime", "POM",
+  "Pers Cent Thnk", "Safety Care", "Meaningful Day", "MD refresh", "GERD",
+  "HCO Training", "Health Passport", "Diabetes", "Falls", "Dysphagia Overview",
+  "Rights Training", "Title VI", "Active Shooter", "Skills System", "CPI",
+  "CPM", "PFH/DIDD", "Basic VCRM", "Advanced VCRM", "TRN", "ASL",
+  "Skills Online", "ETIS", "SHIFT", "ADV SHIFT", "MC"
+];
+
 function addSupabaseSyncMenu() {
   SpreadsheetApp.getUi().createMenu("Supabase Sync")
-    .addItem("Merge All 3 Sheets → Supabase", "mergeAndSync")
+    .addItem("1. Merge All 3 Sheets → Merged Tab", "buildMergedSheet")
+    .addSeparator()
+    .addItem("2. Push Merged Tab → Supabase", "pushMergedToSupabase")
     .addToUi();
 }
 
 // ════════════════════════════════════════════════════════════
-// MAIN
+// STEP 1: Build the Merged sheet
 // ════════════════════════════════════════════════════════════
-function mergeAndSync() {
+function buildMergedSheet() {
   var ui = SpreadsheetApp.getUi();
-  var answer = ui.alert("Merge & Sync", "Read all 3 sheets, pick most recent dates, push to Supabase?\n\nThis will clear existing records first.", ui.ButtonSet.YES_NO);
+  var answer = ui.alert(
+    "Build Merged Sheet",
+    "This will read Training, Paylocity Import, and PHS Import,\n" +
+    "pick the most recent date for each employee+training,\n" +
+    "and write the result to a 'Merged' tab.\n\n" +
+    "Any existing 'Merged' tab will be cleared. Continue?",
+    ui.ButtonSet.YES_NO
+  );
   if (answer !== ui.Button.YES) return;
 
-  // Step 1: Get training types from Supabase (so we know valid column keys)
-  var ttResp = supabaseGet("/rest/v1/training_types?select=id,name,column_key&is_active=eq.true&limit=100");
-  var trainingTypes = JSON.parse(ttResp.getContentText());
-  // Build lookup: lowercase column_key → { id, column_key }
-  var ttByKey = {};
-  for (var t = 0; t < trainingTypes.length; t++) {
-    ttByKey[trainingTypes[t].column_key.toLowerCase()] = trainingTypes[t];
-    ttByKey[trainingTypes[t].name.toLowerCase()] = trainingTypes[t];
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // bestDates: "Last|First|ColKey" → { date: Date, source: string }
+  var bestDates = {};
+  // excusals: "Last|First|ColKey" → code
+  var excusals = {};
+  // employees: "Last|First" → { department, hire_date, is_active }
+  var employees = {};
+
+  // ── Read Training sheet ──
+  var trSheet = ss.getSheetByName("Training");
+  if (!trSheet) { ui.alert("Training sheet not found"); return; }
+
+  var trData = trSheet.getDataRange().getValues();
+  var trH = trData[0];
+  var lnCol = findCol_(trH, "L NAME");
+  var fnCol = findCol_(trH, "F NAME");
+  var actCol = findCol_(trH, "ACTIVE");
+  var divCol = findCol_(trH, "Division Description");
+  var hireCol = findCol_(trH, "Hire Date");
+
+  if (lnCol < 0 || fnCol < 0) { ui.alert("L NAME / F NAME columns not found on Training sheet"); return; }
+
+  // Map each header index to a training col key (case-insensitive partial match)
+  var headerKey = [];
+  for (var c = 0; c < trH.length; c++) {
+    var h = String(trH[c]).trim();
+    var key = matchTrainingCol_(h);
+    headerKey.push(key);
   }
 
-  // Step 2: Read Training sheet — get employees + dates + excusals
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Training");
-  if (!sheet) { ui.alert("Training sheet not found"); return; }
+  var trDateCount = 0;
+  var trExcCount = 0;
 
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-  var lnCol = findCol(headers, "L NAME");
-  var fnCol = findCol(headers, "F NAME");
-  var actCol = findCol(headers, "ACTIVE");
-  var divCol = findCol(headers, "Division Description");
-  var hireCol = findCol(headers, "Hire Date");
-
-  if (lnCol < 0 || fnCol < 0) { ui.alert("L NAME / F NAME columns not found"); return; }
-
-  // Map each header to a training type (case-insensitive)
-  var headerTT = [];
-  for (var c = 0; c < headers.length; c++) {
-    var h = String(headers[c]).trim();
-    var match = ttByKey[h.toLowerCase()] || null;
-    headerTT.push(match);
-  }
-
-  // Collect employees and best dates
-  var employees = []; // { first_name, last_name, is_active, department, hire_date }
-  var bestDates = {}; // "last,first|ttId" → { date: Date, source: string }
-  var excusals = {};  // "last,first|ttId" → reason
-  var empKeys = {};   // track seen employees
-
-  for (var i = 1; i < data.length; i++) {
-    var row = data[i];
+  for (var i = 1; i < trData.length; i++) {
+    var row = trData[i];
     var ln = String(row[lnCol] || "").trim();
     var fn = String(row[fnCol] || "").trim();
     if (!ln) continue;
 
     var active = actCol >= 0 ? String(row[actCol] || "").trim().toUpperCase() === "Y" : true;
     var dept = divCol >= 0 ? String(row[divCol] || "").trim() : "";
-    var hd = null;
+    var hd = "";
     if (hireCol >= 0 && row[hireCol]) {
       var hDate = new Date(row[hireCol]);
-      if (!isNaN(hDate.getTime())) hd = Utilities.formatDate(hDate, "America/New_York", "yyyy-MM-dd");
+      if (!isNaN(hDate.getTime())) hd = Utilities.formatDate(hDate, "America/New_York", "M/d/yyyy");
     }
 
-    var empKey = ln.toLowerCase() + "|" + fn.toLowerCase();
-    if (!empKeys[empKey]) {
-      employees.push({ first_name: fn, last_name: ln, is_active: active, department: dept || null, hire_date: hd });
-      empKeys[empKey] = true;
-    }
+    var empKey = ln + "|" + fn;
+    employees[empKey] = { last_name: ln, first_name: fn, department: dept, hire_date: hd, is_active: active };
 
-    if (!active) continue; // skip inactive for training data
+    if (!active) continue;
 
-    var nameKey = ln + "|" + fn;
-
-    for (var c2 = 0; c2 < headers.length; c2++) {
-      var tt = headerTT[c2];
-      if (!tt) continue;
+    for (var c2 = 0; c2 < trH.length; c2++) {
+      var ck = headerKey[c2];
+      if (!ck) continue;
 
       var val = String(row[c2] || "").trim();
       if (!val) continue;
 
       var upper = val.toUpperCase();
 
-      // Check excusal
       if (SYNC_EXCUSALS[upper]) {
-        excusals[nameKey + "|" + tt.id] = val;
+        excusals[empKey + "|" + ck] = val;
+        trExcCount++;
         continue;
       }
 
-      // Skip failure codes
       if (upper.indexOf("FX") === 0 || upper.indexOf("FAIL") === 0 || upper === "FS") continue;
 
-      // Try parse date
       var d = tryParseDate_(val);
       if (d) {
-        updateBest_(bestDates, nameKey + "|" + tt.id, d, "training_sheet");
+        updateBest_(bestDates, empKey + "|" + ck, d, "training_sheet");
+        trDateCount++;
       }
     }
   }
 
-  var log = ["Training sheet: " + employees.length + " employees, " + Object.keys(bestDates).length + " dates, " + Object.keys(excusals).length + " excusals"];
-
-  // Step 3: Read Paylocity Import
-  var paySheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Paylocity Import");
+  // ── Read Paylocity Import ──
+  var paySheet = ss.getSheetByName("Paylocity Import");
+  var payDateCount = 0;
   if (paySheet) {
     var payData = paySheet.getDataRange().getValues();
-    var payH = payData[0];
-    var payLn = findColPartial(payH, "last");
-    var payFn = findColPartial(payH, "first");
-    var paySk = findColPartial(payH, "skill");
-    var payDt = findColPartial(payH, "effective");
-    var payCount = 0;
+    if (payData.length > 1) {
+      var payH = payData[0];
+      var pLn = findColPartial_(payH, "last");
+      var pFn = findColPartial_(payH, "first");
+      var pSk = findColPartial_(payH, "skill");
+      var pDt = findColPartial_(payH, "effective");
 
-    if (payLn >= 0 && payFn >= 0 && paySk >= 0 && payDt >= 0) {
-      for (var p = 1; p < payData.length; p++) {
-        var pRow = payData[p];
-        var pLn = String(pRow[payLn] || "").trim();
-        var pFn = String(pRow[payFn] || "").trim();
-        var skill = String(pRow[paySk] || "").trim().toLowerCase();
-        var pDate = String(pRow[payDt] || "").trim();
-        if (!pLn || !skill || !pDate) continue;
+      if (pLn >= 0 && pFn >= 0 && pSk >= 0 && pDt >= 0) {
+        for (var p = 1; p < payData.length; p++) {
+          var pr = payData[p];
+          var pln = String(pr[pLn] || "").trim();
+          var pfn = String(pr[pFn] || "").trim();
+          var skill = String(pr[pSk] || "").trim().toLowerCase();
+          var pdate = String(pr[pDt] || "").trim();
+          if (!pln || !skill || !pdate) continue;
 
-        var colKey = PAYLOCITY_MAP[skill];
-        if (!colKey) continue;
-        var pTT = ttByKey[colKey.toLowerCase()];
-        if (!pTT) continue;
+          var pCol = PAYLOCITY_MAP[skill];
+          if (!pCol) continue;
 
-        var pd = tryParseDate_(pDate);
-        if (!pd) continue;
+          var pd = tryParseDate_(pdate);
+          if (!pd) continue;
 
-        var pNameKey = pLn + "|" + pFn;
-        updateBest_(bestDates, pNameKey + "|" + pTT.id, pd, "paylocity");
-        payCount++;
+          var pKey = pln + "|" + pfn;
+          updateBest_(bestDates, pKey + "|" + pCol, pd, "paylocity");
+          payDateCount++;
 
-        // CPR <-> FIRSTAID link
-        if (colKey === "CPR" && ttByKey["firstaid"]) updateBest_(bestDates, pNameKey + "|" + ttByKey["firstaid"].id, pd, "paylocity");
-        if (colKey === "FIRSTAID" && ttByKey["cpr"]) updateBest_(bestDates, pNameKey + "|" + ttByKey["cpr"].id, pd, "paylocity");
+          if (pCol === "CPR") updateBest_(bestDates, pKey + "|FIRSTAID", pd, "paylocity");
+          if (pCol === "FIRSTAID") updateBest_(bestDates, pKey + "|CPR", pd, "paylocity");
+        }
       }
     }
-    log.push("Paylocity Import: " + payCount + " dates");
-  } else {
-    log.push("Paylocity Import: not found (skipped)");
   }
 
-  // Step 4: Read PHS Import
-  var phsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("PHS Import");
+  // ── Read PHS Import ──
+  var phsSheet = ss.getSheetByName("PHS Import");
+  var phsDateCount = 0;
   if (phsSheet) {
     var phsData = phsSheet.getDataRange().getValues();
-    var phsH = phsData[0];
-    var phsName = findColPartial(phsH, "employee");
-    var phsCat = findColPartial(phsH, "category");
-    var phsType = findColPartial(phsH, "type");
-    var phsDt = findColPartial(phsH, "effective");
-    var phsTerm = findColPartial(phsH, "termination");
-    var phsCount = 0;
+    if (phsData.length > 1) {
+      var phsH = phsData[0];
+      var qNm = findColPartial_(phsH, "employee");
+      var qCt = findColPartial_(phsH, "category");
+      var qTy = findColPartial_(phsH, "type");
+      var qDt = findColPartial_(phsH, "effective");
+      var qTm = findColPartial_(phsH, "termination");
 
-    if (phsName >= 0 && phsCat >= 0 && phsDt >= 0) {
-      for (var q = 1; q < phsData.length; q++) {
-        var qRow = phsData[q];
-        var qName = String(qRow[phsName] || "").trim();
-        var qCat = String(qRow[phsCat] || "").trim().toLowerCase();
-        var qType = phsType >= 0 ? String(qRow[phsType] || "").trim().toLowerCase() : "";
-        var qDate = String(qRow[phsDt] || "").trim();
-        var qTerm = phsTerm >= 0 ? String(qRow[phsTerm] || "").trim() : "";
+      if (qNm >= 0 && qCt >= 0 && qDt >= 0) {
+        for (var q = 1; q < phsData.length; q++) {
+          var qr = phsData[q];
+          var qName = String(qr[qNm] || "").trim();
+          var qCat = String(qr[qCt] || "").trim().toLowerCase();
+          var qType = qTy >= 0 ? String(qr[qTy] || "").trim().toLowerCase() : "";
+          var qDate = String(qr[qDt] || "").trim();
+          var qTerm = qTm >= 0 ? String(qr[qTm] || "").trim() : "";
 
-        if (!qName || !qDate) continue;
-        if (qTerm) continue;
-        if (qType === "fail" || qType === "no show") continue;
+          if (!qName || !qDate) continue;
+          if (qTerm) continue;
+          if (qType === "fail" || qType === "no show") continue;
 
-        var qColKey = PHS_CATEGORY_MAP[qCat] || null;
-        if (!qColKey && qCat === "additional training") {
-          qColKey = PHS_TYPE_MAP[qType] || null;
+          var qCol = PHS_CATEGORY_MAP[qCat] || null;
+          if (!qCol && qCat === "additional training") qCol = PHS_TYPE_MAP[qType] || null;
+          if (!qCol) continue;
+
+          var qd = tryParseDate_(qDate);
+          if (!qd) continue;
+
+          // PHS names are "Last, First"
+          var qLn = qName, qFn = "";
+          if (qName.indexOf(",") >= 0) {
+            var parts = qName.split(",");
+            qLn = parts[0].trim();
+            qFn = parts.slice(1).join(",").trim();
+          }
+
+          var qKey = qLn + "|" + qFn;
+          updateBest_(bestDates, qKey + "|" + qCol, qd, "phs");
+          phsDateCount++;
+
+          if (qCol === "CPR") updateBest_(bestDates, qKey + "|FIRSTAID", qd, "phs");
+          if (qCol === "FIRSTAID") updateBest_(bestDates, qKey + "|CPR", qd, "phs");
         }
-        if (!qColKey) continue;
-
-        var qTT = ttByKey[qColKey.toLowerCase()];
-        if (!qTT) continue;
-
-        var qd = tryParseDate_(qDate);
-        if (!qd) continue;
-
-        // PHS names are "Last, First"
-        var qLn = qName, qFn = "";
-        if (qName.indexOf(",") >= 0) {
-          var parts = qName.split(",");
-          qLn = parts[0].trim();
-          qFn = parts.slice(1).join(",").trim();
-        }
-
-        var qNameKey = qLn + "|" + qFn;
-        updateBest_(bestDates, qNameKey + "|" + qTT.id, qd, "phs");
-        phsCount++;
-
-        if (qColKey === "CPR" && ttByKey["firstaid"]) updateBest_(bestDates, qNameKey + "|" + ttByKey["firstaid"].id, qd, "phs");
-        if (qColKey === "FIRSTAID" && ttByKey["cpr"]) updateBest_(bestDates, qNameKey + "|" + ttByKey["cpr"].id, qd, "phs");
       }
     }
-    log.push("PHS Import: " + phsCount + " dates");
-  } else {
-    log.push("PHS Import: not found (skipped)");
   }
 
-  log.push("\nTotal: " + Object.keys(bestDates).length + " records, " + Object.keys(excusals).length + " excusals");
-  log.push("\nPushing to Supabase...");
+  // ── Write to Merged sheet ──
+  var merged = ss.getSheetByName(MERGED_SHEET);
+  if (merged) {
+    merged.clear();
+  } else {
+    merged = ss.insertSheet(MERGED_SHEET);
+  }
 
-  // Step 5: Push employees
+  var headerRow = ["L NAME", "F NAME", "ACTIVE", "Division", "Hire Date"].concat(MERGED_TRAINING_COLS);
+  merged.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
+  merged.getRange(1, 1, 1, headerRow.length).setFontWeight("bold").setBackground("#1e3a5f").setFontColor("#ffffff");
+  merged.setFrozenRows(1);
+
+  // Sort employees alphabetically
+  var empKeys = Object.keys(employees).sort();
+  var outRows = [];
+
+  for (var ei = 0; ei < empKeys.length; ei++) {
+    var key = empKeys[ei];
+    var emp = employees[key];
+    var rowOut = [
+      emp.last_name,
+      emp.first_name,
+      emp.is_active ? "Y" : "N",
+      emp.department,
+      emp.hire_date,
+    ];
+
+    for (var ti = 0; ti < MERGED_TRAINING_COLS.length; ti++) {
+      var col = MERGED_TRAINING_COLS[ti];
+      var bKey = key + "|" + col;
+      var exc = excusals[bKey];
+      if (exc) {
+        rowOut.push(exc);
+        continue;
+      }
+      var best = bestDates[bKey];
+      if (best) {
+        rowOut.push(Utilities.formatDate(best.date, "America/New_York", "M/d/yyyy"));
+      } else {
+        rowOut.push("");
+      }
+    }
+
+    outRows.push(rowOut);
+  }
+
+  if (outRows.length > 0) {
+    merged.getRange(2, 1, outRows.length, headerRow.length).setValues(outRows);
+  }
+
+  merged.autoResizeColumns(1, headerRow.length);
+
+  var msg = "Merged sheet built!\n\n" +
+    "Employees: " + empKeys.length + "\n" +
+    "Training dates from Training sheet: " + trDateCount + "\n" +
+    "Excusals from Training sheet: " + trExcCount + "\n" +
+    "Paylocity dates: " + payDateCount + "\n" +
+    "PHS dates: " + phsDateCount + "\n\n" +
+    "Total merged records: " + Object.keys(bestDates).length + "\n" +
+    "Total excusals: " + Object.keys(excusals).length + "\n\n" +
+    "Review the 'Merged' tab, then run 'Push Merged Tab → Supabase'.";
+
+  ui.alert("Merge Complete", msg, ui.ButtonSet.OK);
+}
+
+// ════════════════════════════════════════════════════════════
+// STEP 2: Push Merged sheet to Supabase
+// ════════════════════════════════════════════════════════════
+function pushMergedToSupabase() {
+  var ui = SpreadsheetApp.getUi();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var merged = ss.getSheetByName(MERGED_SHEET);
+  if (!merged) { ui.alert("Merged sheet not found. Run Step 1 first."); return; }
+
+  var answer = ui.alert(
+    "Push to Supabase",
+    "This will DELETE all existing training records and excusals in Supabase,\n" +
+    "then push the contents of the Merged sheet.\n\n" +
+    "Continue?",
+    ui.ButtonSet.YES_NO
+  );
+  if (answer !== ui.Button.YES) return;
+
+  var data = merged.getDataRange().getValues();
+  if (data.length < 2) { ui.alert("Merged sheet is empty"); return; }
+
+  var headers = data[0];
+  var lnC = findCol_(headers, "L NAME");
+  var fnC = findCol_(headers, "F NAME");
+  var actC = findCol_(headers, "ACTIVE");
+  var divC = findCol_(headers, "Division");
+  var hireC = findCol_(headers, "Hire Date");
+
+  if (lnC < 0 || fnC < 0) { ui.alert("L NAME / F NAME columns not found"); return; }
+
+  // Find training column positions in merged sheet
+  var colMap = {}; // col key → col index
+  for (var h = 0; h < headers.length; h++) {
+    var key = matchTrainingCol_(String(headers[h]).trim());
+    if (key) colMap[key] = h;
+  }
+
+  // Get training types from Supabase
+  var ttResp = supabaseGet("/rest/v1/training_types?select=id,name,column_key&is_active=eq.true&limit=100");
+  var trainingTypes = JSON.parse(ttResp.getContentText());
+  var ttByKey = {}; // lowercase col key → { id }
+  for (var t = 0; t < trainingTypes.length; t++) {
+    ttByKey[trainingTypes[t].column_key.toLowerCase()] = trainingTypes[t];
+  }
+
+  // Step 1: Wipe existing records and excusals
+  supabaseDelete("/rest/v1/training_records?id=not.is.null");
+  supabaseDelete("/rest/v1/excusals?id=not.is.null");
+
+  // Step 2: Build employee upserts + collect records/excusals
+  var employees = [];
+  var records = [];
+  var excusalList = [];
+
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    var ln = String(row[lnC] || "").trim();
+    var fn = String(row[fnC] || "").trim();
+    if (!ln) continue;
+
+    var active = actC >= 0 ? String(row[actC] || "").trim().toUpperCase() === "Y" : true;
+    var dept = divC >= 0 ? String(row[divC] || "").trim() : "";
+    var hd = null;
+    if (hireC >= 0 && row[hireC]) {
+      var hDate = tryParseDate_(String(row[hireC]));
+      if (hDate) hd = Utilities.formatDate(hDate, "America/New_York", "yyyy-MM-dd");
+    }
+
+    employees.push({
+      last_name: ln,
+      first_name: fn,
+      is_active: active,
+      department: dept || null,
+      hire_date: hd,
+    });
+
+    if (!active) continue;
+
+    // Process training columns for this employee
+    for (var key in colMap) {
+      var val = String(row[colMap[key]] || "").trim();
+      if (!val) continue;
+
+      var upper = val.toUpperCase();
+      if (SYNC_EXCUSALS[upper]) {
+        excusalList.push({ lastName: ln, firstName: fn, colKey: key, reason: val });
+        continue;
+      }
+
+      var d = tryParseDate_(val);
+      if (d) {
+        records.push({
+          lastName: ln, firstName: fn, colKey: key,
+          date: Utilities.formatDate(d, "America/New_York", "yyyy-MM-dd"),
+        });
+      }
+    }
+  }
+
+  // Step 3: Push employees
   var empInserted = 0;
   var BATCH = 20;
   for (var e = 0; e < employees.length; e += BATCH) {
-    var batch = employees.slice(e, e + BATCH);
-    var resp = supabasePost("/rest/v1/employees", batch, { "Prefer": "resolution=ignore-duplicates" });
-    if (resp.getResponseCode() >= 200 && resp.getResponseCode() < 300) empInserted += batch.length;
-    Utilities.sleep(150);
+    var eb = employees.slice(e, e + BATCH);
+    var er = supabasePost("/rest/v1/employees", eb, { "Prefer": "resolution=ignore-duplicates" });
+    if (er.getResponseCode() >= 200 && er.getResponseCode() < 300) empInserted += eb.length;
+    Utilities.sleep(100);
   }
-  log.push("Employees: " + empInserted + " pushed");
 
-  // Step 6: Get employee ID lookup from Supabase
+  // Step 4: Get employee ID lookup (paginated)
   var empLookup = {};
   var offset = 0;
   while (true) {
@@ -281,74 +445,83 @@ function mergeAndSync() {
     var empList = JSON.parse(empResp.getContentText());
     if (empList.length === 0) break;
     for (var el = 0; el < empList.length; el++) {
-      var key = empList[el].last_name + "|" + empList[el].first_name;
-      empLookup[key] = empList[el].id;
-      // Also lowercase version for fuzzy matching
-      empLookup[key.toLowerCase()] = empList[el].id;
+      var key2 = (empList[el].last_name + "|" + empList[el].first_name).toLowerCase();
+      empLookup[key2] = empList[el].id;
     }
     offset += empList.length;
     if (empList.length < 1000) break;
   }
 
-  // Step 7: Push training records
-  var records = [];
-  for (var bk in bestDates) {
-    var bParts = bk.split("|");
-    var bName = bParts[0] + "|" + bParts[1];
-    var bTTId = parseInt(bParts[2]);
-    var bEmpId = empLookup[bName] || empLookup[bName.toLowerCase()];
-    if (!bEmpId) continue;
-
-    var entry = bestDates[bk];
-    records.push({
-      employee_id: bEmpId,
-      training_type_id: bTTId,
-      completion_date: Utilities.formatDate(entry.date, "America/New_York", "yyyy-MM-dd"),
-      source: entry.source,
+  // Step 5: Push training records
+  var recPayload = [];
+  for (var rc = 0; rc < records.length; rc++) {
+    var rec = records[rc];
+    var k = (rec.lastName + "|" + rec.firstName).toLowerCase();
+    var empId = empLookup[k];
+    if (!empId) continue;
+    var tt = ttByKey[rec.colKey.toLowerCase()];
+    if (!tt) continue;
+    recPayload.push({
+      employee_id: empId,
+      training_type_id: tt.id,
+      completion_date: rec.date,
+      source: "merged_sheet",
     });
   }
 
   var recInserted = 0;
-  for (var r = 0; r < records.length; r += BATCH) {
-    var rBatch = records.slice(r, r + BATCH);
-    var rResp = supabasePost("/rest/v1/training_records", rBatch, { "Prefer": "resolution=ignore-duplicates" });
+  for (var rb = 0; rb < recPayload.length; rb += BATCH) {
+    var rBatch = recPayload.slice(rb, rb + BATCH);
+    var rResp = supabasePost("/rest/v1/training_records", rBatch, {});
     if (rResp.getResponseCode() >= 200 && rResp.getResponseCode() < 300) recInserted += rBatch.length;
-    Utilities.sleep(150);
+    Utilities.sleep(100);
   }
-  log.push("Training records: " + recInserted + " of " + records.length);
 
-  // Step 8: Push excusals
-  var excRows = [];
-  for (var ek in excusals) {
-    var eParts = ek.split("|");
-    var eName = eParts[0] + "|" + eParts[1];
-    var eTTId = parseInt(eParts[2]);
-    var eEmpId = empLookup[eName] || empLookup[eName.toLowerCase()];
-    if (!eEmpId) continue;
-
-    excRows.push({
-      employee_id: eEmpId,
-      training_type_id: eTTId,
-      reason: excusals[ek],
+  // Step 6: Push excusals
+  var excPayload = [];
+  for (var xc = 0; xc < excusalList.length; xc++) {
+    var exc = excusalList[xc];
+    var k2 = (exc.lastName + "|" + exc.firstName).toLowerCase();
+    var empId2 = empLookup[k2];
+    if (!empId2) continue;
+    var tt2 = ttByKey[exc.colKey.toLowerCase()];
+    if (!tt2) continue;
+    excPayload.push({
+      employee_id: empId2,
+      training_type_id: tt2.id,
+      reason: exc.reason,
     });
   }
 
   var excInserted = 0;
-  for (var x = 0; x < excRows.length; x += BATCH) {
-    var xBatch = excRows.slice(x, x + BATCH);
+  for (var xb = 0; xb < excPayload.length; xb += BATCH) {
+    var xBatch = excPayload.slice(xb, xb + BATCH);
     var xResp = supabasePost("/rest/v1/excusals", xBatch, { "Prefer": "resolution=merge-duplicates" });
     if (xResp.getResponseCode() >= 200 && xResp.getResponseCode() < 300) excInserted += xBatch.length;
-    Utilities.sleep(150);
+    Utilities.sleep(100);
   }
-  log.push("Excusals: " + excInserted + " of " + excRows.length);
 
-  log.push("\nDone!");
-  ui.alert("Merge Complete", log.join("\n"), ui.ButtonSet.OK);
+  var msg = "Push Complete!\n\n" +
+    "Employees: " + empInserted + " of " + employees.length + "\n" +
+    "Training records: " + recInserted + " of " + recPayload.length + "\n" +
+    "Excusals: " + excInserted + " of " + excPayload.length;
+
+  ui.alert("Done", msg, ui.ButtonSet.OK);
 }
 
 // ════════════════════════════════════════════════════════════
 // Helpers
 // ════════════════════════════════════════════════════════════
+
+// Match any training column name to its canonical column_key
+function matchTrainingCol_(header) {
+  if (!header) return null;
+  var h = header.toLowerCase().trim();
+  for (var i = 0; i < MERGED_TRAINING_COLS.length; i++) {
+    if (MERGED_TRAINING_COLS[i].toLowerCase() === h) return MERGED_TRAINING_COLS[i];
+  }
+  return null;
+}
 
 function updateBest_(bestDates, key, date, source) {
   var existing = bestDates[key];
@@ -359,6 +532,7 @@ function updateBest_(bestDates, key, date, source) {
 
 function tryParseDate_(value) {
   if (!value) return null;
+  if (value instanceof Date && !isNaN(value.getTime())) return value;
   var s = String(value).trim();
   var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
   if (m) {
@@ -377,7 +551,7 @@ function tryParseDate_(value) {
   return null;
 }
 
-function findCol(headers, name) {
+function findCol_(headers, name) {
   var upper = name.toUpperCase();
   for (var i = 0; i < headers.length; i++) {
     if (String(headers[i]).trim().toUpperCase() === upper) return i;
@@ -385,7 +559,7 @@ function findCol(headers, name) {
   return -1;
 }
 
-function findColPartial(headers, partial) {
+function findColPartial_(headers, partial) {
   var lower = partial.toLowerCase();
   for (var i = 0; i < headers.length; i++) {
     if (String(headers[i]).trim().toLowerCase().indexOf(lower) >= 0) return i;
@@ -406,5 +580,13 @@ function supabasePost(path, data, extraHeaders) {
   for (var k in extraHeaders) headers[k] = extraHeaders[k];
   return UrlFetchApp.fetch(SUPABASE_URL + path, {
     method: "post", headers: headers, payload: JSON.stringify(data), muteHttpExceptions: true,
+  });
+}
+
+function supabaseDelete(path) {
+  return UrlFetchApp.fetch(SUPABASE_URL + path, {
+    method: "delete",
+    headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY },
+    muteHttpExceptions: true,
   });
 }
