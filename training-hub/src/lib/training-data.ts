@@ -70,54 +70,88 @@ export interface DashboardStats {
 }
 
 /**
- * Read compliance data from the employee_compliance view.
+ * Read compliance data by querying employees, training_records, and excusals
+ * separately (each well under 1000 rows) and computing compliance in TypeScript.
+ * This avoids the Supabase PostgREST 1000-row default limit on the compliance view.
  */
 export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
   const supabase = createServerClient();
 
-  // Load excluded employees
-  const { getExcludedEmployees } = await import("@/lib/hub-settings");
-  const excluded = await getExcludedEmployees();
+  // Load excluded employees and department rules
+  const { getExcludedEmployees, getDeptRules } = await import("@/lib/hub-settings");
+  const [excluded, deptRules] = await Promise.all([getExcludedEmployees(), getDeptRules()]);
   const excludedSet = new Set(excluded.map((n) => n.toLowerCase()));
-
-  // Load department rules
-  const { getDeptRules } = await import("@/lib/hub-settings");
-  const deptRules = await getDeptRules();
   const deptRequiredMap = new Map<string, Set<string>>();
   for (const rule of deptRules) {
     deptRequiredMap.set(rule.department.toLowerCase(), new Set(rule.required));
   }
 
-  // Query the employee_compliance view (override default 1000 row limit)
-  const { data: complianceRows, error } = await supabase
-    .from("employee_compliance")
-    .select("*")
-    .limit(50000);
+  // Fetch training types from Supabase
+  const { data: trainingTypes } = await supabase
+    .from("training_types")
+    .select("id, name, column_key, renewal_years, is_required")
+    .eq("is_active", true);
 
-  if (error) throw new Error(`Failed to load compliance data: ${error.message}`);
-  if (!complianceRows || complianceRows.length === 0) return [];
+  const ttById = new Map<number, { name: string; column_key: string; renewal_years: number; is_required: boolean }>();
+  for (const tt of trainingTypes || []) {
+    ttById.set(tt.id, tt);
+  }
 
-  // Also fetch employee hire dates
-  const { data: employees } = await supabase
+  // Fetch active employees (well under 1000)
+  const { data: empRows, error: empError } = await supabase
     .from("employees")
-    .select("id, hire_date")
+    .select("id, first_name, last_name, department, hire_date")
     .eq("is_active", true)
     .limit(10000);
 
-  const hireDateMap = new Map<string, string>();
-  for (const emp of employees || []) {
-    if (emp.hire_date) hireDateMap.set(emp.id, emp.hire_date);
+  if (empError) throw new Error(`Failed to load employees: ${empError.message}`);
+  if (!empRows || empRows.length === 0) return [];
+
+  const empIds = empRows.map((e) => e.id);
+
+  // Fetch latest training records per employee+type (paginate in chunks of employee IDs)
+  const recordMap = new Map<string, { completion_date: string; expiration_date: string | null; training_type_id: number }[]>();
+  const CHUNK = 200;
+  for (let i = 0; i < empIds.length; i += CHUNK) {
+    const chunk = empIds.slice(i, i + CHUNK);
+    const { data: records } = await supabase
+      .from("training_records")
+      .select("employee_id, training_type_id, completion_date, expiration_date")
+      .in("employee_id", chunk)
+      .order("completion_date", { ascending: false });
+
+    for (const r of records || []) {
+      const key = `${r.employee_id}|${r.training_type_id}`;
+      if (!recordMap.has(key)) {
+        if (!recordMap.has(r.employee_id)) recordMap.set(r.employee_id, []);
+        recordMap.get(r.employee_id)!.push(r);
+        recordMap.set(key, [r]); // mark as seen
+      }
+    }
   }
 
-  // Group by employee
-  const employeeMap = new Map<string, EmployeeTrainingRow>();
-  const trackedDefs = TRAINING_DEFINITIONS;
+  // Fetch excusals (well under 1000)
+  const excusalMap = new Map<string, string>();
+  const { data: excusals } = await supabase
+    .from("excusals")
+    .select("employee_id, training_type_id, reason");
 
-  for (const row of complianceRows) {
-    const name = `${row.last_name}, ${row.first_name}`;
+  for (const exc of excusals || []) {
+    excusalMap.set(`${exc.employee_id}|${exc.training_type_id}`, exc.reason);
+  }
+
+  // Compute compliance in TypeScript
+  const now = new Date();
+  const soonThreshold = new Date();
+  soonThreshold.setDate(soonThreshold.getDate() + 60);
+  const trackedDefs = TRAINING_DEFINITIONS;
+  const employeeMap = new Map<string, EmployeeTrainingRow>();
+
+  for (const emp of empRows) {
+    const name = `${emp.last_name}, ${emp.first_name}`;
     if (excludedSet.has(name.toLowerCase())) continue;
 
-    const position = row.department || "";
+    const position = emp.department || "";
     const empRequired = position ? deptRequiredMap.get(position.toLowerCase()) : undefined;
     const employeeDefs = empRequired
       ? empRequired.has("ALL")
@@ -125,58 +159,94 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
         : trackedDefs.filter((d) => empRequired.has(d.columnKey))
       : trackedDefs;
 
-    // Find the matching training def for this row
-    const def = employeeDefs.find(
-      (d) => d.columnKey === row.training_name ||
-        d.name === row.training_name ||
-        d.columnKey.toLowerCase() === (row.training_name || "").toLowerCase()
-    );
-    if (!def) continue;
+    const empEntry: EmployeeTrainingRow = {
+      name,
+      employeeId: emp.id,
+      position,
+      hireDate: emp.hire_date || "",
+      rowIndex: Math.abs(hashCode(emp.id)) % 100000,
+      trainings: {},
+    };
 
-    if (!employeeMap.has(row.employee_id)) {
-      employeeMap.set(row.employee_id, {
-        name,
-        employeeId: row.employee_id,
-        position,
-        hireDate: hireDateMap.get(row.employee_id) || "",
-        rowIndex: Math.abs(hashCode(row.employee_id)) % 100000,
-        trainings: {},
-      });
-    }
+    // Get this employee's records
+    const empRecords = recordMap.get(emp.id) || [];
 
-    const emp = employeeMap.get(row.employee_id)!;
-    const status = row.status as ComplianceStatus;
-    const isExcused = status === "excused";
-    const completionDate = row.completion_date ? new Date(row.completion_date) : null;
-    const value = isExcused
-      ? (row.excusal_reason || "N/A")
-      : completionDate
-        ? formatDateMDY(completionDate)
-        : "";
-
-    // Prerequisite check
-    if (def.prerequisite) {
-      const prereqTraining = complianceRows.find(
-        (r: any) => r.employee_id === row.employee_id &&
-          (r.training_name === def.prerequisite || r.training_name?.toLowerCase() === def.prerequisite?.toLowerCase())
+    for (const def of employeeDefs) {
+      // Find the training type ID for this def
+      const tt = (trainingTypes || []).find(
+        (t) => t.name === def.name || t.column_key === def.columnKey ||
+          t.column_key.toLowerCase() === def.columnKey.toLowerCase()
       );
-      if (prereqTraining && !prereqTraining.completion_date && prereqTraining.status !== "excused") continue;
-    }
+      if (!tt) continue;
 
-    // onlyExpired: skip if no date or current
-    if (def.onlyExpired && (!completionDate || status === "needed" || status === "current")) {
-      if (completionDate && status === "current" && !emp.trainings[def.columnKey]) {
-        emp.trainings[def.columnKey] = { value, date: completionDate, isExcused, status };
+      // Check excusal
+      const excusalKey = `${emp.id}|${tt.id}`;
+      const excusalReason = excusalMap.get(excusalKey);
+
+      // Find latest record for this employee+training
+      const record = empRecords.find((r) => r.training_type_id === tt.id);
+      const completionDate = record ? new Date(record.completion_date) : null;
+
+      // Prerequisite check
+      if (def.prerequisite) {
+        const prereqTT = (trainingTypes || []).find(
+          (t) => t.column_key === def.prerequisite || t.column_key.toLowerCase() === def.prerequisite?.toLowerCase()
+        );
+        if (prereqTT) {
+          const prereqExcused = excusalMap.has(`${emp.id}|${prereqTT.id}`);
+          const prereqRecord = empRecords.find((r) => r.training_type_id === prereqTT.id);
+          if (!prereqRecord && !prereqExcused) continue;
+        }
       }
-      continue;
+
+      // Compute status
+      let status: ComplianceStatus;
+      if (excusalReason) {
+        status = "excused";
+      } else if (!completionDate) {
+        status = def.isRequired ? "expired" : "needed";
+      } else if (def.renewalYears === 0) {
+        status = "current";
+      } else {
+        const expiry = record?.expiration_date
+          ? new Date(record.expiration_date)
+          : new Date(completionDate.getTime());
+        if (!record?.expiration_date) {
+          expiry.setFullYear(expiry.getFullYear() + def.renewalYears);
+        }
+        if (expiry < now) {
+          status = "expired";
+        } else if (expiry < soonThreshold) {
+          status = "expiring_soon";
+        } else {
+          status = "current";
+        }
+      }
+
+      const isExcused = status === "excused";
+      const value = isExcused
+        ? (excusalReason || "N/A")
+        : completionDate
+          ? formatDateMDY(completionDate)
+          : "";
+
+      // onlyExpired: skip if no date or current
+      if (def.onlyExpired && (!completionDate || status === "needed" || status === "current")) {
+        if (completionDate && status === "current" && !empEntry.trainings[def.columnKey]) {
+          empEntry.trainings[def.columnKey] = { value, date: completionDate, isExcused, status };
+        }
+        continue;
+      }
+      // onlyNeeded: skip if already has a date
+      if (def.onlyNeeded && completionDate) continue;
+
+      // Don't overwrite if already set
+      if (empEntry.trainings[def.columnKey]) continue;
+
+      empEntry.trainings[def.columnKey] = { value, date: completionDate, isExcused, status };
     }
-    // onlyNeeded: skip if already has a date
-    if (def.onlyNeeded && completionDate) continue;
 
-    // Don't overwrite if already set
-    if (emp.trainings[def.columnKey]) continue;
-
-    emp.trainings[def.columnKey] = { value, date: completionDate, isExcused, status };
+    employeeMap.set(emp.id, empEntry);
   }
 
   return Array.from(employeeMap.values());
