@@ -589,8 +589,9 @@ function pushMergedToSupabase() {
   }
 
   var excInserted = 0;
-  for (var xb = 0; xb < excPayload.length; xb += BATCH) {
-    var xBatch = excPayload.slice(xb, xb + BATCH);
+  var EXC_BATCH = 100;
+  for (var xb = 0; xb < excPayload.length; xb += EXC_BATCH) {
+    var xBatch = excPayload.slice(xb, xb + EXC_BATCH);
     var xResp = supabasePost(
       "/rest/v1/excusals?on_conflict=employee_id,training_type_id",
       xBatch,
