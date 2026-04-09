@@ -456,6 +456,8 @@ function pushMergedToSupabase() {
   var empLookup = {};
   var empInserted = 0;
   var empErrors = 0;
+  // Employees have no downstream triggers so 100/batch is fine here;
+  // training_records below uses a smaller batch because of triggers.
   var BATCH = 100;
   for (var e = 0; e < employees.length; e += BATCH) {
     var eb = employees.slice(e, e + BATCH);
@@ -519,11 +521,14 @@ function pushMergedToSupabase() {
     });
   }
 
+  // Smaller batch for training_records — the apply_auto_fill trigger
+  // fires per row and large batches can blow the Postgres stack depth.
+  var REC_BATCH = 25;
   var recInserted = 0;
-  for (var rb = 0; rb < recPayload.length; rb += BATCH) {
-    var rBatch = recPayload.slice(rb, rb + BATCH);
+  for (var rb = 0; rb < recPayload.length; rb += REC_BATCH) {
+    var rBatch = recPayload.slice(rb, rb + REC_BATCH);
     var rResp = supabasePost(
-      "/rest/v1/training_records?on_conflict=employee_id,training_type_id",
+      "/rest/v1/training_records?on_conflict=employee_id,training_type_id,completion_date",
       rBatch,
       { "Prefer": "resolution=merge-duplicates" }
     );
@@ -941,9 +946,11 @@ function pushTrainingRecordsToSupabase() {
     });
   }
 
-  // Batch insert
+  // Batch insert. Kept small (25) because each INSERT fires the
+  // apply_auto_fill trigger, and large batches can blow the Postgres
+  // stack depth limit on Supabase managed instances.
   var inserted = 0;
-  var BATCH = 100;
+  var BATCH = 25;
   for (var p = 0; p < payload.length; p += BATCH) {
     var batch = payload.slice(p, p + BATCH);
     var resp = supabasePost("/rest/v1/training_records", batch, {});
