@@ -109,35 +109,28 @@ export async function GET() {
         }
       }
 
-      // Determine if "new hire" by hire date OR by having zero completions
-      const isNewByDate = hireDate && hireDate >= ninetyDaysAgo;
-      const isNewByTrainings = completed === 0 && missing.length > 0;
+      // Strict: only employees hired within the last 90 days
+      if (!hireDate || hireDate < ninetyDaysAgo) continue;
 
-      if (isNewByDate || isNewByTrainings) {
-        const daysEmployed = hireDate
-          ? Math.round((now.getTime() - hireDate.getTime()) / (1000 * 60 * 60 * 24))
-          : -1;
-        const formattedHireDate = hireDate
-          ? `${hireDate.getMonth() + 1}/${hireDate.getDate()}/${hireDate.getFullYear()}`
-          : "";
-        newHires.push({
-          name,
-          employeeId: emp.id,
-          division,
-          hireDate: formattedHireDate,
-          daysEmployed,
-          totalTrainings: trainingCols.length,
-          completedTrainings: completed,
-          missingTrainings: missing,
-        });
-      }
+      const daysEmployed = Math.round(
+        (now.getTime() - hireDate.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      const formattedHireDate = `${hireDate.getMonth() + 1}/${hireDate.getDate()}/${hireDate.getFullYear()}`;
+      newHires.push({
+        name,
+        employeeId: emp.id,
+        division,
+        hireDate: formattedHireDate,
+        daysEmployed,
+        totalTrainings: trainingCols.length,
+        completedTrainings: completed,
+        missingTrainings: missing,
+      });
     }
 
-    // Sort by hire date (newest first), then by name
+    // Sort by days employed ascending (newest first), then by name
     newHires.sort((a, b) => {
-      if (a.daysEmployed >= 0 && b.daysEmployed >= 0) return a.daysEmployed - b.daysEmployed;
-      if (a.daysEmployed >= 0) return -1;
-      if (b.daysEmployed >= 0) return 1;
+      if (a.daysEmployed !== b.daysEmployed) return a.daysEmployed - b.daysEmployed;
       return a.name.localeCompare(b.name);
     });
 

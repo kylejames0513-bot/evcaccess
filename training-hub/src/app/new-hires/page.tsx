@@ -83,7 +83,7 @@ export default function NewHiresPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">New Hires</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Employees hired within 90 days or with zero training completions — {newHires.length} found
+            Employees hired within the last 90 days — {newHires.length} found
           </p>
         </div>
         <button onClick={doRefresh} disabled={refreshing} className="ml-auto px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-700 text-sm font-medium flex items-center gap-1.5">
