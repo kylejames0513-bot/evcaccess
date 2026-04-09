@@ -453,23 +453,82 @@ function pushMergedToSupabase() {
     }
   }
 
-  // ─── Step 2: Upsert employees via on_conflict=last_name,first_name ───
-  var empLookup = {};
+  // ─── Step 2: Fetch existing employees (case-insensitive lookup)
+  //             then PATCH existing / POST new ───
+  //
+  // We can't use PostgREST ON CONFLICT upsert here because the
+  // unique index is functional (lower(last_name), lower(first_name))
+  // and PostgREST's on_conflict=col1,col2 doesn't speak functional
+  // indexes. So we fetch first, then decide per-row.
+  var empLookup = {}; // lowercase "last|first" → id
+  (function prefetchEmployees() {
+    var offset = 0;
+    while (true) {
+      var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name&limit=1000&offset=" + offset);
+      var empList = JSON.parse(empResp.getContentText());
+      if (empList.length === 0) break;
+      for (var el = 0; el < empList.length; el++) {
+        var k = (String(empList[el].last_name || "") + "|" + String(empList[el].first_name || "")).toLowerCase();
+        if (!empLookup[k]) empLookup[k] = empList[el].id;
+      }
+      offset += empList.length;
+      if (empList.length < 1000) break;
+    }
+  })();
+
   var empInserted = 0;
+  var empUpdated = 0;
   var empErrors = 0;
-  // Employees have no downstream triggers so 100/batch is fine here;
-  // training_records below uses a smaller batch because of triggers.
-  var BATCH = 100;
-  for (var e = 0; e < employees.length; e += BATCH) {
-    var eb = employees.slice(e, e + BATCH);
-    var er = supabasePost(
-      "/rest/v1/employees?on_conflict=last_name,first_name",
-      eb,
-      { "Prefer": "resolution=merge-duplicates,return=representation" }
+  var toInsert = [];
+  for (var ei = 0; ei < employees.length; ei++) {
+    var empRow = employees[ei];
+    var lookupKey = (String(empRow.last_name || "") + "|" + String(empRow.first_name || "")).toLowerCase();
+    var existingId = empLookup[lookupKey];
+
+    if (existingId) {
+      // PATCH the existing row so department / hire_date / is_active
+      // propagate from the sheet.
+      var patchResp = UrlFetchApp.fetch(
+        SUPABASE_URL + "/rest/v1/employees?id=eq." + existingId,
+        {
+          method: "patch",
+          headers: {
+            "apikey": SUPABASE_KEY,
+            "Authorization": "Bearer " + SUPABASE_KEY,
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal",
+          },
+          payload: JSON.stringify({
+            department: empRow.department,
+            hire_date: empRow.hire_date,
+            is_active: empRow.is_active,
+          }),
+          muteHttpExceptions: true,
+        }
+      );
+      if (patchResp.getResponseCode() >= 200 && patchResp.getResponseCode() < 300) {
+        empUpdated++;
+      } else {
+        empErrors++;
+        Logger.log("PATCH failed (" + patchResp.getResponseCode() + "): " + patchResp.getContentText());
+      }
+    } else {
+      toInsert.push(empRow);
+    }
+  }
+
+  // Batch INSERT new employees
+  var INS_BATCH = 100;
+  for (var bi = 0; bi < toInsert.length; bi += INS_BATCH) {
+    var batch = toInsert.slice(bi, bi + INS_BATCH);
+    var insResp = supabasePost(
+      "/rest/v1/employees",
+      batch,
+      { "Prefer": "return=representation" }
     );
-    if (er.getResponseCode() >= 200 && er.getResponseCode() < 300) {
+    if (insResp.getResponseCode() >= 200 && insResp.getResponseCode() < 300) {
       try {
-        var returned = JSON.parse(er.getContentText());
+        var returned = JSON.parse(insResp.getContentText());
         for (var ri = 0; ri < returned.length; ri++) {
           var rk = (String(returned[ri].last_name || "") + "|" + String(returned[ri].first_name || "")).toLowerCase();
           empLookup[rk] = returned[ri].id;
@@ -477,27 +536,10 @@ function pushMergedToSupabase() {
         empInserted += returned.length;
       } catch (_) {}
     } else {
-      empErrors += eb.length;
-      Logger.log("Employee upsert failed (" + er.getResponseCode() + "): " + er.getContentText());
+      empErrors += batch.length;
+      Logger.log("Employee insert failed (" + insResp.getResponseCode() + "): " + insResp.getContentText());
     }
     Utilities.sleep(100);
-  }
-
-  // If the upsert didn't return all rows (e.g. Prefer header got stripped),
-  // fall back to a paginated fetch to fill in any missing IDs.
-  if (Object.keys(empLookup).length < employees.length) {
-    var offset = 0;
-    while (true) {
-      var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name&limit=1000&offset=" + offset);
-      var empList = JSON.parse(empResp.getContentText());
-      if (empList.length === 0) break;
-      for (var el = 0; el < empList.length; el++) {
-        var key2 = (String(empList[el].last_name || "") + "|" + String(empList[el].first_name || "")).toLowerCase();
-        if (!empLookup[key2]) empLookup[key2] = empList[el].id;
-      }
-      offset += empList.length;
-      if (empList.length < 1000) break;
-    }
   }
 
   // ─── Step 3: Wipe existing training_records and excusals ───
@@ -576,8 +618,8 @@ function pushMergedToSupabase() {
 
   // ─── Step 6: Report ───
   var msg = "Push Complete!\n\n" +
-    "Employees upserted: " + empInserted + " of " + employees.length;
-  if (empErrors > 0) msg += "  (" + empErrors + " failed)";
+    "Employees: " + empInserted + " inserted, " + empUpdated + " updated  (of " + employees.length + ")";
+  if (empErrors > 0) msg += "   [" + empErrors + " failed]";
   msg += "\n" +
     "Training records: " + recInserted + " of " + records.length +
     "   [skipped: " + skippedNoEmp + " no-emp, " + skippedNoTT + " no-tt]\n" +
@@ -653,6 +695,41 @@ function findColPartial_(headers, partial) {
     if (String(headers[i]).trim().toLowerCase().indexOf(lower) >= 0) return i;
   }
   return -1;
+}
+
+// ────────────────────────────────────────────────────────────
+// Levenshtein edit distance — used for fuzzy typo matching in
+// pushTrainingRecordsToSupabase. Caps at maxDist so we can short-
+// circuit expensive comparisons.
+// ────────────────────────────────────────────────────────────
+
+function levenshtein_(a, b, maxDist) {
+  a = String(a || "");
+  b = String(b || "");
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  if (Math.abs(a.length - b.length) > maxDist) return maxDist + 1;
+
+  var prev = new Array(b.length + 1);
+  var cur = new Array(b.length + 1);
+  for (var j = 0; j <= b.length; j++) prev[j] = j;
+  for (var i = 1; i <= a.length; i++) {
+    cur[0] = i;
+    var rowMin = i;
+    for (var j2 = 1; j2 <= b.length; j2++) {
+      var cost = a.charAt(i - 1) === b.charAt(j2 - 1) ? 0 : 1;
+      cur[j2] = Math.min(
+        cur[j2 - 1] + 1,      // insert
+        prev[j2] + 1,         // delete
+        prev[j2 - 1] + cost   // substitute
+      );
+      if (cur[j2] < rowMin) rowMin = cur[j2];
+    }
+    if (rowMin > maxDist) return maxDist + 1;
+    var tmp = prev; prev = cur; cur = tmp;
+  }
+  return prev[b.length];
 }
 
 // ────────────────────────────────────────────────────────────
@@ -932,6 +1009,7 @@ function pushTrainingRecordsToSupabase() {
   //      single-match-by-first-name fallback
   var empLookup = {};
   var firstNameIndex = {};
+  var allEmployees = []; // normalized list for fuzzy fallback
   var offset = 0;
   while (true) {
     var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name&limit=1000&offset=" + offset);
@@ -944,6 +1022,8 @@ function pushTrainingRecordsToSupabase() {
 
       var lastK = normKey_(rawLast);
       var firstK = normKey_(rawFirst);
+
+      allEmployees.push({ id: empList[el].id, lastK: lastK, firstK: firstK });
 
       function addEmpKey_(last, first) {
         if (!last || !first) return;
@@ -1018,6 +1098,68 @@ function pushTrainingRecordsToSupabase() {
     return null;
   }
 
+  // Fuzzy typo fallback: look for the single closest employee
+  // within Levenshtein edit distance 2. Used only as a last resort
+  // because a bad fuzzy match would silently attach attendance to
+  // the wrong person.
+  //
+  // Rules:
+  //   - last-name distance ≤ 2  AND
+  //   - first-name distance ≤ 2 (after nickname expansion) AND
+  //   - combined distance ≤ 3                                AND
+  //   - exactly one employee has the minimum score (no ambiguity)
+  //   - AND that score is strictly lower than the runner-up
+  function fuzzyLookup_(lastGuess, firstGuess) {
+    var lastN = normKey_(lastGuess);
+    var firstN = normKey_(firstGuess);
+    if (!lastN || !firstN) return null;
+
+    var firstVariants = expandFirstName_(firstN);
+    firstVariants.push(firstN);
+
+    var MAX_EACH = 2;
+    var MAX_TOTAL = 3;
+
+    var best = null;
+    var bestScore = 999;
+    var runnerUp = 999;
+
+    for (var ei = 0; ei < allEmployees.length; ei++) {
+      var emp = allEmployees[ei];
+      // Quick reject on very different lengths
+      if (Math.abs(emp.lastK.length - lastN.length) > MAX_EACH) continue;
+
+      var lastDist = levenshtein_(emp.lastK, lastN, MAX_EACH);
+      if (lastDist > MAX_EACH) continue;
+
+      // Try each first-name variant, keep the smallest distance
+      var firstDist = MAX_EACH + 1;
+      for (var fvi = 0; fvi < firstVariants.length; fvi++) {
+        var fv = firstVariants[fvi];
+        if (Math.abs(emp.firstK.length - fv.length) > MAX_EACH) continue;
+        var d = levenshtein_(emp.firstK, fv, MAX_EACH);
+        if (d < firstDist) firstDist = d;
+        if (firstDist === 0) break;
+      }
+      if (firstDist > MAX_EACH) continue;
+
+      var total = lastDist + firstDist;
+      if (total > MAX_TOTAL) continue;
+
+      if (total < bestScore) {
+        runnerUp = bestScore;
+        bestScore = total;
+        best = emp;
+      } else if (total < runnerUp) {
+        runnerUp = total;
+      }
+    }
+
+    // Require a clear winner: best must beat runner-up by at least 1.
+    if (best && bestScore < runnerUp) return best.id;
+    return null;
+  }
+
   function resolveEmployeeId_(attendee) {
     if (!attendee) return null;
     var trimmed = String(attendee).trim();
@@ -1089,6 +1231,27 @@ function pushTrainingRecordsToSupabase() {
       for (var b2i = 0; b2i < b2.length; b2i++) singleCandidates.push(b2[b2i]);
     }
     if (singleCandidates.length === 1) return singleCandidates[0].id;
+
+    // Case D: fuzzy typo fallback. Try every reasonable (last, first)
+    // split of the attendee name and keep the single closest match.
+    // Only used when everything else failed.
+    var fuzzyCandidates = [];
+    if (trimmed.indexOf(",") > -1) {
+      var fparts = trimmed.split(",");
+      fuzzyCandidates.push([fparts[0].trim(), fparts.slice(1).join(",").trim()]);
+    }
+    var fsp = trimmed.split(/\s+/);
+    if (fsp.length >= 2) {
+      fuzzyCandidates.push([fsp[fsp.length - 1], fsp.slice(0, fsp.length - 1).join(" ")]);
+      if (fsp.length >= 3) {
+        fuzzyCandidates.push([fsp.slice(fsp.length - 2).join(" "), fsp.slice(0, fsp.length - 2).join(" ")]);
+      }
+      fuzzyCandidates.push([fsp.slice(1).join(" "), fsp[0]]);
+    }
+    for (var fci = 0; fci < fuzzyCandidates.length; fci++) {
+      var fId = fuzzyLookup_(fuzzyCandidates[fci][0], fuzzyCandidates[fci][1]);
+      if (fId) return fId;
+    }
 
     return null;
   }
