@@ -14,6 +14,7 @@ const SUPABASE_URL = "https://xkfvipcxnzwyskknkmpj.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrZnZpcGN4bnp3eXNra25rbXBqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTY5NjU5MCwiZXhwIjoyMDkxMjcyNTkwfQ.VjmNtuLvrZoSEGiSLAcHHBBsbx-I72jSH5eIoOHejrk";
 
 const MERGED_SHEET = "Merged";
+const NAME_FIX_SHEET = "Attendee Name Fixes";
 
 const PAYLOCITY_MAP = {
   "cpr.fa": "CPR", "cpr/fa": "CPR", "cpr": "CPR", "cpr/first aid": "CPR",
@@ -654,6 +655,117 @@ function findColPartial_(headers, partial) {
   return -1;
 }
 
+// ────────────────────────────────────────────────────────────
+// Attendee Name Fixes helpers
+// ────────────────────────────────────────────────────────────
+// The "Attendee Name Fixes" sheet lets you manually map sheet
+// attendee names that the matcher couldn't resolve to a canonical
+// name the matcher can resolve.
+//
+// Columns:
+//   A: Sheet Name      — the attendee text from Training Records
+//   B: Canonical Name  — you fill this in with the correct name
+//   C: Count           — how many Training Records rows have this name
+//   D: Notes           — script writes status here ("matched" / "unresolved" / "")
+// ────────────────────────────────────────────────────────────
+
+function loadAttendeeNameFixes_(ss) {
+  var sheet = ss.getSheetByName(NAME_FIX_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return {};
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  var map = {};
+  for (var i = 0; i < rows.length; i++) {
+    var sheetName = String(rows[i][0] || "").trim();
+    var canonical = String(rows[i][1] || "").trim();
+    if (!sheetName || !canonical) continue;
+    map[sheetName.toLowerCase()] = canonical;
+  }
+  return map;
+}
+
+function writeUnmatchedAttendeesToFixSheet_(ss, unmatchedNames) {
+  var sheet = ss.getSheetByName(NAME_FIX_SHEET);
+  var existingRows = [];
+  var existingByLower = {};
+
+  if (sheet && sheet.getLastRow() >= 2) {
+    existingRows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues();
+    for (var i = 0; i < existingRows.length; i++) {
+      var k = String(existingRows[i][0] || "").trim().toLowerCase();
+      if (k) existingByLower[k] = i;
+    }
+  }
+
+  if (!sheet) {
+    sheet = ss.insertSheet(NAME_FIX_SHEET);
+  }
+
+  // Headers (recreate to be safe)
+  sheet.getRange(1, 1, 1, 4).setValues([[
+    "Sheet Name", "Canonical Name", "Count", "Notes"
+  ]]);
+  sheet.getRange(1, 1, 1, 4)
+    .setFontWeight("bold")
+    .setBackground("#1e3a5f")
+    .setFontColor("#ffffff");
+
+  // Merge: keep any existing Canonical Name entries, update counts, add new
+  var finalRows = [];
+  var processedKeys = {};
+
+  // 1) Existing rows: keep canonical + refreshed count
+  for (var er = 0; er < existingRows.length; er++) {
+    var name = String(existingRows[er][0] || "").trim();
+    if (!name) continue;
+    var lower = name.toLowerCase();
+    processedKeys[lower] = true;
+    var count = unmatchedNames[name] || 0;
+    var canonical = String(existingRows[er][1] || "").trim();
+    var notes = String(existingRows[er][3] || "");
+    if (count === 0 && !canonical) continue; // drop stale empty rows
+    finalRows.push([name, canonical, count, notes]);
+  }
+
+  // 2) New unmatched names
+  for (var nm in unmatchedNames) {
+    var lower2 = nm.toLowerCase();
+    if (processedKeys[lower2]) continue;
+    finalRows.push([nm, "", unmatchedNames[nm], ""]);
+  }
+
+  // Sort by count DESC, then name
+  finalRows.sort(function(a, b) {
+    if (b[2] !== a[2]) return b[2] - a[2];
+    return String(a[0]).localeCompare(String(b[0]));
+  });
+
+  // Clear old data area and write
+  if (sheet.getLastRow() > 1) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).clearContent().clearFormat();
+  }
+  if (finalRows.length > 0) {
+    sheet.getRange(2, 1, finalRows.length, 4).setValues(finalRows);
+    // Highlight rows with a filled Canonical Name in green
+    for (var fr = 0; fr < finalRows.length; fr++) {
+      if (String(finalRows[fr][1] || "").trim()) {
+        sheet.getRange(fr + 2, 2).setBackground("#d4edda");
+      }
+    }
+  }
+
+  sheet.setColumnWidth(1, 220);
+  sheet.setColumnWidth(2, 220);
+  sheet.setColumnWidth(3, 70);
+  sheet.setColumnWidth(4, 200);
+  sheet.setFrozenRows(1);
+
+  return finalRows.length;
+}
+
+// ────────────────────────────────────────────────────────────
+// Supabase HTTP helpers
+// ────────────────────────────────────────────────────────────
+
 function supabaseGet(path) {
   return UrlFetchApp.fetch(SUPABASE_URL + path, {
     method: "get",
@@ -716,6 +828,9 @@ function pushTrainingRecordsToSupabase() {
 
   var data = sheet.getDataRange().getValues();
   if (data.length < 2) { ui.alert("Training Records sheet is empty"); return; }
+
+  // Manual name fix map — lowercase sheet name → canonical name
+  var nameFixMap = loadAttendeeNameFixes_(ss);
 
   // Column layout (from Core.gs doPost):
   //   A(0) Arrival Time | B(1) Session | C(2) Attendee | D(3) Date
@@ -908,6 +1023,14 @@ function pushTrainingRecordsToSupabase() {
     var trimmed = String(attendee).trim();
     if (!trimmed) return null;
 
+    // Case 0: manual override from the "Attendee Name Fixes" sheet.
+    // If the user has mapped this sheet name to a canonical name, try
+    // the canonical name through the rest of the matcher.
+    var fix = nameFixMap[trimmed.toLowerCase()];
+    if (fix) {
+      trimmed = String(fix).trim();
+    }
+
     // Case A: "Last, First" (canonical form from the sheet)
     if (trimmed.indexOf(",") > -1) {
       var parts = trimmed.split(",");
@@ -1056,6 +1179,18 @@ function pushTrainingRecordsToSupabase() {
     Utilities.sleep(100);
   }
 
+  // Write unmatched attendees to the Attendee Name Fixes sheet so
+  // the user can map them manually. Preserves any canonical names
+  // they've already filled in from a previous run.
+  var fixCount = 0;
+  if (Object.keys(unmatchedNames).length > 0) {
+    try {
+      fixCount = writeUnmatchedAttendeesToFixSheet_(ss, unmatchedNames);
+    } catch (fixErr) {
+      Logger.log("Could not write name fix sheet: " + fixErr.toString());
+    }
+  }
+
   // Build detailed report
   var msg = "Training Records Push Complete!\n\n" +
     "Rows in sheet: " + (data.length - 1) + "\n" +
@@ -1069,19 +1204,16 @@ function pushTrainingRecordsToSupabase() {
     msg += "\n\n⚠ " + failedBatches + " batch(es) (" + failedRows + " rows) failed on insert — check View → Logs.";
   }
 
-  // Show up to 15 unmatched names (with their row count)
-  var nameEntries = [];
-  for (var nm in unmatchedNames) nameEntries.push({ name: nm, count: unmatchedNames[nm] });
-  nameEntries.sort(function(a, b) { return b.count - a.count; });
-  if (nameEntries.length > 0) {
-    msg += "\n\nUnmatched attendee names (top " + Math.min(15, nameEntries.length) + "):";
-    for (var nn = 0; nn < Math.min(15, nameEntries.length); nn++) {
-      msg += "\n  " + nameEntries[nn].name + " (" + nameEntries[nn].count + ")";
-    }
-    if (nameEntries.length > 15) msg += "\n  ...and " + (nameEntries.length - 15) + " more";
+  if (fixCount > 0) {
+    msg += "\n\n" + fixCount + " unmatched attendee name(s) written to the '" +
+      NAME_FIX_SHEET + "' sheet.\n" +
+      "Fill in column B (Canonical Name) with the correct name " +
+      "('Last, First' matching an employee on the Training sheet), then " +
+      "re-run this push to match them.";
   }
 
-  // Show all unmatched sessions
+  // Show all unmatched sessions (no fix sheet needed — add them as
+  // training_types in Supabase or add aliases there).
   var sessionEntries = [];
   for (var ss2 in unmatchedSessions) sessionEntries.push({ name: ss2, count: unmatchedSessions[ss2] });
   sessionEntries.sort(function(a, b) { return b.count - a.count; });
