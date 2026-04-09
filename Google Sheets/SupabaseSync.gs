@@ -114,12 +114,25 @@ function buildMergedSheet() {
   var trH = trData[0];
   var idCol = findCol_(trH, "ID");
   var lnCol = findCol_(trH, "L NAME");
+  if (lnCol < 0) lnCol = findCol_(trH, "Last Name");
   var fnCol = findCol_(trH, "F NAME");
+  if (fnCol < 0) fnCol = findCol_(trH, "First Name");
   var actCol = findCol_(trH, "ACTIVE");
   var divCol = findCol_(trH, "Division Description");
+  if (divCol < 0) divCol = findCol_(trH, "Division");
   var hireCol = findCol_(trH, "Hire Date");
 
-  if (lnCol < 0 || fnCol < 0) { ui.alert("L NAME / F NAME columns not found on Training sheet"); return; }
+  // Optional: Middle Name + Preferred Name (or Preferred/First Name).
+  // When present, the sync will auto-register aliases whenever the
+  // legal first name or middle name differs from the preferred name.
+  var midCol = findCol_(trH, "Middle Name");
+  if (midCol < 0) midCol = findCol_(trH, "Middle");
+  var prefCol = findCol_(trH, "Preferred/First Name");
+  if (prefCol < 0) prefCol = findCol_(trH, "Preferred Name");
+  if (prefCol < 0) prefCol = findCol_(trH, "Preferred First Name");
+  if (prefCol < 0) prefCol = findCol_(trH, "Preferred");
+
+  if (lnCol < 0 || fnCol < 0) { ui.alert("Last/First Name columns not found on Training sheet"); return; }
 
   // Map each header index to a training col key (case-insensitive partial match)
   var headerKey = [];
@@ -135,7 +148,12 @@ function buildMergedSheet() {
   for (var i = 1; i < trData.length; i++) {
     var row = trData[i];
     var ln = String(row[lnCol] || "").trim();
-    var fn = String(row[fnCol] || "").trim();
+    var legalFirst = String(row[fnCol] || "").trim();
+    var middle = midCol >= 0 ? String(row[midCol] || "").trim() : "";
+    var preferred = prefCol >= 0 ? String(row[prefCol] || "").trim() : "";
+
+    // Canonical first name = preferred name when provided, otherwise legal
+    var fn = preferred || legalFirst;
     if (!ln) continue;
 
     var active = actCol >= 0 ? String(row[actCol] || "").trim().toUpperCase() === "Y" : true;
@@ -147,6 +165,30 @@ function buildMergedSheet() {
       if (!isNaN(hDate.getTime())) hd = Utilities.formatDate(hDate, "America/New_York", "M/d/yyyy");
     }
 
+    // Build the alias list: every name variant the person might sign
+    // in as that differs from the canonical "{fn} {ln}".
+    var aliases = [];
+    function addAliasIfDiff_(candidate) {
+      var c = String(candidate || "").trim();
+      if (!c) return;
+      var full = c + " " + ln;
+      if (full.toLowerCase() === (fn + " " + ln).toLowerCase()) return;
+      for (var aa = 0; aa < aliases.length; aa++) {
+        if (aliases[aa].toLowerCase() === full.toLowerCase()) return;
+      }
+      aliases.push(full);
+    }
+    // Legal first name (when different from preferred)
+    if (legalFirst && legalFirst.toLowerCase() !== fn.toLowerCase()) addAliasIfDiff_(legalFirst);
+    // Middle name as a full-word alias (ignore single-letter initials)
+    if (middle && middle.length > 1 && !/^[a-z]\.?$/i.test(middle)) addAliasIfDiff_(middle);
+    // Quoted nicknames inside the legal first name, e.g. Michael "Mike"
+    var qMatch = legalFirst.match(/["'(]([^"')]+)["')]/);
+    if (qMatch && qMatch[1]) addAliasIfDiff_(qMatch[1]);
+    // Also the part BEFORE the quoted nickname, e.g. "Michael" from `Michael "Mike"`
+    var beforeQ = legalFirst.replace(/\s*["'(][^"')]+["')].*$/, "").trim();
+    if (beforeQ && beforeQ !== legalFirst) addAliasIfDiff_(beforeQ);
+
     var empKey = ln + "|" + fn;
     employees[empKey] = {
       last_name: ln,
@@ -155,6 +197,7 @@ function buildMergedSheet() {
       hire_date: hd,
       is_active: active,
       employee_number: empNum,
+      aliases: aliases,
     };
 
     if (!active) continue;
@@ -282,7 +325,7 @@ function buildMergedSheet() {
     merged = ss.insertSheet(MERGED_SHEET);
   }
 
-  var headerRow = ["ID", "L NAME", "F NAME", "ACTIVE", "Division", "Hire Date"].concat(MERGED_TRAINING_COLS);
+  var headerRow = ["ID", "L NAME", "F NAME", "ACTIVE", "Division", "Hire Date", "Aliases"].concat(MERGED_TRAINING_COLS);
   merged.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
   merged.getRange(1, 1, 1, headerRow.length).setFontWeight("bold").setBackground("#1e3a5f").setFontColor("#ffffff");
   merged.setFrozenRows(1);
@@ -301,6 +344,7 @@ function buildMergedSheet() {
       emp.is_active ? "Y" : "N",
       emp.department,
       emp.hire_date,
+      (emp.aliases || []).join("; "),
     ];
 
     for (var ti = 0; ti < MERGED_TRAINING_COLS.length; ti++) {
@@ -377,6 +421,7 @@ function pushMergedToSupabase() {
   var actC = findCol_(headers, "ACTIVE");
   var divC = findCol_(headers, "Division");
   var hireC = findCol_(headers, "Hire Date");
+  var aliasC = findCol_(headers, "Aliases");
 
   if (lnC < 0 || fnC < 0) { ui.alert("L NAME / F NAME columns not found"); return; }
 
@@ -385,7 +430,7 @@ function pushMergedToSupabase() {
   var unmatchedHeaders = [];
   for (var h = 0; h < headers.length; h++) {
     var hdr = String(headers[h] || "").trim();
-    if (!hdr || h === idC || h === lnC || h === fnC || h === actC || h === divC || h === hireC) continue;
+    if (!hdr || h === idC || h === lnC || h === fnC || h === actC || h === divC || h === hireC || h === aliasC) continue;
     var key = matchTrainingCol_(hdr);
     if (key) {
       colMap[key] = h;
@@ -433,6 +478,19 @@ function pushMergedToSupabase() {
       var hDate = tryParseDate_(String(row[hireC]));
       if (hDate) hd = Utilities.formatDate(hDate, "America/New_York", "yyyy-MM-dd");
     }
+    // Aliases are stored in the Merged tab as a semicolon-separated string.
+    // Parse back into an array for Supabase.
+    var aliasList = [];
+    if (aliasC >= 0) {
+      var rawAliases = String(row[aliasC] || "").trim();
+      if (rawAliases) {
+        var parts = rawAliases.split(/\s*;\s*/);
+        for (var api = 0; api < parts.length; api++) {
+          var pa = parts[api].trim();
+          if (pa) aliasList.push(pa);
+        }
+      }
+    }
 
     employees.push({
       last_name: ln,
@@ -441,6 +499,7 @@ function pushMergedToSupabase() {
       department: dept || null,
       hire_date: hd,
       employee_number: empNum || null,
+      aliases: aliasList,
     });
 
     if (!active) continue;
