@@ -5,23 +5,32 @@ export async function GET() {
     const supabase = createServerClient();
 
     // Query training_records joined with training_types and employees
-    const { data: records, error } = await supabase
-      .from("training_records")
-      .select(`
-        id, completion_date, source, pass_fail, reviewed_by, notes,
-        left_early, reason, arrival_time, end_time, session_length,
-        training_types ( name ),
-        employees ( first_name, last_name )
-      `)
-      .order("completion_date", { ascending: false });
+    // Paginate to bypass 1000-row default cap
+    const all: any[] = [];
+    const PAGE = 1000;
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await supabase
+        .from("training_records")
+        .select(`
+          id, completion_date, source, pass_fail, reviewed_by, notes,
+          left_early, reason, arrival_time, end_time, session_length,
+          training_types ( name ),
+          employees ( first_name, last_name )
+        `)
+        .order("completion_date", { ascending: false })
+        .range(offset, offset + PAGE - 1);
 
-    if (error) throw new Error(`Failed to load training records: ${error.message}`);
+      if (error) throw new Error(`Failed to load training records: ${error.message}`);
+      if (!data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+    }
 
-    if (!records || records.length === 0) {
+    if (all.length === 0) {
       return Response.json({ records: [], pendingCount: 0, passCount: 0, failCount: 0 });
     }
 
-    const mapped = records.map((rec: any, i: number) => {
+    const mapped = all.map((rec: any) => {
       const attendee = rec.employees
         ? `${rec.employees.first_name} ${rec.employees.last_name}`.trim()
         : "";
@@ -29,7 +38,7 @@ export async function GET() {
       const passFail = rec.pass_fail || "";
 
       return {
-        rowIndex: i + 2, // backward compat
+        id: rec.id,
         arrivalTime: rec.arrival_time || "",
         session,
         attendee,
@@ -58,11 +67,11 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { action, rowIndices, reviewedBy } = body;
+    const { action, ids, reviewedBy } = body;
 
-    if (!action || !rowIndices || !Array.isArray(rowIndices) || rowIndices.length === 0) {
+    if (!action || !ids || !Array.isArray(ids) || ids.length === 0) {
       return Response.json(
-        { error: "Missing required fields: action, rowIndices (array)" },
+        { error: "Missing required fields: action, ids (array of record UUIDs)" },
         { status: 400 }
       );
     }
@@ -84,35 +93,16 @@ export async function POST(request: Request) {
     const supabase = createServerClient();
     const value = action === "bulk_pass" ? "Pass" : "Fail";
 
-    // Get all records sorted by completion_date desc to map rowIndex to id
-    const { data: allRecords, error: fetchError } = await supabase
+    const { error: updateError } = await supabase
       .from("training_records")
-      .select("id")
-      .order("completion_date", { ascending: false });
+      .update({ pass_fail: value, reviewed_by: reviewedBy.trim() })
+      .in("id", ids);
 
-    if (fetchError) throw new Error(`Failed to fetch records: ${fetchError.message}`);
-
-    // Map rowIndices (2-based) to record ids
-    const idsToUpdate: string[] = [];
-    for (const rowIndex of rowIndices) {
-      const idx = rowIndex - 2; // rowIndex is 2-based
-      if (allRecords && idx >= 0 && idx < allRecords.length) {
-        idsToUpdate.push(allRecords[idx].id);
-      }
-    }
-
-    if (idsToUpdate.length > 0) {
-      const { error: updateError } = await supabase
-        .from("training_records")
-        .update({ pass_fail: value, reviewed_by: reviewedBy.trim() })
-        .in("id", idsToUpdate);
-
-      if (updateError) throw new Error(`Failed to update records: ${updateError.message}`);
-    }
+    if (updateError) throw new Error(`Failed to update records: ${updateError.message}`);
 
     return Response.json({
       success: true,
-      updated: idsToUpdate.length,
+      updated: ids.length,
       action: value,
     });
   } catch (error) {

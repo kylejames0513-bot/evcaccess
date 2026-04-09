@@ -6,7 +6,7 @@ import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 
 interface TrainingRecord {
-  rowIndex: number;
+  id: string;
   arrivalTime: string;
   session: string;
   attendee: string;
@@ -56,7 +56,7 @@ export default function RecordsPage() {
   const { data, loading, error } = useFetch<RecordsData>(`/api/training-records?r=${refreshKey}`);
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<FilterTab>("all");
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [reviewedBy, setReviewedBy] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -85,11 +85,11 @@ export default function RecordsPage() {
     return true;
   });
 
-  function toggleRow(rowIndex: number) {
+  function toggleRow(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(rowIndex)) next.delete(rowIndex);
-      else next.add(rowIndex);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
@@ -98,13 +98,13 @@ export default function RecordsPage() {
     if (selected.size === filtered.length && filtered.length > 0) {
       setSelected(new Set());
     } else {
-      setSelected(new Set(filtered.map((r) => r.rowIndex)));
+      setSelected(new Set(filtered.map((r) => r.id)));
     }
   }
 
   function selectAllPending() {
-    const pendingRows = records.filter(isPending).map((r) => r.rowIndex);
-    setSelected(new Set(pendingRows));
+    const pendingIds = records.filter(isPending).map((r) => r.id);
+    setSelected(new Set(pendingIds));
   }
 
   async function handleBulkAction(action: "bulk_pass" | "bulk_fail") {
@@ -116,7 +116,7 @@ export default function RecordsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action,
-          rowIndices: Array.from(selected),
+          ids: Array.from(selected),
           reviewedBy: reviewedBy.trim(),
         }),
       });
@@ -290,12 +290,12 @@ export default function RecordsPage() {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {filtered.map((r) => {
-                const isSelected = selected.has(r.rowIndex);
+                const isSelected = selected.has(r.id);
                 return (
                   <tr
-                    key={r.rowIndex}
+                    key={r.id}
                     className={`hover:bg-blue-50/30 cursor-pointer ${isSelected ? "bg-blue-50/50" : ""}`}
-                    onClick={() => toggleRow(r.rowIndex)}
+                    onClick={() => toggleRow(r.id)}
                   >
                     <td className="px-5 py-3">
                       {isSelected ? (

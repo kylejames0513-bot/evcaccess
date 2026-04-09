@@ -7,7 +7,8 @@ export async function GET() {
     const { data: employees, error } = await supabase
       .from("employees")
       .select("department")
-      .eq("is_active", true);
+      .eq("is_active", true)
+      .limit(10000);
 
     if (error) throw new Error(`Failed to load employees: ${error.message}`);
 

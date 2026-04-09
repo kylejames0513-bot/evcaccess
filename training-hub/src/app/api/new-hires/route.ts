@@ -1,6 +1,22 @@
 import { createServerClient } from "@/lib/supabase";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 
+async function fetchAllPaged<T>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  buildQuery: () => { range: (from: number, to: number) => any },
+  pageSize = 1000
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await buildQuery().range(offset, offset + pageSize - 1);
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) break;
+    out.push(...(data as T[]));
+    if (data.length < pageSize) break;
+  }
+  return out;
+}
+
 export async function GET() {
   try {
     const supabase = createServerClient();
@@ -12,7 +28,8 @@ export async function GET() {
     const { data: employees, error } = await supabase
       .from("employees")
       .select("id, first_name, last_name, department, hire_date")
-      .eq("is_active", true);
+      .eq("is_active", true)
+      .limit(10000);
 
     if (error) throw new Error(`Failed to load employees: ${error.message}`);
     if (!employees || employees.length === 0) return Response.json({ newHires: [] });
@@ -36,42 +53,36 @@ export async function GET() {
       trainingCols.push({ key: def.columnKey, name: def.name });
     }
 
-    // Fetch training records and excusals for all active employees
-    const employeeIds = employees.map((e) => e.id);
-
-    const [recordsResult, excusalsResult] = await Promise.all([
-      supabase
-        .from("training_records")
-        .select("employee_id, training_type_id")
-        .in("employee_id", employeeIds),
-      supabase
-        .from("excusals")
-        .select("employee_id, training_type_id")
-        .in("employee_id", employeeIds),
+    // Fetch training records and excusals for all employees — paginated
+    const [records, excusals] = await Promise.all([
+      fetchAllPaged<{ employee_id: string; training_type_id: string }>(
+        () => supabase.from("training_records").select("employee_id, training_type_id")
+      ),
+      fetchAllPaged<{ employee_id: string; training_type_id: string }>(
+        () => supabase.from("excusals").select("employee_id, training_type_id")
+      ),
     ]);
 
-    // Build a set of "employee_id|training_type_id" for records and excusals
     const completedSet = new Set<string>();
-    for (const rec of recordsResult.data || []) {
+    for (const rec of records) {
       completedSet.add(`${rec.employee_id}|${rec.training_type_id}`);
     }
-    for (const exc of excusalsResult.data || []) {
+    for (const exc of excusals) {
       completedSet.add(`${exc.employee_id}|${exc.training_type_id}`);
     }
 
     const newHires: Array<{
       name: string;
+      employeeId: string;
       division: string;
       hireDate: string;
       daysEmployed: number;
-      row: number;
       totalTrainings: number;
       completedTrainings: number;
       missingTrainings: string[];
     }> = [];
 
-    for (let i = 0; i < employees.length; i++) {
-      const emp = employees[i];
+    for (const emp of employees) {
       const name = emp.first_name
         ? `${emp.last_name}, ${emp.first_name}`
         : emp.last_name;
@@ -111,10 +122,10 @@ export async function GET() {
           : "";
         newHires.push({
           name,
+          employeeId: emp.id,
           division,
           hireDate: formattedHireDate,
           daysEmployed,
-          row: i + 2, // backward compat row index
           totalTrainings: trainingCols.length,
           completedTrainings: completed,
           missingTrainings: missing,

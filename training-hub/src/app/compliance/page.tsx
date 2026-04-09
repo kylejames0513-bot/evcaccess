@@ -44,7 +44,7 @@ interface ComplianceData {
 
 interface ScheduleData {
   sessions: Array<{
-    rowIndex: number;
+    id: string;
     training: string;
     date: string;
     time: string;
@@ -471,7 +471,7 @@ function QuickEnrollPopup({
   employee: string;
   training: string;
   sessions: Array<{
-    rowIndex: number;
+    id: string;
     date: string;
     time: string;
     location: string;
@@ -489,14 +489,14 @@ function QuickEnrollPopup({
     s.enrolled.some((n) => namesMatch(n, employee))
   );
 
-  async function handleEnroll(sessionRowIndex: number) {
+  async function handleEnroll(sessionId: string) {
     setSaving(true);
     setError("");
     try {
       const res = await fetch("/api/enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionRowIndex, names: [employee] }),
+        body: JSON.stringify({ sessionId, names: [employee] }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -556,8 +556,8 @@ function QuickEnrollPopup({
 
                 return (
                   <button
-                    key={s.rowIndex}
-                    onClick={() => handleEnroll(s.rowIndex)}
+                    key={s.id}
+                    onClick={() => handleEnroll(s.id)}
                     disabled={saving}
                     className={`w-full flex items-center justify-between p-3 rounded-lg border transition-all text-left ${
                       isPast

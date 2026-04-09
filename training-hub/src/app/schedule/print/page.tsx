@@ -6,7 +6,7 @@ import { useFetch } from "@/lib/use-fetch";
 
 interface ScheduleData {
   sessions: Array<{
-    rowIndex: number;
+    id: string;
     training: string;
     date: string;
     sortDateMs: number;
@@ -130,7 +130,7 @@ export default function PrintSchedulePage() {
         ) : (
           <div className="space-y-10">
             {upcoming.map((session) => (
-              <div key={session.rowIndex} className="session-block">
+              <div key={session.id} className="session-block">
                 {/* Session header */}
                 <div className="border-b-2 border-slate-300 pb-2 mb-3">
                   <h2 className="text-lg font-bold text-slate-900">

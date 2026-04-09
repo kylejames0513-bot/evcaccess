@@ -11,7 +11,7 @@ import { TRAINING_DEFINITIONS, AUTO_FILL_RULES } from "@/config/trainings";
 
 // ── Types ──────────────────────────────────────────────────────────
 interface SessionData {
-  rowIndex: number;
+  id: string;
   training: string;
   date: string;
   time: string;
@@ -61,7 +61,7 @@ export default function AttendancePage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { data, loading, error } = useFetch<ScheduleData>(`/api/schedule?r=${refreshKey}`);
 
-  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [presentNames, setPresentNames] = useState<Set<string>>(new Set());
   const [processingNoShow, setProcessingNoShow] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
@@ -85,10 +85,10 @@ export default function AttendancePage() {
   const directInputRef = useRef<HTMLInputElement>(null);
 
   const sessions = (data?.sessions ?? []).filter((s) => s.status === "scheduled");
-  const selectedSession = sessions.find((s) => s.rowIndex === selectedRowIndex) ?? null;
+  const selectedSession = sessions.find((s) => s.id === selectedSessionId) ?? null;
 
-  function handleSelectSession(rowIndex: number | null) {
-    setSelectedRowIndex(rowIndex);
+  function handleSelectSession(id: string | null) {
+    setSelectedSessionId(id);
     setPresentNames(new Set());
     setCompleteMessage(null);
     setCompleteError(null);
@@ -110,7 +110,7 @@ export default function AttendancePage() {
       await fetch("/api/no-shows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionRowIndex: selectedSession.rowIndex, names: [name] }),
+        body: JSON.stringify({ sessionId: selectedSession.id, names: [name] }),
       });
       setRefreshKey((k) => k + 1);
     } catch {}
@@ -125,7 +125,7 @@ export default function AttendancePage() {
       const res = await fetch("/api/enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionRowIndex: selectedSession.rowIndex, names: [manualName.trim()] }),
+        body: JSON.stringify({ sessionId: selectedSession.id, names: [manualName.trim()] }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -170,7 +170,7 @@ export default function AttendancePage() {
       const archiveRes = await fetch("/api/archive-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionRowIndex: selectedSession.rowIndex }),
+        body: JSON.stringify({ sessionId: selectedSession.id }),
       });
       if (!archiveRes.ok) {
         const b = await archiveRes.json().catch(() => ({}));
@@ -188,7 +188,7 @@ export default function AttendancePage() {
           );
           if (targetDef) {
             const nextSess = (schedData.sessions || []).find(
-              (s: { status: string; training: string; enrolled: string[]; capacity: number }) =>
+              (s: { id: string; status: string; training: string; enrolled: string[]; capacity: number }) =>
                 s.status === "scheduled" &&
                 (s.training.toLowerCase() === targetDef.name.toLowerCase() ||
                   targetDef.aliases?.some((a) => a.toLowerCase() === s.training.toLowerCase())) &&
@@ -198,7 +198,7 @@ export default function AttendancePage() {
               const er = await fetch("/api/enroll", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ sessionRowIndex: nextSess.rowIndex, names: presentList }),
+                body: JSON.stringify({ sessionId: nextSess.id, names: presentList }),
               });
               if (er.ok) autoEnrolled = presentList.length;
             }
@@ -215,7 +215,7 @@ export default function AttendancePage() {
 
       setCompleteMessage(msg);
       setRefreshKey((k) => k + 1);
-      setSelectedRowIndex(null);
+      setSelectedSessionId(null);
       setPresentNames(new Set());
     } catch (err) {
       setCompleteError(err instanceof Error ? err.message : "Failed to complete session");
@@ -326,13 +326,13 @@ export default function AttendancePage() {
               <p className="text-sm text-slate-500">No scheduled sessions found.</p>
             ) : (
               <select
-                value={selectedRowIndex ?? ""}
-                onChange={(e) => handleSelectSession(e.target.value ? Number(e.target.value) : null)}
+                value={selectedSessionId ?? ""}
+                onChange={(e) => handleSelectSession(e.target.value || null)}
                 className="w-full max-w-xl px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">Choose a session…</option>
                 {sessions.map((s) => (
-                  <option key={s.rowIndex} value={s.rowIndex}>
+                  <option key={s.id} value={s.id}>
                     {s.training} — {formatDate(s.date)}{s.time ? ` at ${s.time}` : ""} ({s.enrolled.length}/{s.capacity})
                   </option>
                 ))}
