@@ -1,4 +1,4 @@
-import { listCompliance, getComplianceSummary } from "@/lib/db/compliance";
+import { listCompliance, getComplianceSummary, fixSharedColumnKeyCompliance } from "@/lib/db/compliance";
 import { classifyTier } from "@/lib/notifications/tiers";
 import type { NextRequest } from "next/server";
 
@@ -30,10 +30,13 @@ export async function GET(req: NextRequest) {
       employeeId: params.get("employee_id") ?? undefined,
     };
 
-    const [rows, summary] = await Promise.all([
+    const [rawRows, summary] = await Promise.all([
       listCompliance(filters),
       getComplianceSummary(),
     ]);
+
+    // Fix shared column_key types (e.g. Initial Med vs Med Recert)
+    const rows = await fixSharedColumnKeyCompliance(rawRows);
 
     // Decorate with the JS tier function so the UI gets the same overdue
     // counter the SQL view exposes plus the friendly tier label.

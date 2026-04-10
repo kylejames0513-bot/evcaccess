@@ -1,5 +1,5 @@
 import { listEmployees } from "@/lib/db/employees";
-import { listCompliance } from "@/lib/db/compliance";
+import { listCompliance, fixSharedColumnKeyCompliance } from "@/lib/db/compliance";
 import type { NextRequest } from "next/server";
 
 /**
@@ -29,7 +29,8 @@ export async function GET(req: NextRequest) {
     // For each employee, count their statuses from the compliance view.
     // One read per page is fine for HR dashboards. If this becomes a hot
     // path, fold it into a server-side aggregate.
-    const compliance = await listCompliance();
+    const rawCompliance = await listCompliance();
+    const compliance = await fixSharedColumnKeyCompliance(rawCompliance);
     const byEmployee = new Map<string, { current: number; expired: number; expiring: number; needed: number; excused: number }>();
     for (const row of compliance) {
       if (!row.employee_id) continue;

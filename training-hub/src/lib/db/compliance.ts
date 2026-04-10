@@ -18,6 +18,158 @@ function db(): DbClient {
   return createServerClient();
 }
 
+// ────────────────────────────────────────────────────────────
+// Shared column_key fix: Initial Med Training vs Med Recert
+// ────────────────────────────────────────────────────────────
+// Training types that share a column_key (e.g. Initial Med Training
+// and Med Recert both use MED_TRAIN) need special handling:
+//   1. A completion under Initial Med (id=5) should satisfy a
+//      Med Recert (id=4) requirement
+//   2. If no completion at all → show "Initial Med Training" (needed)
+//   3. If completion exists → show "Med Recert" with renewal cycle
+//
+// The compliance view only checks exact training_type_id matches,
+// so we fix this in post-processing.
+// ────────────────────────────────────────────────────────────
+
+interface ColumnKeyGroup {
+  columnKey: string;
+  types: { id: number; name: string; renewalYears: number }[];
+}
+
+let _columnKeyGroups: ColumnKeyGroup[] | null = null;
+
+async function getSharedColumnKeyGroups(): Promise<ColumnKeyGroup[]> {
+  if (_columnKeyGroups) return _columnKeyGroups;
+  const { data, error } = await db()
+    .from("training_types")
+    .select("id, name, column_key, renewal_years")
+    .eq("is_active", true);
+  if (error) throw error;
+
+  // Find column_keys shared by multiple active training types
+  const byKey = new Map<string, { id: number; name: string; renewalYears: number }[]>();
+  for (const tt of data ?? []) {
+    const key = tt.column_key;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push({ id: tt.id, name: tt.name, renewalYears: tt.renewal_years });
+  }
+
+  _columnKeyGroups = [];
+  for (const [columnKey, types] of byKey) {
+    if (types.length > 1) _columnKeyGroups.push({ columnKey, types });
+  }
+  return _columnKeyGroups;
+}
+
+/**
+ * Post-process compliance rows for training types that share a column_key.
+ * For "needed" rows, checks if the employee has a completion under a sibling
+ * type. If so, recomputes status using the required type's renewal_years.
+ * If not, relabels to the initial (renewal_years=0) type name.
+ */
+export async function fixSharedColumnKeyCompliance(
+  rows: EmployeeCompliance[]
+): Promise<EmployeeCompliance[]> {
+  const groups = await getSharedColumnKeyGroups();
+  if (groups.length === 0) return rows;
+
+  // Build a set of training_type_ids that have siblings
+  const siblingMap = new Map<number, ColumnKeyGroup>();
+  for (const g of groups) {
+    for (const t of g.types) siblingMap.set(t.id, g);
+  }
+
+  // Find rows that might need fixing: status=needed for a shared-key type
+  const needsFix = rows.filter(
+    (r) => r.status === "needed" && r.training_type_id != null && siblingMap.has(r.training_type_id)
+  );
+  if (needsFix.length === 0) return rows;
+
+  // Batch-fetch completions for these employees across sibling types
+  const employeeIds = [...new Set(needsFix.map((r) => r.employee_id).filter((id): id is string => id != null))];
+  const siblingTypeIds = [...new Set(
+    needsFix.flatMap((r) => {
+      const g = r.training_type_id != null ? siblingMap.get(r.training_type_id) : undefined;
+      return g ? g.types.map((t) => t.id) : [];
+    })
+  )];
+
+  const { data: records, error } = await db()
+    .from("training_records")
+    .select("employee_id, training_type_id, completion_date, expiration_date")
+    .in("employee_id", employeeIds)
+    .in("training_type_id", siblingTypeIds)
+    .order("completion_date", { ascending: false });
+  if (error) throw error;
+
+  // Index: employee_id → latest completion across sibling types (by column_key)
+  const latestByEmpKey = new Map<string, { completion_date: string; expiration_date: string | null }>();
+  for (const rec of records ?? []) {
+    const group = siblingMap.get(rec.training_type_id);
+    if (!group) continue;
+    const key = `${rec.employee_id}|${group.columnKey}`;
+    if (!latestByEmpKey.has(key)) {
+      latestByEmpKey.set(key, {
+        completion_date: rec.completion_date,
+        expiration_date: rec.expiration_date,
+      });
+    }
+  }
+
+  // Now fix the rows
+  const today = new Date().toISOString().slice(0, 10);
+  return rows.map((row) => {
+    if (row.status !== "needed" || row.training_type_id == null || !siblingMap.has(row.training_type_id)) return row;
+
+    const group = siblingMap.get(row.training_type_id)!;
+    const key = `${row.employee_id}|${group.columnKey}`;
+    const latest = latestByEmpKey.get(key);
+
+    if (!latest) {
+      // No completion at all → relabel to the initial type name
+      const initialType = group.types.find((t) => t.renewalYears === 0);
+      if (initialType && initialType.id !== row.training_type_id) {
+        return { ...row, training_name: initialType.name };
+      }
+      return row;
+    }
+
+    // Has a completion under a sibling type → recompute status
+    const reqType = group.types.find((t) => t.id === row.training_type_id);
+    const renewalYears = reqType?.renewalYears ?? 0;
+
+    let newExpiration: string | null = null;
+    let newStatus: ComplianceStatus = "current";
+
+    if (renewalYears > 0) {
+      const compDate = new Date(latest.completion_date);
+      compDate.setFullYear(compDate.getFullYear() + renewalYears);
+      newExpiration = compDate.toISOString().slice(0, 10);
+
+      if (newExpiration < today) {
+        newStatus = "expired";
+      } else {
+        const thirtyDays = new Date();
+        thirtyDays.setDate(thirtyDays.getDate() + 30);
+        if (newExpiration <= thirtyDays.toISOString().slice(0, 10)) {
+          newStatus = "expiring_soon";
+        } else {
+          newStatus = "current";
+        }
+      }
+    }
+
+    return {
+      ...row,
+      completion_date: latest.completion_date,
+      expiration_date: newExpiration,
+      status: newStatus,
+      training_name: reqType?.name ?? row.training_name,
+    };
+  });
+}
+
 export interface ComplianceFilters {
   department?: string;
   position?: string;

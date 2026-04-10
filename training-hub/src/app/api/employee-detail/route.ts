@@ -2,7 +2,7 @@ import { getEmployeeById, findEmployeeByName, findEmployeeCandidatesByName } fro
 import { getHistoryForEmployee } from "@/lib/db/history";
 import { getMasterCompletionsForEmployee } from "@/lib/db/completions";
 import { listExcusalsForEmployee } from "@/lib/db/excusals";
-import { listCompliance } from "@/lib/db/compliance";
+import { listCompliance, fixSharedColumnKeyCompliance } from "@/lib/db/compliance";
 import { listTrainingTypes, getTrainingTypeById } from "@/lib/db/trainings";
 import { createServerClient } from "@/lib/supabase";
 import type { NextRequest } from "next/server";
@@ -34,12 +34,13 @@ export async function GET(req: NextRequest) {
       if (!employee) {
         return Response.json({ error: `Employee ${id} not found` }, { status: 404 });
       }
-      const [history, master, excusals, compliance] = await Promise.all([
+      const [history, master, excusals, rawCompliance] = await Promise.all([
         getHistoryForEmployee(id),
         getMasterCompletionsForEmployee(id),
         listExcusalsForEmployee(id),
         employee.is_active ? listCompliance({ employeeId: id }) : Promise.resolve([]),
       ]);
+      const compliance = await fixSharedColumnKeyCompliance(rawCompliance);
       return Response.json({ employee, history, master_completions: master, excusals, compliance });
     }
 
