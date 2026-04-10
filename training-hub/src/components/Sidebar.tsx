@@ -7,7 +7,6 @@ import {
   CalendarPlus,
   Users,
   GraduationCap,
-  Archive,
   Settings,
   ClipboardCheck,
   UserCheck,
@@ -18,13 +17,18 @@ import {
   BarChart3,
   RefreshCw,
   Zap,
+  Upload,
+  ListChecks,
+  PenLine,
 } from "lucide-react";
 
 const mainNav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/schedule", label: "Schedule", icon: CalendarPlus },
-  { href: "/employees", label: "Employees", icon: Users },
   { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
+  { href: "/employees", label: "Employees", icon: Users },
+  { href: "/imports", label: "Imports", icon: Upload },
+  { href: "/review", label: "Review queue", icon: ListChecks },
+  { href: "/schedule", label: "Schedule", icon: CalendarPlus },
   { href: "/attendance", label: "Attendance", icon: UserCheck },
   { href: "/records", label: "Records", icon: FileText },
   { href: "/reports", label: "Reports", icon: BarChart3 },
@@ -36,7 +40,7 @@ const secondaryNav = [
   { href: "/trainings", label: "Training Types", icon: GraduationCap },
   { href: "/data-health", label: "Data Quality", icon: HeartPulse },
   { href: "/sync", label: "Sync", icon: RefreshCw },
-  { href: "/archive", label: "Archive", icon: Archive },
+  { href: "/signin", label: "Public sign in", icon: PenLine },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
