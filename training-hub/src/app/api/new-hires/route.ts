@@ -27,13 +27,15 @@ export async function GET() {
 
     // Active employees hired within the last 90 days (filtered server-side
     // so the result stays well under Supabase's default 1 000-row limit).
-    const { data: employees, error } = await db
+    // Cast needed: the `division` column exists in the live DB but is missing
+    // from the generated Supabase types (it was added outside migrations).
+    const { data: employees, error } = await (db
       .from("employees")
       .select("id, first_name, last_name, department, division, position, hire_date")
       .eq("is_active", true)
-      .gte("hire_date", cutoffStr);
-    if (error) throw error;
-    const empRows = (employees ?? []) as EmployeeRow[];
+      .gte("hire_date", cutoffStr) as unknown as Promise<{ data: EmployeeRow[] | null; error: { message: string } | null }>);
+    if (error) throw new Error(error.message);
+    const empRows = employees ?? [];
     if (empRows.length === 0) {
       return Response.json({ newHires: [] });
     }
