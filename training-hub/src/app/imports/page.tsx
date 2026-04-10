@@ -37,10 +37,34 @@ interface PreviewSummary {
  * The parsed rows are POSTed to /api/imports which runs the resolver
  * and stores a preview row.
  */
+function ProgressBar({ label }: { label: string }) {
+  return (
+    <div className="my-4">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-sm font-medium text-slate-700">{label}</span>
+      </div>
+      <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+        <div
+          className="bg-blue-600 h-2 rounded-full animate-[progress_1.5s_ease-in-out_infinite]"
+          style={{ width: "60%" }}
+        />
+      </div>
+      <style>{`
+        @keyframes progress {
+          0% { transform: translateX(-100%); width: 40%; }
+          50% { transform: translateX(60%); width: 60%; }
+          100% { transform: translateX(200%); width: 40%; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 export default function ImportsPage() {
   const [source, setSource] = useState<Source>("paylocity");
   const [parsedRows, setParsedRows] = useState<Record<string, unknown>[]>([]);
   const [filename, setFilename] = useState<string>("");
+  const [parsing, setParsing] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [previewSummary, setPreviewSummary] = useState<PreviewSummary | null>(null);
@@ -66,7 +90,9 @@ export default function ImportsPage() {
     setError(null);
     setPreviewId(null);
     setPreviewSummary(null);
+    setParsedRows([]);
     setFilename(file.name);
+    setParsing(true);
     try {
       const xlsx = await import("xlsx");
       const buf = await file.arrayBuffer();
@@ -75,9 +101,6 @@ export default function ImportsPage() {
       const rows = xlsx.utils.sheet_to_json<Record<string, unknown>>(sheet, {
         defval: null,
       });
-      // Normalize for the signin source: the in-app form uses
-      // attendeeName/trainingSession but legacy CSV exports may have
-      // "Attendee Name" / "Training Session" headers.
       if (source === "signin") {
         for (const row of rows) {
           if (row["Attendee Name"] && !row.attendeeName) row.attendeeName = row["Attendee Name"];
@@ -88,6 +111,8 @@ export default function ImportsPage() {
       setParsedRows(rows);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to parse file");
+    } finally {
+      setParsing(false);
     }
   }
 
@@ -185,6 +210,10 @@ export default function ImportsPage() {
             {previewing ? "Resolving..." : `Preview ${parsedRows.length} rows`}
           </button>
         </div>
+
+        {parsing && <ProgressBar label={`Parsing ${filename}...`} />}
+        {previewing && <ProgressBar label={`Resolving ${parsedRows.length} rows — matching employees and trainings...`} />}
+        {committing && <ProgressBar label="Committing to database..." />}
 
         {error && <div className="bg-red-50 text-red-700 border border-red-200 rounded-lg p-3 text-sm mb-2">{error}</div>}
 
