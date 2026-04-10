@@ -94,7 +94,7 @@ export default function CompliancePage() {
       lines.push(
         header
           .map((k) => {
-            const v = (r as Record<string, unknown>)[k];
+            const v = (r as unknown as Record<string, unknown>)[k];
             if (v == null) return "";
             const s = String(v);
             return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;

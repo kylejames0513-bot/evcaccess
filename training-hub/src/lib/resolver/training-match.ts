@@ -78,7 +78,10 @@ export async function matchTraining(
 ): Promise<TrainingMatchOutcome> {
   const pre = preprocess(source, rawName);
   if (pre == null) return { kind: "unknown", rawName };
-  if (typeof pre === "object" && pre.skip) return { kind: "skip", reason: "non_training" };
+  if (typeof pre === "object") {
+    return { kind: "skip", reason: "non_training" };
+  }
+  // Narrowed: pre is a string from here on.
 
   // Access goes via column_key first.
   if (source === "access") {

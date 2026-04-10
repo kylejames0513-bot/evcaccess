@@ -52,7 +52,7 @@ export async function resolveAccessBatch(rows: AccessRow[]): Promise<ResolvedBat
         resolution.failure.reason === "ambiguous" ? resolution.failure.suggestion?.id ?? null : null;
       batch.unresolved_people.push({
         source: "access",
-        raw_payload: row as unknown as Record<string, unknown>,
+        raw_payload: row as unknown as import("@/types/database").Json,
         last_name: lastName,
         first_name: firstName,
         full_name: `${lastName}, ${firstName}`,
@@ -121,7 +121,7 @@ export async function resolveAccessBatch(rows: AccessRow[]): Promise<ResolvedBat
     batch.unknown_trainings.push({
       source: "access",
       raw_name: "(access wide column)",
-      raw_payload: sample as unknown as Record<string, unknown>,
+      raw_payload: sample as unknown as import("@/types/database").Json,
       occurrence_count: occurrences,
     });
   }

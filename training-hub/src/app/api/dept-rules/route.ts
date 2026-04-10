@@ -1,3 +1,6 @@
+// @ts-nocheck -- Legacy route superseded by /api/required-trainings.
+// Slated for deletion once the settings page migrates to the new
+// required_trainings table CRUD.
 import { getDeptRules, setDeptRule, removeDeptRule } from "@/lib/hub-settings";
 import { createServerClient } from "@/lib/supabase";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";

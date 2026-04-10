@@ -44,7 +44,7 @@ export async function resolvePhsBatch(rows: PhsRow[]): Promise<ResolvedBatch> {
       const parsed = parseName(row["Employee Name"] ?? "");
       batch.unresolved_people.push({
         source: "phs",
-        raw_payload: row as unknown as Record<string, unknown>,
+        raw_payload: row as unknown as import("@/types/database").Json,
         last_name: parsed?.last ?? null,
         first_name: parsed?.first ?? null,
         full_name: row["Employee Name"] ?? null,
@@ -86,7 +86,7 @@ export async function resolvePhsBatch(rows: PhsRow[]): Promise<ResolvedBatch> {
         resolution.failure.reason === "ambiguous" ? resolution.failure.suggestion?.id ?? null : null;
       batch.unresolved_people.push({
         source: "phs",
-        raw_payload: row as unknown as Record<string, unknown>,
+        raw_payload: row as unknown as import("@/types/database").Json,
         last_name: parsed?.last ?? null,
         first_name: parsed?.first ?? null,
         full_name: fullName || null,
@@ -102,7 +102,7 @@ export async function resolvePhsBatch(rows: PhsRow[]): Promise<ResolvedBatch> {
     if (!completionDate) {
       batch.unresolved_people.push({
         source: "phs",
-        raw_payload: row as unknown as Record<string, unknown>,
+        raw_payload: row as unknown as import("@/types/database").Json,
         last_name: parsed?.last ?? null,
         first_name: parsed?.first ?? null,
         full_name: fullName || null,
@@ -129,7 +129,7 @@ export async function resolvePhsBatch(rows: PhsRow[]): Promise<ResolvedBatch> {
     batch.unknown_trainings.push({
       source: "phs",
       raw_name: dec && "name" in dec ? dec.name : `${sample["Upload Category"] ?? ""} | ${sample["Upload Type"] ?? ""}`,
-      raw_payload: sample as unknown as Record<string, unknown>,
+      raw_payload: sample as unknown as import("@/types/database").Json,
       occurrence_count: occurrences,
     });
   }

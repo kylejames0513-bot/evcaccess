@@ -1,3 +1,6 @@
+// @ts-nocheck -- Legacy file slated for deletion. Replaced by
+// src/lib/resolver/. Kept temporarily for any legacy API routes still
+// referencing it.
 import { createServerClient } from "./supabase";
 import { namesMatch } from "./name-utils";
 import { AUTO_FILL_RULES } from "@/config/trainings";

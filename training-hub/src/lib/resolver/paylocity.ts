@@ -97,7 +97,7 @@ export async function resolvePaylocityBatch(rows: PaylocityRow[]): Promise<Resol
         resolution.failure.reason === "ambiguous" ? resolution.failure.suggestion?.id ?? null : null;
       batch.unresolved_people.push({
         source: "paylocity",
-        raw_payload: row as unknown as Record<string, unknown>,
+        raw_payload: row as unknown as import("@/types/database").Json,
         last_name: lastName || null,
         first_name: firstName || null,
         full_name: lastName && firstName ? `${lastName}, ${firstName}` : null,
@@ -114,7 +114,7 @@ export async function resolvePaylocityBatch(rows: PaylocityRow[]): Promise<Resol
       // No usable date is a special kind of unresolved.
       batch.unresolved_people.push({
         source: "paylocity",
-        raw_payload: row as unknown as Record<string, unknown>,
+        raw_payload: row as unknown as import("@/types/database").Json,
         last_name: lastName || null,
         first_name: firstName || null,
         full_name: lastName && firstName ? `${lastName}, ${firstName}` : null,
@@ -141,7 +141,7 @@ export async function resolvePaylocityBatch(rows: PaylocityRow[]): Promise<Resol
     batch.unknown_trainings.push({
       source: "paylocity",
       raw_name: paylocityRawName(sample.Skill, sample.Code),
-      raw_payload: sample as unknown as Record<string, unknown>,
+      raw_payload: sample as unknown as import("@/types/database").Json,
       occurrence_count: occurrences,
     });
   }

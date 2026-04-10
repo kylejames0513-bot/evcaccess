@@ -61,7 +61,7 @@ export async function resolveSigninBatch(rows: SigninRow[]): Promise<ResolvedBat
         resolution.failure.reason === "ambiguous" ? resolution.failure.suggestion?.id ?? null : null;
       batch.unresolved_people.push({
         source: "signin",
-        raw_payload: row as unknown as Record<string, unknown>,
+        raw_payload: row as unknown as import("@/types/database").Json,
         last_name: parsed?.last ?? null,
         first_name: parsed?.first ?? null,
         full_name: row.attendeeName,
@@ -76,7 +76,7 @@ export async function resolveSigninBatch(rows: SigninRow[]): Promise<ResolvedBat
     if (!completionDate) {
       batch.unresolved_people.push({
         source: "signin",
-        raw_payload: row as unknown as Record<string, unknown>,
+        raw_payload: row as unknown as import("@/types/database").Json,
         last_name: parsed?.last ?? null,
         first_name: parsed?.first ?? null,
         full_name: row.attendeeName,
@@ -104,7 +104,7 @@ export async function resolveSigninBatch(rows: SigninRow[]): Promise<ResolvedBat
     batch.unknown_trainings.push({
       source: "signin",
       raw_name: sample.trainingSession,
-      raw_payload: sample as unknown as Record<string, unknown>,
+      raw_payload: sample as unknown as import("@/types/database").Json,
       occurrence_count: occurrences,
     });
   }
