@@ -14,39 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      archived_sessions: {
-        Row: {
-          archived_on: string
-          enrolled: string[] | null
-          id: string
-          location: string | null
-          no_shows: string[] | null
-          session_date: string
-          time: string | null
-          training: string
-        }
-        Insert: {
-          archived_on?: string
-          enrolled?: string[] | null
-          id?: string
-          location?: string | null
-          no_shows?: string[] | null
-          session_date: string
-          time?: string | null
-          training: string
-        }
-        Update: {
-          archived_on?: string
-          enrolled?: string[] | null
-          id?: string
-          location?: string | null
-          no_shows?: string[] | null
-          session_date?: string
-          time?: string | null
-          training?: string
-        }
-        Relationships: []
-      }
       auto_fill_rules: {
         Row: {
           id: number
@@ -200,36 +167,7 @@ export type Database = {
           session_id?: string
           status?: Database["public"]["Enums"]["attendance_status"]
         }
-        Relationships: [
-          {
-            foreignKeyName: "enrollments_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "enrollments_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_history"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "enrollments_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "enrollments_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "training_sessions"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       excusals: {
         Row: {
@@ -256,43 +194,7 @@ export type Database = {
           source?: string
           training_type_id?: number
         }
-        Relationships: [
-          {
-            foreignKeyName: "excusals_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "excusals_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_history"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "excusals_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "excusals_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["training_type_id"]
-          },
-          {
-            foreignKeyName: "excusals_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "training_types"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       hub_settings: {
         Row: {
@@ -399,135 +301,6 @@ export type Database = {
         }
         Relationships: []
       }
-      notifications: {
-        Row: {
-          body: string | null
-          channel: string
-          employee_id: string | null
-          id: string
-          sent_at: string
-          subject: string
-          type: string
-        }
-        Insert: {
-          body?: string | null
-          channel?: string
-          employee_id?: string | null
-          id?: string
-          sent_at?: string
-          subject: string
-          type: string
-        }
-        Update: {
-          body?: string | null
-          channel?: string
-          employee_id?: string | null
-          id?: string
-          sent_at?: string
-          subject?: string
-          type?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "notifications_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "notifications_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_history"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "notifications_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      removal_log: {
-        Row: {
-          employee_id: string
-          id: string
-          reason: string | null
-          removed_at: string
-          removed_by: string | null
-          session_id: string
-        }
-        Insert: {
-          employee_id: string
-          id?: string
-          reason?: string | null
-          removed_at?: string
-          removed_by?: string | null
-          session_id: string
-        }
-        Update: {
-          employee_id?: string
-          id?: string
-          reason?: string | null
-          removed_at?: string
-          removed_by?: string | null
-          session_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "removal_log_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "removal_log_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_history"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "removal_log_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "removal_log_removed_by_fkey"
-            columns: ["removed_by"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "removal_log_removed_by_fkey"
-            columns: ["removed_by"]
-            isOneToOne: false
-            referencedRelation: "employee_history"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "removal_log_removed_by_fkey"
-            columns: ["removed_by"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "removal_log_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "training_sessions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       required_trainings: {
         Row: {
           created_at: string
@@ -562,22 +335,7 @@ export type Database = {
           training_type_id?: number
           updated_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "required_trainings_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["training_type_id"]
-          },
-          {
-            foreignKeyName: "required_trainings_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "training_types"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       training_aliases: {
         Row: {
@@ -598,22 +356,7 @@ export type Database = {
           source?: string
           training_type_id?: number
         }
-        Relationships: [
-          {
-            foreignKeyName: "training_aliases_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["training_type_id"]
-          },
-          {
-            foreignKeyName: "training_aliases_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "training_types"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       training_records: {
         Row: {
@@ -670,146 +413,7 @@ export type Database = {
           source?: string
           training_type_id?: number
         }
-        Relationships: [
-          {
-            foreignKeyName: "training_records_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "training_records_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_history"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "training_records_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "training_records_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "training_sessions"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "training_records_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["training_type_id"]
-          },
-          {
-            foreignKeyName: "training_records_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "training_types"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      training_rules: {
-        Row: {
-          created_at: string
-          department: string | null
-          excusal_code: string | null
-          id: number
-          is_required: boolean
-          job_title: string | null
-          program: string | null
-          training_type_id: number
-        }
-        Insert: {
-          created_at?: string
-          department?: string | null
-          excusal_code?: string | null
-          id?: number
-          is_required?: boolean
-          job_title?: string | null
-          program?: string | null
-          training_type_id: number
-        }
-        Update: {
-          created_at?: string
-          department?: string | null
-          excusal_code?: string | null
-          id?: number
-          is_required?: boolean
-          job_title?: string | null
-          program?: string | null
-          training_type_id?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "training_rules_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["training_type_id"]
-          },
-          {
-            foreignKeyName: "training_rules_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "training_types"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      training_schedules: {
-        Row: {
-          duration_minutes: number | null
-          id: number
-          location: string | null
-          nth_weeks: number[] | null
-          start_time: string | null
-          training_type_id: number
-          weekday: Database["public"]["Enums"]["schedule_weekday"]
-          weeks_out: number
-        }
-        Insert: {
-          duration_minutes?: number | null
-          id?: number
-          location?: string | null
-          nth_weeks?: number[] | null
-          start_time?: string | null
-          training_type_id: number
-          weekday: Database["public"]["Enums"]["schedule_weekday"]
-          weeks_out?: number
-        }
-        Update: {
-          duration_minutes?: number | null
-          id?: number
-          location?: string | null
-          nth_weeks?: number[] | null
-          start_time?: string | null
-          training_type_id?: number
-          weekday?: Database["public"]["Enums"]["schedule_weekday"]
-          weeks_out?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "training_schedules_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["training_type_id"]
-          },
-          {
-            foreignKeyName: "training_schedules_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "training_types"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       training_sessions: {
         Row: {
@@ -854,22 +458,7 @@ export type Database = {
           training_type_id?: number
           updated_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "training_sessions_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["training_type_id"]
-          },
-          {
-            foreignKeyName: "training_sessions_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "training_types"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       training_types: {
         Row: {
@@ -911,22 +500,7 @@ export type Database = {
           prerequisite_id?: number | null
           renewal_years?: number
         }
-        Relationships: [
-          {
-            foreignKeyName: "training_types_prerequisite_id_fkey"
-            columns: ["prerequisite_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["training_type_id"]
-          },
-          {
-            foreignKeyName: "training_types_prerequisite_id_fkey"
-            columns: ["prerequisite_id"]
-            isOneToOne: false
-            referencedRelation: "training_types"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       unknown_trainings: {
         Row: {
@@ -968,43 +542,7 @@ export type Database = {
           source?: string
           suggested_training_type_id?: number | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "unknown_trainings_import_id_fkey"
-            columns: ["import_id"]
-            isOneToOne: false
-            referencedRelation: "imports"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "unknown_trainings_resolved_to_training_type_id_fkey"
-            columns: ["resolved_to_training_type_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["training_type_id"]
-          },
-          {
-            foreignKeyName: "unknown_trainings_resolved_to_training_type_id_fkey"
-            columns: ["resolved_to_training_type_id"]
-            isOneToOne: false
-            referencedRelation: "training_types"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "unknown_trainings_suggested_training_type_id_fkey"
-            columns: ["suggested_training_type_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["training_type_id"]
-          },
-          {
-            foreignKeyName: "unknown_trainings_suggested_training_type_id_fkey"
-            columns: ["suggested_training_type_id"]
-            isOneToOne: false
-            referencedRelation: "training_types"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       unresolved_people: {
         Row: {
@@ -1055,57 +593,7 @@ export type Database = {
           source?: string
           suggested_employee_id?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "unresolved_people_import_id_fkey"
-            columns: ["import_id"]
-            isOneToOne: false
-            referencedRelation: "imports"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "unresolved_people_resolved_to_employee_id_fkey"
-            columns: ["resolved_to_employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "unresolved_people_resolved_to_employee_id_fkey"
-            columns: ["resolved_to_employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_history"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "unresolved_people_resolved_to_employee_id_fkey"
-            columns: ["resolved_to_employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "unresolved_people_suggested_employee_id_fkey"
-            columns: ["suggested_employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "unresolved_people_suggested_employee_id_fkey"
-            columns: ["suggested_employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_history"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "unresolved_people_suggested_employee_id_fkey"
-            columns: ["suggested_employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
     }
     Views: {
@@ -1160,22 +648,7 @@ export type Database = {
           training_record_id: string | null
           training_type_id: number | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "training_records_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["training_type_id"]
-          },
-          {
-            foreignKeyName: "training_records_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "training_types"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       master_completions: {
         Row: {
@@ -1187,43 +660,7 @@ export type Database = {
           training_record_id: string | null
           training_type_id: number | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "training_records_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "training_records_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employee_history"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "training_records_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "training_records_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "employee_compliance"
-            referencedColumns: ["training_type_id"]
-          },
-          {
-            foreignKeyName: "training_records_training_type_id_fkey"
-            columns: ["training_type_id"]
-            isOneToOne: false
-            referencedRelation: "training_types"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
     }
     Functions: {
