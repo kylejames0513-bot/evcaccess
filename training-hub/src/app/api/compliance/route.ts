@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
       position: params.get("position") ?? undefined,
       status: (params.get("status") as never) ?? undefined,
       trainingTypeId: params.get("training_type_id")
-        ? parseInt(params.get("training_type_id")!, 10)
+        ? parseInt(params.get("training_type_id") ?? "", 10) || undefined
         : undefined,
       employeeId: params.get("employee_id") ?? undefined,
     };

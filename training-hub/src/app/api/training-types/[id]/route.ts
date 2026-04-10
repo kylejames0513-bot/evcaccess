@@ -10,7 +10,9 @@ import type { NextRequest } from "next/server";
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
-    const tt = await getTrainingTypeById(parseInt(id, 10));
+    const numId = parseInt(id, 10);
+    if (Number.isNaN(numId)) return Response.json({ error: "Invalid id" }, { status: 400 });
+    const tt = await getTrainingTypeById(numId);
     if (!tt) return Response.json({ error: "Not found" }, { status: 404 });
     const aliases = await listTrainingAliases(tt.id);
     return Response.json({ training_type: tt, aliases });
@@ -27,8 +29,10 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
+    const numId = parseInt(id, 10);
+    if (Number.isNaN(numId)) return Response.json({ error: "Invalid id" }, { status: 400 });
     const body = await req.json();
-    const updated = await updateTrainingType(parseInt(id, 10), body);
+    const updated = await updateTrainingType(numId, body);
     return Response.json({ training_type: updated });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -44,11 +48,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await ctx.params;
+    const numId = parseInt(id, 10);
+    if (Number.isNaN(numId)) return Response.json({ error: "Invalid id" }, { status: 400 });
     const body = await req.json();
 
     if (body.action === "add_alias") {
       if (!body.alias) return Response.json({ error: "alias is required" }, { status: 400 });
-      const result = await addTrainingAlias(parseInt(id, 10), body.alias, body.source ?? "manual");
+      const result = await addTrainingAlias(numId, body.alias, body.source ?? "manual");
       return Response.json({ alias: result });
     }
 

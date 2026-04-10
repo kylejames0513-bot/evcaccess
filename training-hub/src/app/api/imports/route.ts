@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     const limit = req.nextUrl.searchParams.get("limit");
     const rows = await listImports({
       status: status || undefined,
-      limit: limit ? parseInt(limit, 10) : 50,
+      limit: limit ? (parseInt(limit, 10) || 50) : 50,
     });
     return Response.json({ imports: rows });
   } catch (error) {

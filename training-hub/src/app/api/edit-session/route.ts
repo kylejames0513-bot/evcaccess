@@ -27,12 +27,13 @@ export async function POST(request: Request) {
     if (location !== undefined) updates.location = location || null;
 
     if (training !== undefined) {
+      const safeTraining = String(training).replace(/[,%]/g, "");
       const { data: tt } = await supabase
         .from("training_types")
         .select("id")
-        .or(`name.ilike.${training},column_key.ilike.${training}`)
+        .or(`name.ilike.${safeTraining},column_key.ilike.${safeTraining}`)
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (tt) {
         updates.training_type_id = tt.id;

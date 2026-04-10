@@ -18,7 +18,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       .from("training_sessions")
       .select("*")
       .eq("id", id)
-      .single();
+      .maybeSingle();
     if (sErr) throw sErr;
     if (!session) return Response.json({ error: "Session not found" }, { status: 404 });
 
@@ -27,7 +27,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       .from("training_types")
       .select("id, name, column_key, renewal_years")
       .eq("id", session.training_type_id)
-      .single();
+      .maybeSingle();
 
     // Enrollees with employee info
     const { data: enrollments } = await db
@@ -158,7 +158,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         .from("training_sessions")
         .select("training_type_id, session_date")
         .eq("id", id)
-        .single();
+        .maybeSingle();
       if (!session) return Response.json({ error: "Session not found" }, { status: 404 });
 
       for (const att of attendees) {
