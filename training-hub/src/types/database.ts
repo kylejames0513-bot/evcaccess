@@ -1,176 +1,72 @@
 // ============================================================
-// EVC Training Hub — Database Types
+// EVC Training Hub: app-level type aliases over the generated schema.
 // ============================================================
-// Auto-maps to Supabase schema. Keep in sync with migrations.
+// Source of truth: src/types/database.generated.ts (regenerated from
+// the live Supabase project via the MCP generate_typescript_types
+// tool whenever a migration lands).
+//
+// This file exists so app code can keep importing friendly names like
+// `Employee`, `TrainingType`, `TrainingRecord` instead of the
+// 5-line generic `Tables<'employees'>` boilerplate. Add new aliases
+// here as needed; do NOT redeclare row shapes by hand.
 // ============================================================
 
-export type UserRole = "employee" | "supervisor" | "hr_admin";
-export type ComplianceStatus = "current" | "expiring_soon" | "expired" | "needed" | "excused";
-export type SessionStatus = "scheduled" | "in_progress" | "completed" | "cancelled";
-export type AttendanceStatus = "enrolled" | "attended" | "passed" | "failed" | "no_show" | "cancelled";
+import type { Database, Tables, TablesInsert, TablesUpdate } from "./database.generated";
 
-export interface Employee {
-  id: string;
-  auth_id: string | null;
-  first_name: string;
-  last_name: string;
-  email: string | null;
-  role: UserRole;
-  job_title: string | null;
-  department: string | null;
-  program: string | null;
-  hire_date: string | null;
-  is_active: boolean;
-  excusal_codes: string[];
-  employee_number: string | null;
-  aliases: string[];
-  created_at: string;
-  updated_at: string;
-}
+export type { Database } from "./database.generated";
+export type { Json } from "./database.generated";
 
-export interface TrainingType {
-  id: number;
-  name: string;
-  column_key: string;
-  renewal_years: number;
-  is_required: boolean;
-  class_capacity: number;
-  prerequisite_id: number | null;
-  only_expired: boolean;
-  only_needed: boolean;
-  is_active: boolean;
-  created_at: string;
-}
+// Enums
+export type UserRole = Database["public"]["Enums"]["user_role"];
+export type ComplianceStatus = Database["public"]["Enums"]["compliance_status"];
+export type SessionStatus = Database["public"]["Enums"]["session_status"];
+export type AttendanceStatus = Database["public"]["Enums"]["attendance_status"];
+export type ScheduleWeekday = Database["public"]["Enums"]["schedule_weekday"];
 
-export interface TrainingAlias {
-  id: number;
-  training_type_id: number;
-  alias: string;
-}
+// Table row aliases
+export type Employee = Tables<"employees">;
+export type EmployeeInsert = TablesInsert<"employees">;
+export type EmployeeUpdate = TablesUpdate<"employees">;
 
-export interface TrainingSchedule {
-  id: number;
-  training_type_id: number;
-  weekday: string;
-  nth_weeks: number[] | null;
-  weeks_out: number;
-  start_time: string | null;
-  duration_minutes: number;
-  location: string | null;
-}
+export type TrainingType = Tables<"training_types">;
+export type TrainingTypeInsert = TablesInsert<"training_types">;
+export type TrainingTypeUpdate = TablesUpdate<"training_types">;
 
-export interface TrainingSession {
-  id: string;
-  training_type_id: number;
-  session_date: string;
-  start_time: string | null;
-  end_time: string | null;
-  location: string | null;
-  instructor: string | null;
-  capacity: number;
-  status: SessionStatus;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-  // Joined fields
-  training_type?: TrainingType;
-  enrollments?: Enrollment[];
-  enrolled_count?: number;
-}
+export type TrainingAlias = Tables<"training_aliases">;
+export type TrainingAliasInsert = TablesInsert<"training_aliases">;
 
-export interface Enrollment {
-  id: string;
-  session_id: string;
-  employee_id: string;
-  status: AttendanceStatus;
-  enrolled_at: string;
-  checked_in_at: string | null;
-  completed_at: string | null;
-  score: string | null;
-  notes: string | null;
-  // Joined fields
-  employee?: Employee;
-  session?: TrainingSession;
-}
+export type TrainingRecord = Tables<"training_records">;
+export type TrainingRecordInsert = TablesInsert<"training_records">;
+export type TrainingRecordUpdate = TablesUpdate<"training_records">;
 
-export interface TrainingRecord {
-  id: string;
-  employee_id: string;
-  training_type_id: number;
-  completion_date: string;
-  expiration_date: string | null;
-  session_id: string | null;
-  source: string;
-  notes: string | null;
-  created_at: string;
-  // Joined fields
-  training_type?: TrainingType;
-  employee?: Employee;
-}
+export type Excusal = Tables<"excusals">;
+export type ExcusalInsert = TablesInsert<"excusals">;
 
-export interface Excusal {
-  id: string;
-  employee_id: string;
-  training_type_id: number;
-  reason: string;
-  source: string;
-  created_at: string;
-}
+export type RequiredTraining = Tables<"required_trainings">;
+export type RequiredTrainingInsert = TablesInsert<"required_trainings">;
+export type RequiredTrainingUpdate = TablesUpdate<"required_trainings">;
 
-export interface EmployeeCompliance {
-  employee_id: string;
-  first_name: string;
-  last_name: string;
-  job_title: string | null;
-  department: string | null;
-  program: string | null;
-  training_type_id: number;
-  training_name: string;
-  renewal_years: number;
-  is_required: boolean;
-  completion_date: string | null;
-  expiration_date: string | null;
-  excusal_reason: string | null;
-  status: ComplianceStatus;
-}
+export type ImportRow = Tables<"imports">;
+export type ImportInsert = TablesInsert<"imports">;
+export type ImportUpdate = TablesUpdate<"imports">;
 
-export interface Notification {
-  id: string;
-  employee_id: string | null;
-  type: string;
-  subject: string;
-  body: string | null;
-  sent_at: string;
-  channel: string;
-}
+export type UnresolvedPerson = Tables<"unresolved_people">;
+export type UnresolvedPersonInsert = TablesInsert<"unresolved_people">;
+export type UnresolvedPersonUpdate = TablesUpdate<"unresolved_people">;
 
-export interface RemovalLog {
-  id: string;
-  employee_id: string;
-  session_id: string;
-  removed_by: string | null;
-  reason: string | null;
-  removed_at: string;
-}
+export type UnknownTraining = Tables<"unknown_trainings">;
+export type UnknownTrainingInsert = TablesInsert<"unknown_trainings">;
+export type UnknownTrainingUpdate = TablesUpdate<"unknown_trainings">;
 
-// hub_settings is a flexible key/value table used for runtime config
-// (excluded employees, dept rules, expiration thresholds, no-show flags,
-//  name maps, sync logs, etc.). The shape of `value` depends on `type`.
-export interface HubSetting {
-  id: string;
-  type: string;
-  key: string | null;
-  value: string | null;
-  updated_at: string;
-}
+export type TrainingSession = Tables<"training_sessions">;
+export type Enrollment = Tables<"enrollments">;
+export type HubSetting = Tables<"hub_settings">;
 
-export interface ArchivedSession {
-  id: string;
-  training_type_id: number;
-  session_date: string;
-  start_time: string | null;
-  location: string | null;
-  capacity: number;
-  archived_at: string;
-  archived_by: string | null;
-}
+// View row aliases
+export type EmployeeCompliance = Tables<"employee_compliance">;
+export type EmployeeHistory = Tables<"employee_history">;
+export type MasterCompletion = Tables<"master_completions">;
+
+// Source enum (string union, not a Postgres enum) used by training_records,
+// training_aliases, excusals, imports, unresolved_people, unknown_trainings.
+export type ImportSource = "paylocity" | "phs" | "access" | "signin" | "manual" | "cutover";
