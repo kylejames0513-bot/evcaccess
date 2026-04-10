@@ -90,7 +90,56 @@ function addSupabaseSyncMenu() {
     .addItem("2. Push Merged Tab → Supabase", "pushMergedToSupabase")
     .addSeparator()
     .addItem("3. Push Training Records → Supabase", "pushTrainingRecordsToSupabase")
+    .addSeparator()
+    .addItem("Set Up Nightly Auto-Sync", "installAutoSync")
+    .addItem("Remove Auto-Sync", "removeAutoSync")
     .addToUi();
+}
+
+// ════════════════════════════════════════════════════════════
+// SCHEDULED AUTO-SYNC
+// ════════════════════════════════════════════════════════════
+// Runs buildMergedSheet → pushMergedToSupabase unattended.
+// Safe to repeat: only replaces source=merged_sheet records,
+// preserves signin/session/manual records. Uses ON CONFLICT
+// upserts so duplicates are harmless.
+//
+// To set up: run installAutoSync() or use the menu item.
+// To remove: run removeAutoSync() or delete the trigger in
+//            Apps Script > Triggers.
+// ════════════════════════════════════════════════════════════
+
+function scheduledSync() {
+  Logger.log("scheduledSync started at " + new Date().toISOString());
+  buildMergedSheet();
+  pushMergedToSupabase();
+  Logger.log("scheduledSync finished at " + new Date().toISOString());
+}
+
+/**
+ * Install a nightly trigger that runs scheduledSync at ~2 AM.
+ * Idempotent — removes any existing scheduledSync trigger first.
+ */
+function installAutoSync() {
+  removeAutoSync(); // clear any existing trigger
+  ScriptApp.newTrigger("scheduledSync")
+    .timeBased()
+    .everyDays(1)
+    .atHour(2)
+    .create();
+  notify_("Auto-Sync Installed", "scheduledSync will run nightly around 2 AM.\n\nTo remove: Supabase Sync menu → Remove Auto-Sync");
+}
+
+/**
+ * Remove the nightly scheduledSync trigger.
+ */
+function removeAutoSync() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "scheduledSync") {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
 }
 
 // ────────────────────────────────────────────────────────────
