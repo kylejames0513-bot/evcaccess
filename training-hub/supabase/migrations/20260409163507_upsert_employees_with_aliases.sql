@@ -1,17 +1,7 @@
--- ============================================================
--- Merged-sheet upsert with aliases merging
--- ============================================================
--- Extends upsert_employees_from_sheet() (from migration 007) so
--- it also merges any incoming aliases[] into the existing array,
--- deduplicated. Each incoming row can now carry an "aliases" JSON
--- array and the RPC will union it with whatever's already stored
--- on the matched employee.
---
--- This is what lets the Google Sheets merged-sheet sync auto-
--- register legal-name / preferred-name / quoted-nickname aliases
--- for every row it pushes — no manual fix-sheet step needed.
--- ============================================================
 
+-- Extend the merged-sheet upsert RPC to also merge incoming aliases
+-- into the existing aliases[] array (deduplicated). Each incoming
+-- row's aliases are provided as a JSON array of strings.
 CREATE OR REPLACE FUNCTION upsert_employees_from_sheet(emps jsonb)
 RETURNS TABLE (id uuid, last_name text, first_name text)
 LANGUAGE plpgsql

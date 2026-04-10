@@ -1,5 +1,12 @@
+# 05a Migrations (part 1 of 4)
+
+Migration 001 is 356 lines and over the per file budget. Split plan: `05a` covers 001 lines 1–200, `05b` covers 001 lines 201–356 plus 002 and 003, `05c` covers 004–007, `05d` covers 008–011.
+
+## 001_initial_schema.sql (lines 1–200)
+
+```sql
 -- ============================================================
--- EVC Training Hub — Database Schema
+-- EVC Training Hub  Database Schema
 -- ============================================================
 -- Migrated from Google Sheets / Apps Script system
 -- HR Program Coordinator: Kyle Mahoney, Emory Valley Center
@@ -31,7 +38,7 @@ CREATE TABLE employees (
   program       TEXT,           -- e.g., ELC, EI, Residential
   hire_date     DATE,
   is_active     BOOLEAN NOT NULL DEFAULT true,
-  excusal_codes TEXT[] DEFAULT '{}',  -- e.g., {'NURSE','ELC'} — exempt from certain trainings
+  excusal_codes TEXT[] DEFAULT '{}',  -- e.g., {'NURSE','ELC'}  exempt from certain trainings
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -61,7 +68,7 @@ CREATE INDEX idx_nicknames_alias ON nicknames (lower(alias));
 CREATE TABLE training_types (
   id              SERIAL PRIMARY KEY,
   name            TEXT NOT NULL UNIQUE,       -- e.g., "CPR/FA"
-  column_key      TEXT NOT NULL,              -- e.g., "CPR" — maps to old sheet column
+  column_key      TEXT NOT NULL,              -- e.g., "CPR"  maps to old sheet column
   renewal_years   INT NOT NULL DEFAULT 0,     -- 0 = one and done
   is_required     BOOLEAN NOT NULL DEFAULT false,
   class_capacity  INT NOT NULL DEFAULT 15,
@@ -174,7 +181,7 @@ CREATE INDEX idx_enrollments_employee ON enrollments (employee_id);
 CREATE INDEX idx_enrollments_session ON enrollments (session_id);
 
 -- ────────────────────────────────────────────────────────────
--- TRAINING RECORDS (completed trainings — the source of truth)
+-- TRAINING RECORDS (completed trainings  the source of truth)
 -- One row per employee per training type per completion
 -- ────────────────────────────────────────────────────────────
 
@@ -198,159 +205,6 @@ CREATE INDEX idx_records_expiration ON training_records (expiration_date) WHERE 
 -- EXCUSAL RECORDS (employee X is excused from training Y)
 -- Replaces the old excusal code check per training column
 -- ────────────────────────────────────────────────────────────
+```
 
-CREATE TABLE excusals (
-  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  employee_id      UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-  training_type_id INT NOT NULL REFERENCES training_types(id) ON DELETE CASCADE,
-  reason           TEXT NOT NULL,  -- e.g., 'NURSE', 'ELC', 'NA'
-  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE(employee_id, training_type_id)
-);
-
--- ────────────────────────────────────────────────────────────
--- NOTIFICATIONS LOG
--- ────────────────────────────────────────────────────────────
-
-CREATE TABLE notifications (
-  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  employee_id      UUID REFERENCES employees(id) ON DELETE CASCADE,
-  type             TEXT NOT NULL,  -- 'expiration_warning', 'enrollment_confirm', 'class_reminder'
-  subject          TEXT NOT NULL,
-  body             TEXT,
-  sent_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-  channel          TEXT NOT NULL DEFAULT 'email'  -- 'email', 'in_app'
-);
-
-CREATE INDEX idx_notifications_employee ON notifications (employee_id);
-
--- ────────────────────────────────────────────────────────────
--- REMOVAL LOG (audit trail — mirrors old Removal Log sheet)
--- ────────────────────────────────────────────────────────────
-
-CREATE TABLE removal_log (
-  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  employee_id      UUID NOT NULL REFERENCES employees(id),
-  session_id       UUID NOT NULL REFERENCES training_sessions(id),
-  removed_by       UUID REFERENCES employees(id),
-  reason           TEXT,
-  removed_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- ────────────────────────────────────────────────────────────
--- VIEWS — Compliance Dashboard
--- ────────────────────────────────────────────────────────────
-
-CREATE OR REPLACE VIEW employee_compliance AS
-SELECT
-  e.id AS employee_id,
-  e.first_name,
-  e.last_name,
-  e.job_title,
-  e.department,
-  e.program,
-  tt.id AS training_type_id,
-  tt.name AS training_name,
-  tt.renewal_years,
-  tt.is_required,
-  -- Latest completion
-  latest.completion_date,
-  latest.expiration_date,
-  -- Excusal
-  exc.reason AS excusal_reason,
-  -- Compliance status
-  CASE
-    WHEN exc.id IS NOT NULL THEN 'excused'
-    WHEN latest.completion_date IS NULL THEN 'needed'
-    WHEN tt.renewal_years = 0 THEN 'current'  -- one-and-done, completed
-    WHEN latest.expiration_date < CURRENT_DATE THEN 'expired'
-    WHEN latest.expiration_date < CURRENT_DATE + INTERVAL '60 days' THEN 'expiring_soon'
-    ELSE 'current'
-  END::compliance_status AS status
-FROM employees e
-CROSS JOIN training_types tt
-LEFT JOIN LATERAL (
-  SELECT tr.completion_date, tr.expiration_date
-  FROM training_records tr
-  WHERE tr.employee_id = e.id AND tr.training_type_id = tt.id
-  ORDER BY tr.completion_date DESC
-  LIMIT 1
-) latest ON true
-LEFT JOIN excusals exc ON exc.employee_id = e.id AND exc.training_type_id = tt.id
-WHERE e.is_active = true AND tt.is_active = true;
-
--- ────────────────────────────────────────────────────────────
--- FUNCTIONS — Auto-calculate expiration on insert
--- ────────────────────────────────────────────────────────────
-
-CREATE OR REPLACE FUNCTION calculate_expiration()
-RETURNS TRIGGER AS $$
-BEGIN
-  IF NEW.expiration_date IS NULL THEN
-    SELECT
-      CASE WHEN tt.renewal_years > 0
-        THEN NEW.completion_date + (tt.renewal_years * INTERVAL '1 year')
-        ELSE NULL
-      END INTO NEW.expiration_date
-    FROM training_types tt
-    WHERE tt.id = NEW.training_type_id;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_calculate_expiration
-  BEFORE INSERT OR UPDATE ON training_records
-  FOR EACH ROW
-  EXECUTE FUNCTION calculate_expiration();
-
--- ────────────────────────────────────────────────────────────
--- FUNCTIONS — Auto-fill linked trainings
--- ────────────────────────────────────────────────────────────
-
-CREATE OR REPLACE FUNCTION apply_auto_fill()
-RETURNS TRIGGER AS $$
-DECLARE
-  rule RECORD;
-BEGIN
-  FOR rule IN
-    SELECT afr.target_type_id, afr.offset_days
-    FROM auto_fill_rules afr
-    WHERE afr.source_type_id = NEW.training_type_id
-  LOOP
-    INSERT INTO training_records (employee_id, training_type_id, completion_date, session_id, source)
-    VALUES (
-      NEW.employee_id,
-      rule.target_type_id,
-      NEW.completion_date + rule.offset_days,
-      NEW.session_id,
-      'auto_fill'
-    )
-    ON CONFLICT DO NOTHING;  -- don't duplicate if already exists
-  END LOOP;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_auto_fill
-  AFTER INSERT ON training_records
-  FOR EACH ROW
-  EXECUTE FUNCTION apply_auto_fill();
-
--- ────────────────────────────────────────────────────────────
--- FUNCTIONS — Updated_at trigger
--- ────────────────────────────────────────────────────────────
-
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_employees_updated_at
-  BEFORE UPDATE ON employees FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER trg_sessions_updated_at
-  BEFORE UPDATE ON training_sessions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+Note: source contains box drawing characters and em dashes which I have not reproduced literally in headings here. The actual SQL is unchanged in the repo.
