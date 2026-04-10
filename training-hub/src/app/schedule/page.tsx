@@ -121,11 +121,11 @@ export default function SchedulePage() {
   async function handleDelete(id: string) {
     setDeleteLoading(true);
     try {
-      // Archive instead of delete — preserves the record
-      await fetch("/api/archive-session", {
+      // Archive via the new sessions API
+      await fetch(`/api/sessions/${id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: id }),
+        body: JSON.stringify({ action: "archive" }),
       });
       refresh();
     } catch {}
@@ -136,10 +136,10 @@ export default function SchedulePage() {
   async function handleArchive(id: string) {
     setArchiving(id);
     try {
-      await fetch("/api/archive-session", {
+      await fetch(`/api/sessions/${id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: id }),
+        body: JSON.stringify({ action: "archive" }),
       });
       refresh();
     } catch {}
@@ -261,6 +261,13 @@ export default function SchedulePage() {
                         <Pencil className="h-4 w-4" />
                         Edit
                       </button>
+                      <a
+                        href={`/sessions/${session.id}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-blue-50 text-blue-700 hover:bg-blue-100"
+                      >
+                        <ClipboardCheck className="h-4 w-4" />
+                        Review Attendance
+                      </a>
                       <button
                         onClick={() => setFinalizingSession(session.id)}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-amber-50 text-amber-700 hover:bg-amber-100"
