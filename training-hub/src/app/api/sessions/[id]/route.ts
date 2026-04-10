@@ -48,7 +48,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       .eq("training_type_id", session.training_type_id)
       .eq("completion_date", session.session_date);
 
-    const signinByEmployee = new Map<string, typeof signins extends Array<infer T> ? T : never>();
+    type SigninRow = NonNullable<typeof signins>[number];
+    const signinByEmployee = new Map<string, SigninRow>();
     for (const s of signins ?? []) {
       signinByEmployee.set(s.employee_id, s);
     }
