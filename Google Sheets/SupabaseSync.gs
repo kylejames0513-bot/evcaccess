@@ -469,12 +469,20 @@ function buildMergedSheet() {
           var qd = tryParseDate_(qDate);
           if (!qd) continue;
 
-          // PHS names are "Last, First"
+          // PHS names are "Last, First" but sometimes "Last, CREDENTIAL, First"
+          // where CREDENTIAL is a professional license like LCSW, RN, etc.
           var qLn = qName, qFn = "";
           if (qName.indexOf(",") >= 0) {
-            var parts = qName.split(",");
-            qLn = parts[0].trim();
-            qFn = parts.slice(1).join(",").trim();
+            var parts = qName.split(",").map(function(s) { return s.trim(); }).filter(Boolean);
+            qLn = parts[0];
+            // Strip credential-like tokens from middle positions
+            var filtered = [parts[0]];
+            for (var ci = 1; ci < parts.length; ci++) {
+              if (ci < parts.length - 1 && isCredential_(parts[ci])) continue;
+              filtered.push(parts[ci]);
+            }
+            qLn = filtered[0];
+            qFn = filtered.slice(1).join(" ");
           }
 
           var qKey = qLn + "|" + qFn;
@@ -912,6 +920,28 @@ function findCol_(headers, name) {
     if (String(headers[i]).trim().toUpperCase() === upper) return i;
   }
   return -1;
+}
+
+// Professional credentials that PHS embeds in the name field, e.g. "Cupp, LCSW, Heather"
+var KNOWN_CREDENTIALS_ = {
+  "LCSW":1,"LISW":1,"LSW":1,"MSW":1,"LMSW":1,"LICSW":1,
+  "RN":1,"BSN":1,"MSN":1,"DNP":1,"APRN":1,"FNP":1,"CNP":1,
+  "LPN":1,"CNA":1,"STNA":1,
+  "MD":1,"DO":1,"PA":1,"NP":1,"DPM":1,"DDS":1,"DMD":1,
+  "PHD":1,"EDD":1,"PSYD":1,
+  "LPC":1,"LPCC":1,"LCPC":1,"NCC":1,"LMHC":1,
+  "OT":1,"OTR":1,"PT":1,"PTA":1,"DPT":1,
+  "CRNA":1,"EMT":1,"AEMT":1,
+  "RT":1,"RRT":1,"CRT":1,"RD":1,"LD":1,
+  "LMFT":1,"MFT":1,"BCBA":1,"RBT":1,"PHARMD":1,"RPH":1,
+};
+
+function isCredential_(token) {
+  var clean = token.replace(/[.\-]/g, "").trim().toUpperCase();
+  if (!clean) return false;
+  if (KNOWN_CREDENTIALS_[clean]) return true;
+  // Heuristic: short all-caps token (2-8 chars)
+  return clean.length >= 2 && clean.length <= 8 && /^[A-Z]+$/.test(clean);
 }
 
 function findColPartial_(headers, partial) {
