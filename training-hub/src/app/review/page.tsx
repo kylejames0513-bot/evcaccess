@@ -59,7 +59,7 @@ export default function ReviewPage() {
       fetch("/api/review/people").then((r) => r.json()),
       fetch("/api/review/trainings").then((r) => r.json()),
       fetch("/api/employees?active=all").then((r) => r.json()),
-      fetch("/api/needs-training").then((r) => r.json()).catch(() => ({ trainings: [] })),
+      fetch("/api/training-types").then((r) => r.json()),
     ]);
     setPeople(p.unresolved_people ?? []);
     setTrainings(t.unknown_trainings ?? []);
@@ -69,7 +69,11 @@ export default function ReviewPage() {
       first_name: emp.first_name,
       paylocity_id: emp.paylocity_id,
     })));
-    setTrainingTypes(tt.trainings ?? []);
+    setTrainingTypes(
+      (tt.training_types ?? [])
+        .filter((x: TrainingTypeOption & { is_active?: boolean }) => x.is_active !== false)
+        .sort((a: TrainingTypeOption, b: TrainingTypeOption) => a.name.localeCompare(b.name))
+    );
   }
 
   async function resolvePerson(id: string, employeeId: string) {
@@ -189,7 +193,29 @@ function PersonRow({
   employees: EmployeeOption[];
   onResolve: (employeeId: string) => void;
 }) {
-  const [selected, setSelected] = useState(row.suggested_employee_id ?? "");
+  // Try to auto-match: suggested_employee_id, or paylocity_id, or exact name
+  const autoMatch = (() => {
+    if (row.suggested_employee_id) {
+      const emp = employees.find((e) => e.id === row.suggested_employee_id);
+      if (emp) return emp;
+    }
+    if (row.paylocity_id) {
+      const emp = employees.find((e) => e.paylocity_id === row.paylocity_id);
+      if (emp) return emp;
+    }
+    if (row.last_name && row.first_name) {
+      const matches = employees.filter(
+        (e) =>
+          e.last_name?.toLowerCase() === row.last_name!.toLowerCase() &&
+          e.first_name?.toLowerCase() === row.first_name!.toLowerCase()
+      );
+      if (matches.length === 1) return matches[0];
+    }
+    return null;
+  })();
+
+  const [selected, setSelected] = useState(autoMatch?.id ?? row.suggested_employee_id ?? "");
+
   return (
     <tr className="hover:bg-slate-50">
       <td className="px-5 py-3 text-slate-500">{row.source}</td>
@@ -197,28 +223,52 @@ function PersonRow({
       <td className="px-5 py-3 text-slate-500 font-mono text-xs">{row.paylocity_id ?? ""}</td>
       <td className="px-5 py-3 text-slate-500">{row.reason}</td>
       <td className="px-5 py-3">
-        <div className="flex items-center gap-2">
-          <select
-            value={selected}
-            onChange={(e) => setSelected(e.target.value)}
-            className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-          >
-            <option value="">Pick employee</option>
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.last_name}, {e.first_name} {e.paylocity_id ? `(${e.paylocity_id})` : ""}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={() => onResolve(selected)}
-            disabled={!selected}
-            className="px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
-          >
-            Resolve
-          </button>
-        </div>
+        {autoMatch ? (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-700">
+              {autoMatch.last_name}, {autoMatch.first_name}
+              {autoMatch.paylocity_id ? <span className="text-slate-400 ml-1">({autoMatch.paylocity_id})</span> : ""}
+            </span>
+            <button
+              type="button"
+              onClick={() => onResolve(autoMatch.id)}
+              className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700"
+            >
+              Confirm
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelected("")}
+              className="text-xs text-slate-400 hover:text-slate-600"
+              title="Pick a different employee"
+            >
+              change
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <select
+              value={selected}
+              onChange={(e) => setSelected(e.target.value)}
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white max-w-xs"
+            >
+              <option value="">Pick employee</option>
+              {employees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.last_name}, {e.first_name} {e.paylocity_id ? `(${e.paylocity_id})` : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={() => onResolve(selected)}
+              disabled={!selected}
+              className="px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
+            >
+              Resolve
+            </button>
+          </div>
+        )}
       </td>
     </tr>
   );
