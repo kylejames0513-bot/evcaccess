@@ -86,8 +86,8 @@ export async function GET(req: NextRequest) {
     for (const rule of rules ?? []) {
       if (rule.is_universal) {
         requiredTypeIds.add(rule.training_type_id);
-      } else if (rule.department && employee.department &&
-        rule.department.toLowerCase() === employee.department.toLowerCase()) {
+      } else if (rule.department && (employee as Record<string, unknown>).division &&
+        rule.department.toLowerCase() === String((employee as Record<string, unknown>).division).toLowerCase()) {
         if (rule.position == null) {
           requiredTypeIds.add(rule.training_type_id);
         } else if (employee.position && rule.position.toLowerCase() === employee.position.toLowerCase()) {

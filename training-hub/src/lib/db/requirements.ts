@@ -73,7 +73,7 @@ export async function listRequiredTrainingsForDepartment(
  * in the UI).
  */
 export async function getRequiredTrainingsForEmployee(
-  employee: Pick<Employee, "department" | "position">
+  employee: { department?: string | null; division?: string | null; position?: string | null }
 ): Promise<Map<number, RequiredTraining>> {
   const client = db();
   const candidates: RequiredTraining[] = [];
@@ -86,13 +86,15 @@ export async function getRequiredTrainingsForEmployee(
   if (uErr) throw uErr;
   candidates.push(...(universal ?? []));
 
-  // Department-scoped rules apply if employee.department matches.
-  if (employee.department) {
+  // Division-scoped rules apply if employee.division matches.
+  // required_trainings.department stores the division name.
+  const divisionName = employee.division ?? employee.department;
+  if (divisionName) {
     const { data: deptRules, error: dErr } = await client
       .from("required_trainings")
       .select("*")
       .eq("is_universal", false)
-      .ilike("department", employee.department);
+      .ilike("department", divisionName);
     if (dErr) throw dErr;
     candidates.push(...(deptRules ?? []));
   }

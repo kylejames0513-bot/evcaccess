@@ -8,10 +8,10 @@ export async function GET() {
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
     // Active employees
-    const { data: employees, error } = await db
+    const { data: employees, error } = await (db
       .from("employees")
-      .select("id, first_name, last_name, department, position, hire_date")
-      .eq("is_active", true);
+      .select("id, first_name, last_name, department, division, position, hire_date") as unknown as Promise<{ data: Array<{ id: string; first_name: string; last_name: string; department: string | null; division: string | null; position: string | null; hire_date: string | null }>; error: unknown }>);
+    if (error) throw error;
     if (error) throw error;
 
     // Training type names
@@ -54,8 +54,8 @@ export async function GET() {
         if (!rule.is_required) continue;
         if (rule.is_universal) {
           requiredMap.set(rule.training_type_id, true);
-        } else if (rule.department && emp.department &&
-          rule.department.toLowerCase() === emp.department.toLowerCase()) {
+        } else if (rule.department && emp.division &&
+          rule.department.toLowerCase() === emp.division.toLowerCase()) {
           if (rule.position == null) {
             requiredMap.set(rule.training_type_id, true);
           } else if (emp.position && rule.position.toLowerCase() === emp.position.toLowerCase()) {
