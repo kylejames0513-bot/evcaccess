@@ -1,30 +1,17 @@
--- ============================================================
--- Two-pass upsert_employees_from_sheet — resolve by number first
--- ============================================================
--- Problem this fixes:
+
+-- Two-pass upsert to handle the case where an existing employee
+-- row has the same employee_number but a different first_name
+-- from what the sheet now says (e.g. Michael "Mike" to Michael when
+-- the Training tab's F NAME changed after an Employees-tab edit).
 --
--- When the canonical first name of an employee changes on the
--- source sheet between sync runs (e.g. Training tab's F NAME went
--- from `Michael "Mike"` to `Michael` because the Employees tab's
--- Preferred Name is now being honored), the previous single-pass
--- RPC couldn't find the existing row. Its ON CONFLICT target was
--- (lower(last_name), lower(first_name)), which didn't match the
--- old stored name. So it tried to INSERT instead and collided on
--- the employees_employee_number_unique partial index, blowing up
--- the batch with a 409.
+-- Pass 1: For every incoming row that carries an employee_number,
+--         UPDATE the existing row with that number. This refreshes
+--         last_name / first_name / department / hire_date /
+--         is_active and merges aliases.
 --
--- Solution: two passes.
---
---   Pass 1: For every incoming row with an employee_number,
---           UPDATE the existing row identified by that number.
---           This refreshes last_name / first_name / department /
---           hire_date / is_active and merges aliases, even if
---           the name differs.
---
---   Pass 2: For incoming rows whose employee_number didn't match
---           any existing row (new hires, or rows with no ID),
---           INSERT with the normal name-based ON CONFLICT.
--- ============================================================
+-- Pass 2: For incoming rows that did NOT match any existing
+--         employee_number in pass 1, INSERT with the normal
+--         ON CONFLICT on (lower(last_name), lower(first_name)).
 
 CREATE OR REPLACE FUNCTION upsert_employees_from_sheet(emps jsonb)
 RETURNS TABLE (id uuid, last_name text, first_name text)

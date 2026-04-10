@@ -1,20 +1,14 @@
--- ============================================================
--- Bulk-upsert RPC for the Google Sheets merged-sheet sync
--- ============================================================
--- PostgREST's on_conflict=col1,col2 query string can't target a
--- functional unique index (employees_name_unique_ci on
--- lower(last_name), lower(first_name)). Per-row PATCH from Apps
--- Script was taking 15+ minutes for ~2200 employees and blowing
--- through the 6-minute Apps Script execution limit.
---
--- This function takes the whole employee batch as a single JSONB
--- array and does ON CONFLICT server-side, turning the sync into
--- one or two HTTP calls instead of thousands.
---
--- Returns each row's id + last_name + first_name so the caller
--- can build a lookup without re-fetching.
--- ============================================================
 
+-- Bulk case-insensitive upsert for the Google Sheets merged-sheet sync.
+-- PostgREST can't do ON CONFLICT against a functional index via
+-- the on_conflict query string, so we wrap it in a SECURITY INVOKER
+-- SQL function and call it over /rest/v1/rpc/.
+--
+-- The input is a JSON array of employee rows:
+--   [{ last_name, first_name, is_active, department, hire_date, employee_number }, ...]
+--
+-- Returns each row's id + last_name + first_name so the caller can
+-- build a lookup without re-fetching.
 CREATE OR REPLACE FUNCTION upsert_employees_from_sheet(emps jsonb)
 RETURNS TABLE (id uuid, last_name text, first_name text)
 LANGUAGE plpgsql
