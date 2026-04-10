@@ -2,22 +2,39 @@ import { getComplianceSummary, listCompliance } from "@/lib/db/compliance";
 import { getEmployeeCounts } from "@/lib/db/employees";
 import { createServerClient } from "@/lib/supabase";
 
-/**
- * GET /api/dashboard
- *
- * Returns the shape the existing root page.tsx expects so the dashboard
- * keeps working without a full page rewrite.
- */
 export async function GET() {
   try {
-    const [summary, employeeCounts, scheduledCount] = await Promise.all([
+    const db = createServerClient();
+
+    const [summary, employeeCounts, scheduledResult] = await Promise.all([
       getComplianceSummary(),
       getEmployeeCounts(),
-      createServerClient()
+      db
         .from("training_sessions")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "scheduled"),
+        .select(`
+          id, session_date, start_time, location, capacity, status,
+          training_types ( name ),
+          enrollments ( id, employee_id )
+        `)
+        .eq("status", "scheduled")
+        .order("session_date", { ascending: true }),
     ]);
+
+    if (scheduledResult.error) throw scheduledResult.error;
+
+    const upcoming = (scheduledResult.data ?? []).slice(0, 6).map((s: Record<string, unknown>) => {
+      const tt = s.training_types as { name: string } | null;
+      const enrollments = s.enrollments as Array<{ id: string }> | null;
+      return {
+        id: s.id,
+        training: tt?.name ?? "Unknown",
+        date: s.session_date as string,
+        time: (s.start_time as string) ?? "",
+        location: (s.location as string) ?? "",
+        enrolledCount: enrollments?.length ?? 0,
+        capacity: s.capacity as number,
+      };
+    });
 
     const expiredRows = await listCompliance({ status: "expired" });
     const expiringRows = await listCompliance({ status: "expiring_soon" });
@@ -42,11 +59,11 @@ export async function GET() {
         expiringSoon: summary.status_counts.expiring_soon,
         expired: summary.status_counts.expired,
         needed: summary.status_counts.needed,
-        upcomingSessions: scheduledCount.count ?? 0,
+        upcomingSessions: scheduledResult.data?.length ?? 0,
         criticalExpiring: summary.tier_counts.due_30,
       },
       urgentIssues: urgent,
-      upcoming: [],
+      upcoming,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
