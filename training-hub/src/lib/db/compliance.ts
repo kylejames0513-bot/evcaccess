@@ -64,75 +64,91 @@ export interface ComplianceTierCounts {
 }
 
 export interface ComplianceSummary {
-  total_rows: number;
+  total_active_employees: number;
   status_counts: ComplianceStatusCounts;
   tier_counts: ComplianceTierCounts;
-  employees_with_any_issue: number;
 }
 
 /**
- * Build the dashboard summary in a small number of round trips.
- * Each count uses head:true so PostgREST returns just the count, no rows.
+ * Build the dashboard summary at the EMPLOYEE level. Each employee's
+ * overall status is their worst training status:
+ *   expired > expiring_soon > needed > current
+ * An employee with one expired and one current training counts as
+ * "expired", not split across both buckets.
  */
 export async function getComplianceSummary(): Promise<ComplianceSummary> {
   const client = db();
 
-  const [
-    total,
-    current,
-    expiringSoon,
-    expired,
-    needed,
-    excused,
-    due30,
-    due60,
-    due90,
-    issueEmployees,
-  ] = await Promise.all([
-    client.from("employee_compliance").select("*", { count: "exact", head: true }),
-    client.from("employee_compliance").select("*", { count: "exact", head: true }).eq("status", "current"),
-    client.from("employee_compliance").select("*", { count: "exact", head: true }).eq("status", "expiring_soon"),
-    client.from("employee_compliance").select("*", { count: "exact", head: true }).eq("status", "expired"),
-    client.from("employee_compliance").select("*", { count: "exact", head: true }).eq("status", "needed"),
-    client.from("employee_compliance").select("*", { count: "exact", head: true }).eq("status", "excused"),
-    client.from("employee_compliance").select("*", { count: "exact", head: true }).eq("due_in_30", true),
-    client.from("employee_compliance").select("*", { count: "exact", head: true }).eq("due_in_60", true),
-    client.from("employee_compliance").select("*", { count: "exact", head: true }).eq("due_in_90", true),
-    client
-      .from("employee_compliance")
-      .select("employee_id", { count: "exact", head: false })
-      .in("status", ["needed", "expired", "expiring_soon"]),
-  ]);
+  // Pull all compliance rows (one per employee+training). The view
+  // already filters to active employees only.
+  const { data: rows, error } = await client
+    .from("employee_compliance")
+    .select("employee_id, status, due_in_30, due_in_60, due_in_90, days_overdue");
+  if (error) throw error;
 
-  const errs = [total, current, expiringSoon, expired, needed, excused, due30, due60, due90, issueEmployees]
-    .map((r) => r.error)
-    .filter(Boolean);
-  if (errs.length > 0) throw errs[0];
+  // Group by employee, pick worst status per employee.
+  const byEmployee = new Map<string, {
+    worst: string;
+    hasDue30: boolean;
+    hasDue60: boolean;
+    hasDue90: boolean;
+    hasOverdue: boolean;
+  }>();
 
-  // count distinct employees with any issue. The .in() above returns rows,
-  // we collapse them to a Set client-side to dedupe.
-  const distinctIssueEmployees = new Set(
-    (issueEmployees.data ?? []).map((r) => r.employee_id).filter((v): v is string => v != null)
-  ).size;
+  const statusRank: Record<string, number> = {
+    expired: 0,
+    expiring_soon: 1,
+    needed: 2,
+    excused: 3,
+    current: 4,
+  };
 
-  // Overdue tier needs days_overdue > 0; the view doesn't have a boolean
-  // overdue column, so we count via status='expired'.
+  for (const row of rows ?? []) {
+    const eid = row.employee_id;
+    if (!eid) continue;
+    const existing = byEmployee.get(eid);
+    const status = row.status ?? "current";
+    const rank = statusRank[status] ?? 4;
+
+    if (!existing) {
+      byEmployee.set(eid, {
+        worst: status,
+        hasDue30: row.due_in_30 === true,
+        hasDue60: row.due_in_60 === true,
+        hasDue90: row.due_in_90 === true,
+        hasOverdue: (row.days_overdue ?? 0) > 0,
+      });
+    } else {
+      if (rank < (statusRank[existing.worst] ?? 4)) {
+        existing.worst = status;
+      }
+      if (row.due_in_30) existing.hasDue30 = true;
+      if (row.due_in_60) existing.hasDue60 = true;
+      if (row.due_in_90) existing.hasDue90 = true;
+      if ((row.days_overdue ?? 0) > 0) existing.hasOverdue = true;
+    }
+  }
+
+  const counts: ComplianceStatusCounts = { current: 0, expiring_soon: 0, expired: 0, needed: 0, excused: 0 };
+  const tiers: ComplianceTierCounts = { due_30: 0, due_60: 0, due_90: 0, overdue: 0 };
+
+  for (const emp of byEmployee.values()) {
+    if (emp.worst === "current") counts.current += 1;
+    else if (emp.worst === "expiring_soon") counts.expiring_soon += 1;
+    else if (emp.worst === "expired") counts.expired += 1;
+    else if (emp.worst === "needed") counts.needed += 1;
+    else if (emp.worst === "excused") counts.excused += 1;
+
+    if (emp.hasDue30) tiers.due_30 += 1;
+    if (emp.hasDue60) tiers.due_60 += 1;
+    if (emp.hasDue90) tiers.due_90 += 1;
+    if (emp.hasOverdue) tiers.overdue += 1;
+  }
+
   return {
-    total_rows: total.count ?? 0,
-    status_counts: {
-      current: current.count ?? 0,
-      expiring_soon: expiringSoon.count ?? 0,
-      expired: expired.count ?? 0,
-      needed: needed.count ?? 0,
-      excused: excused.count ?? 0,
-    },
-    tier_counts: {
-      due_30: due30.count ?? 0,
-      due_60: due60.count ?? 0,
-      due_90: due90.count ?? 0,
-      overdue: expired.count ?? 0,
-    },
-    employees_with_any_issue: distinctIssueEmployees,
+    total_active_employees: byEmployee.size,
+    status_counts: counts,
+    tier_counts: tiers,
   };
 }
 

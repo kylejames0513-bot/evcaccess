@@ -24,9 +24,9 @@ interface ComplianceRow {
 }
 
 interface Summary {
+  total_active_employees: number;
   status_counts: { current: number; expiring_soon: number; expired: number; needed: number; excused: number };
   tier_counts: { due_30: number; due_60: number; due_90: number; overdue: number };
-  employees_with_any_issue: number;
 }
 
 /**
@@ -116,16 +116,19 @@ export default function CompliancePage() {
       <h1 className="text-2xl font-bold mb-4">Compliance dashboard</h1>
 
       {summary && (
+        <>
+        <p className="text-sm text-gray-500 mb-2">{summary.total_active_employees} active employees</p>
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3 mb-6">
-          <Stat label="Current" value={summary.status_counts.current} color="green" />
+          <Stat label="Fully compliant" value={summary.status_counts.current} color="green" />
+          <Stat label="Expiring soon" value={summary.status_counts.expiring_soon} color="yellow" />
+          <Stat label="Expired" value={summary.status_counts.expired} color="red" />
+          <Stat label="Missing training" value={summary.status_counts.needed} color="amber" />
           <Stat label="Due in 30 days" value={summary.tier_counts.due_30} color="yellow" />
-          <Stat label="Due in 60 days" value={summary.tier_counts.due_60} color="yellow" />
+          <Stat label="Due in 60 days" value={summary.tier_counts.due_60} color="blue" />
           <Stat label="Due in 90 days" value={summary.tier_counts.due_90} color="blue" />
           <Stat label="Overdue" value={summary.tier_counts.overdue} color="red" />
-          <Stat label="Needed" value={summary.status_counts.needed} color="amber" />
-          <Stat label="Excused" value={summary.status_counts.excused} color="gray" />
-          <Stat label="Employees with issues" value={summary.employees_with_any_issue} color="amber" />
         </div>
+        </>
       )}
 
       <div className="bg-white rounded-lg shadow p-3 mb-4 flex flex-wrap gap-3 items-end">
