@@ -116,6 +116,17 @@ export default function EmployeesPage() {
             <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
           </button>
         </div>
+        <div className="flex gap-2">
+          <a href="/api/export?type=employees" download className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">
+            Export Employees
+          </a>
+          <a href="/api/export?type=history" download className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">
+            Export Training History
+          </a>
+          <a href="/api/export?type=compliance" download className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">
+            Export Compliance
+          </a>
+        </div>
       </div>
 
       {showExcluded && excludedList.length > 0 && (
