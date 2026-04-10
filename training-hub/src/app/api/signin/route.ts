@@ -54,8 +54,9 @@ export async function POST(req: NextRequest) {
 
     await commitPreview(preview.id);
 
-    // Auto-link to enrolled session: find a scheduled session for this
-    // training on today's date and mark the employee as checked in
+    // Auto-link to enrolled session. Wrapped in try/catch so a failure
+    // here doesn't kill the sign-in (which already committed above).
+    try {
     if (batch.completions.length > 0) {
       const db = createServerClient();
       const employeeId = batch.completions[0].employee_id;
@@ -106,6 +107,10 @@ export async function POST(req: NextRequest) {
           .is("session_id", null);
       }
     }
+    } catch (autoMatchErr) {
+      // Non-fatal: sign-in already committed, session auto-match is bonus
+      console.error("Auto-match error (non-fatal):", autoMatchErr);
+    }
 
     return Response.json({
       committed: true,
@@ -118,7 +123,8 @@ export async function POST(req: NextRequest) {
           : "We could not match your name. HR has been notified and will resolve.",
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("POST /api/signin error:", error);
     return Response.json({ error: message }, { status: 500 });
   }
 }

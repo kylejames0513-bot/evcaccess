@@ -86,7 +86,7 @@ export async function listImports(opts: ListImportsOptions = {}): Promise<Import
  * imports.status='committed' inside a single transaction.
  */
 export async function commitPreview(importId: string): Promise<ImportRow> {
-  const { error } = await db().rpc("commit_import", { import_id: importId });
+  const { error } = await db().rpc("commit_import", { p_import_id: importId });
   if (error) throw error;
   const updated = await getImport(importId);
   if (!updated) {
