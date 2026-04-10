@@ -59,10 +59,10 @@ function withinDays(dateStr: string, days: number): boolean {
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    expired: "bg-red-100 text-red-700",
-    expiring_soon: "bg-amber-100 text-amber-700",
-    needed: "bg-red-100 text-red-700",
-    upcoming: "bg-blue-100 text-blue-700",
+    expired: "bg-red-50 text-red-700 border-red-200",
+    expiring_soon: "bg-amber-50 text-amber-700 border-amber-200",
+    needed: "bg-blue-50 text-blue-700 border-blue-200",
+    upcoming: "bg-violet-50 text-violet-700 border-violet-200",
   };
   const labels: Record<string, string> = {
     expired: "Expired",
@@ -72,8 +72,8 @@ function StatusBadge({ status }: { status: string }) {
   };
   return (
     <span
-      className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${
-        styles[status] ?? "bg-slate-100 text-slate-600"
+      className={`inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-md border ${
+        styles[status] ?? "bg-slate-50 text-slate-600 border-slate-200"
       }`}
     >
       {labels[status] ?? status}
@@ -101,7 +101,7 @@ function AlertRow({
   daysUntilExpiry?: number | null;
 }) {
   return (
-    <div className="px-6 py-4 flex items-center justify-between">
+    <div className="px-6 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
       <div className="flex items-center gap-4 min-w-0">
         {icon}
         <div className="min-w-0">
@@ -111,14 +111,14 @@ function AlertRow({
               {division && <span className="text-xs text-slate-400 font-normal ml-2">{division}</span>}
             </p>
           )}
-          <p className="text-sm text-slate-600 truncate">{training}</p>
+          <p className="text-sm text-slate-500 truncate">{training}</p>
           <p className="text-xs text-slate-400 mt-0.5">{detail}</p>
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {daysUntilExpiry !== undefined && daysUntilExpiry !== null && (
-          <span className={`text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded ${
-            daysUntilExpiry < 0 ? "bg-red-100 text-red-700" : daysUntilExpiry <= 30 ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+          <span className={`text-[11px] font-semibold tabular-nums px-2 py-0.5 rounded-md border ${
+            daysUntilExpiry < 0 ? "bg-red-50 text-red-700 border-red-200" : daysUntilExpiry <= 30 ? "bg-red-50 text-red-700 border-red-200" : "bg-amber-50 text-amber-700 border-amber-200"
           }`}>
             {daysUntilExpiry < 0 ? `${Math.abs(daysUntilExpiry)}d overdue` : `${daysUntilExpiry}d`}
           </span>
@@ -133,44 +133,33 @@ function AlertRow({
 
 function Section({
   title,
+  icon: SectionIcon,
   count,
   color,
   children,
 }: {
   title: string;
+  icon: React.ReactNode;
   count: number;
-  color: "red" | "amber" | "blue";
+  color: "red" | "amber" | "blue" | "violet";
   children: React.ReactNode;
 }) {
-  const border = {
-    red: "border-red-200",
-    amber: "border-amber-200",
-    blue: "border-blue-200",
-  }[color];
-  const headerBg = {
-    red: "bg-red-50",
-    amber: "bg-amber-50",
-    blue: "bg-blue-50",
-  }[color];
-  const headerText = {
-    red: "text-red-800",
-    amber: "text-amber-800",
-    blue: "text-blue-800",
-  }[color];
-  const badge = {
-    red: "bg-red-200 text-red-800",
-    amber: "bg-amber-200 text-amber-800",
-    blue: "bg-blue-200 text-blue-800",
-  }[color];
+  const badge: Record<string, string> = {
+    red: "bg-red-50 text-red-700 border-red-200",
+    amber: "bg-amber-50 text-amber-700 border-amber-200",
+    blue: "bg-blue-50 text-blue-700 border-blue-200",
+    violet: "bg-violet-50 text-violet-700 border-violet-200",
+  };
 
   return (
-    <div
-      className={`bg-white rounded-xl border ${border} shadow-sm overflow-hidden`}
-    >
-      <div className={`${headerBg} px-6 py-3 flex items-center justify-between`}>
-        <h3 className={`text-sm font-semibold ${headerText}`}>{title}</h3>
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="px-6 py-3 flex items-center justify-between border-b border-slate-100">
+        <div className="flex items-center gap-2">
+          {SectionIcon}
+          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+        </div>
         <span
-          className={`text-xs font-medium px-2 py-0.5 rounded-full ${badge}`}
+          className={`text-[11px] font-semibold px-2 py-0.5 rounded-md border ${badge[color]}`}
         >
           {count}
         </span>
@@ -203,9 +192,9 @@ function AlertsTab() {
 
   if (expired.length === 0 && expiringSoon.length === 0 && upcomingSessions.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
-        <Bell className="h-10 w-10 text-slate-300 mx-auto mb-3" />
-        <h3 className="text-sm font-medium text-slate-700">All clear</h3>
+      <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
+        <Bell className="h-10 w-10 text-slate-400 mx-auto mb-3" />
+        <h3 className="text-sm font-semibold text-slate-900">All clear</h3>
         <p className="text-sm text-slate-500 mt-1">
           No compliance alerts or upcoming sessions right now.
         </p>
@@ -228,22 +217,22 @@ function AlertsTab() {
     .sort((a, b) => b.total - a.total);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Division Summary */}
       {divSummary.length > 1 && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="bg-slate-50 px-6 py-3">
-            <h3 className="text-sm font-semibold text-slate-700">Alerts by Division</h3>
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div className="px-6 py-3 border-b border-slate-100">
+            <h3 className="text-sm font-semibold text-slate-900">Alerts by Division</h3>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 p-4">
             {divSummary.slice(0, 8).map((d) => (
-              <div key={d.division} className="bg-slate-50 rounded-lg p-3">
-                <p className="text-xs font-medium text-slate-700 truncate">{d.division}</p>
+              <div key={d.division} className="border border-slate-200 rounded-xl p-3">
+                <p className="text-xs font-medium text-slate-500 truncate">{d.division}</p>
                 <p className="text-lg font-bold text-slate-900 mt-1">{d.total}</p>
                 <div className="flex gap-2 mt-1 text-[10px]">
                   {d.expired > 0 && <span className="text-red-600">{d.expired} expired</span>}
                   {d.expiring > 0 && <span className="text-amber-600">{d.expiring} expiring</span>}
-                  {d.needed > 0 && <span className="text-purple-600">{d.needed} needed</span>}
+                  {d.needed > 0 && <span className="text-blue-600">{d.needed} needed</span>}
                 </div>
               </div>
             ))}
@@ -252,13 +241,18 @@ function AlertsTab() {
       )}
 
       {expired.length > 0 && (
-        <Section title="Expired / Needed" count={expired.length} color="red">
+        <Section
+          title="Expired / Needed"
+          icon={<AlertTriangle className="h-4 w-4 text-red-500" />}
+          count={expired.length}
+          color="red"
+        >
           {expired.map((issue, i) => (
             <AlertRow
               key={`exp-${i}`}
               icon={
                 <div className="p-2 rounded-lg bg-red-50">
-                  <AlertTriangle className="h-4 w-4 text-red-600" />
+                  <AlertTriangle className="h-4 w-4 text-red-500" />
                 </div>
               }
               employee={issue.employee}
@@ -279,13 +273,18 @@ function AlertsTab() {
       )}
 
       {expiringSoon.length > 0 && (
-        <Section title="Expiring Soon" count={expiringSoon.length} color="amber">
+        <Section
+          title="Expiring Soon"
+          icon={<Clock className="h-4 w-4 text-amber-500" />}
+          count={expiringSoon.length}
+          color="amber"
+        >
           {expiringSoon.map((issue, i) => (
             <AlertRow
               key={`es-${i}`}
               icon={
                 <div className="p-2 rounded-lg bg-amber-50">
-                  <Clock className="h-4 w-4 text-amber-600" />
+                  <Clock className="h-4 w-4 text-amber-500" />
                 </div>
               }
               employee={issue.employee}
@@ -306,15 +305,16 @@ function AlertsTab() {
       {upcomingSessions.length > 0 && (
         <Section
           title="Upcoming Classes (Next 7 Days)"
+          icon={<CalendarDays className="h-4 w-4 text-violet-500" />}
           count={upcomingSessions.length}
-          color="blue"
+          color="violet"
         >
           {upcomingSessions.map((session, i) => (
             <AlertRow
               key={`up-${i}`}
               icon={
-                <div className="p-2 rounded-lg bg-blue-50">
-                  <CalendarDays className="h-4 w-4 text-blue-600" />
+                <div className="p-2 rounded-lg bg-violet-50">
+                  <CalendarDays className="h-4 w-4 text-violet-500" />
                 </div>
               }
               training={session.training}
@@ -386,11 +386,11 @@ function SendReportTab() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-5">
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
         {/* Report scope */}
         <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">
+          <label className="block text-sm font-semibold text-slate-900 mb-2">
             Report Scope
           </label>
           <div className="space-y-2">
@@ -414,7 +414,7 @@ function SendReportTab() {
                   onChange={() => setScope(opt.value)}
                   className="h-4 w-4 text-blue-600 border-slate-300 focus:ring-blue-500"
                 />
-                <span className="text-sm text-slate-700">{opt.label}</span>
+                <span className="text-sm text-slate-500">{opt.label}</span>
               </label>
             ))}
           </div>
@@ -426,26 +426,26 @@ function SendReportTab() {
         ) : error ? (
           <p className="text-xs text-red-500">{error}</p>
         ) : (
-          <div className="bg-slate-50 rounded-lg p-4">
-            <h4 className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
+          <div className="border border-slate-200 rounded-xl p-4">
+            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
               Report Preview
             </h4>
             <div className="grid grid-cols-3 gap-4 text-center">
               <div>
                 <p className="text-2xl font-bold text-red-600">{expiredCount}</p>
-                <p className="text-xs text-slate-500">Expired / Needed</p>
+                <p className="text-xs text-slate-400">Expired / Needed</p>
               </div>
               <div>
                 <p className="text-2xl font-bold text-amber-600">
                   {expiringSoonCount}
                 </p>
-                <p className="text-xs text-slate-500">Expiring Soon</p>
+                <p className="text-xs text-slate-400">Expiring Soon</p>
               </div>
               <div>
-                <p className="text-2xl font-bold text-slate-700">
+                <p className="text-2xl font-bold text-slate-900">
                   {previewCount}
                 </p>
-                <p className="text-xs text-slate-500">Total in Report</p>
+                <p className="text-xs text-slate-400">Total in Report</p>
               </div>
             </div>
           </div>
@@ -465,19 +465,19 @@ function SendReportTab() {
         {report && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-medium text-slate-700">Generated Report</h4>
+              <h4 className="text-sm font-semibold text-slate-900">Generated Report</h4>
               <button
                 onClick={handleCopy}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold rounded-md border transition-colors ${
                   copied
-                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : "bg-white text-slate-500 border-slate-200 hover:bg-slate-50"
                 }`}
               >
                 {copied ? "Copied!" : "Copy to Clipboard"}
               </button>
             </div>
-            <pre className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-xs text-slate-700 overflow-x-auto whitespace-pre-wrap max-h-80 overflow-y-auto font-mono">
+            <pre className="border border-slate-200 rounded-xl p-4 text-xs text-slate-500 overflow-x-auto whitespace-pre-wrap max-h-80 overflow-y-auto font-mono">
               {report}
             </pre>
             {counts && (
@@ -498,7 +498,7 @@ export default function NotificationsPage() {
   const [tab, setTab] = useState<"alerts" | "send">("alerts");
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-5xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Notifications</h1>
         <p className="text-slate-500 mt-1">
@@ -507,13 +507,13 @@ export default function NotificationsPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex bg-slate-100 rounded-lg p-0.5 w-fit">
+      <div className="flex border border-slate-200 rounded-xl p-0.5 w-fit bg-white">
         <button
           onClick={() => setTab("alerts")}
-          className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
             tab === "alerts"
-              ? "bg-white shadow text-slate-900"
-              : "text-slate-600"
+              ? "bg-slate-900 text-white"
+              : "text-slate-500 hover:text-slate-900"
           }`}
         >
           <span className="inline-flex items-center gap-1.5">
@@ -523,10 +523,10 @@ export default function NotificationsPage() {
         </button>
         <button
           onClick={() => setTab("send")}
-          className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
             tab === "send"
-              ? "bg-white shadow text-slate-900"
-              : "text-slate-600"
+              ? "bg-slate-900 text-white"
+              : "text-slate-500 hover:text-slate-900"
           }`}
         >
           <span className="inline-flex items-center gap-1.5">

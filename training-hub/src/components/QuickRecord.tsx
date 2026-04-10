@@ -7,9 +7,7 @@ import { TRAINING_DEFINITIONS, AUTO_FILL_RULES } from "@/config/trainings";
 interface QuickRecordProps {
   isOpen: boolean;
   onClose: () => void;
-  /** Pre-fill employee name */
   defaultEmployee?: string;
-  /** Pre-fill training column key */
   defaultTraining?: string;
 }
 
@@ -18,7 +16,6 @@ interface Employee {
   position: string;
 }
 
-// Build a human-readable description of what will auto-fill when a training is recorded
 function getLinkedNote(columnKey: string): string {
   const links = AUTO_FILL_RULES.filter(
     (r) => r.source.toUpperCase() === columnKey.toUpperCase()
@@ -34,7 +31,6 @@ function getLinkedNote(columnKey: string): string {
     .join(" · ");
 }
 
-// Today's date in YYYY-MM-DD for date input
 function todayISO(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -54,7 +50,6 @@ export default function QuickRecord({ isOpen, onClose, defaultEmployee = "", def
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Load employees once
   useEffect(() => {
     if (!isOpen) return;
     setLoadingEmployees(true);
@@ -65,7 +60,6 @@ export default function QuickRecord({ isOpen, onClose, defaultEmployee = "", def
       .finally(() => setLoadingEmployees(false));
   }, [isOpen]);
 
-  // Sync default values when opened
   useEffect(() => {
     if (isOpen) {
       setEmployeeSearch(defaultEmployee);
@@ -77,7 +71,6 @@ export default function QuickRecord({ isOpen, onClose, defaultEmployee = "", def
     }
   }, [isOpen, defaultEmployee, defaultTraining]);
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -104,7 +97,6 @@ export default function QuickRecord({ isOpen, onClose, defaultEmployee = "", def
     setSubmitting(true);
     setResult(null);
 
-    // Convert YYYY-MM-DD to M/D/YYYY
     const [y, m, d2] = date.split("-");
     const formattedDate = `${parseInt(m)}/${parseInt(d2)}/${y}`;
 
@@ -123,7 +115,6 @@ export default function QuickRecord({ isOpen, onClose, defaultEmployee = "", def
         setResult({ ok: false, message: body.error || "Failed to record" });
       } else {
         setResult({ ok: true, message: body.message || "Recorded successfully" });
-        // Reset form for next entry, keep employee selected
         setTrainingKey("");
         setDate(todayISO());
       }
@@ -140,21 +131,19 @@ export default function QuickRecord({ isOpen, onClose, defaultEmployee = "", def
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Modal */}
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-slate-200">
         {/* Header */}
-        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-4 flex items-center gap-3">
-          <div className="bg-white/20 rounded-lg p-1.5">
-            <Zap className="h-5 w-5 text-white" />
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-blue-50">
+            <Zap className="h-5 w-5 text-blue-600" />
           </div>
           <div className="flex-1">
-            <h2 className="text-lg font-bold text-white">Quick Record</h2>
-            <p className="text-emerald-100 text-xs">Record a training completion instantly</p>
+            <h2 className="text-lg font-bold text-slate-900">Quick Record</h2>
+            <p className="text-slate-500 text-xs">Record a training completion</p>
           </div>
-          <button onClick={onClose} className="text-white/70 hover:text-white transition-colors">
+          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -162,7 +151,7 @@ export default function QuickRecord({ isOpen, onClose, defaultEmployee = "", def
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
           {/* Employee */}
           <div className="relative" ref={dropdownRef}>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
               Employee
             </label>
             <div className="relative">
@@ -177,8 +166,8 @@ export default function QuickRecord({ isOpen, onClose, defaultEmployee = "", def
                   setShowDropdown(true);
                 }}
                 onFocus={() => setShowDropdown(true)}
-                placeholder="Search by name…"
-                className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                placeholder="Search by name..."
+                className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 autoComplete="off"
               />
               {loadingEmployees && (
@@ -186,13 +175,13 @@ export default function QuickRecord({ isOpen, onClose, defaultEmployee = "", def
               )}
             </div>
             {showDropdown && employeeSearch && filtered.length > 0 && (
-              <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+              <div className="absolute z-10 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
                 {filtered.map((emp) => (
                   <button
                     key={emp.name}
                     type="button"
                     onClick={() => handleEmployeePick(emp.name)}
-                    className="w-full text-left px-4 py-2.5 hover:bg-emerald-50 text-sm transition-colors first:rounded-t-xl last:rounded-b-xl"
+                    className="w-full text-left px-4 py-2.5 hover:bg-blue-50 text-sm transition-colors first:rounded-t-lg last:rounded-b-lg"
                   >
                     <span className="font-medium text-slate-900">{emp.name}</span>
                     {emp.position && <span className="text-slate-400 ml-2 text-xs">{emp.position}</span>}
@@ -204,16 +193,15 @@ export default function QuickRecord({ isOpen, onClose, defaultEmployee = "", def
 
           {/* Training */}
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
               Training
             </label>
             <select
               value={trainingKey}
               onChange={(e) => setTrainingKey(e.target.value)}
-              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+              className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             >
-              <option value="">Select training…</option>
-              {/* Deduplicate by columnKey so each column appears once */}
+              <option value="">Select training...</option>
               {Array.from(
                 new Map(TRAINING_DEFINITIONS.map((t) => [t.columnKey, t])).values()
               ).map((t) => (
@@ -223,7 +211,7 @@ export default function QuickRecord({ isOpen, onClose, defaultEmployee = "", def
               ))}
             </select>
             {linkedNote && (
-              <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1">
+              <p className="text-xs text-blue-600 mt-1.5 flex items-center gap-1">
                 <Zap className="h-3 w-3" /> {linkedNote}
               </p>
             )}
@@ -231,20 +219,20 @@ export default function QuickRecord({ isOpen, onClose, defaultEmployee = "", def
 
           {/* Date */}
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
               Completion Date
             </label>
             <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           {/* Result banner */}
           {result && (
-            <div className={`rounded-xl p-3 flex items-start gap-2 text-sm ${result.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
+            <div className={`rounded-lg p-3 flex items-start gap-2 text-sm ${result.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
               {result.ok
                 ? <Check className="h-4 w-4 shrink-0 mt-0.5" />
                 : <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />}
@@ -257,17 +245,17 @@ export default function QuickRecord({ isOpen, onClose, defaultEmployee = "", def
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+              className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
             >
               {result?.ok ? "Done" : "Cancel"}
             </button>
             <button
               type="submit"
               disabled={submitting || !selectedEmployee || !trainingKey || !date}
-              className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+              className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-              {submitting ? "Recording…" : "Record"}
+              {submitting ? "Recording..." : "Record"}
             </button>
           </div>
         </form>

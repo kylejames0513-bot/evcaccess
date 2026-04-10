@@ -93,42 +93,46 @@ export default function ReviewPage() {
   }
 
   return (
-    <div className="p-3 sm:p-6 max-w-full sm:max-w-6xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Resolution review</h1>
-      <p className="text-gray-600 mb-6">
-        Review queue for import rows the resolver could not match. Resolving a row attaches it to a real employee or training. Resolved trainings also create an alias so future imports pick them up automatically.
-      </p>
+    <div className="space-y-6 max-w-6xl mx-auto">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">Resolution Review</h1>
+        <p className="text-sm text-slate-500 mt-0.5">
+          Review queue for import rows the resolver could not match. Resolving a row attaches it to a real employee or training. Resolved trainings also create an alias so future imports pick them up automatically.
+        </p>
+      </div>
 
-      <div className="border-b mb-4">
+      {/* Tabs */}
+      <div className="border-b border-slate-200">
         <button
           type="button"
           onClick={() => setTab("people")}
-          className={`px-4 py-2 ${tab === "people" ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-600"}`}
+          className={`px-4 py-2 text-sm font-medium ${tab === "people" ? "border-b-2 border-blue-600 text-blue-600" : "text-slate-500 hover:text-slate-700"}`}
         >
           People ({people.length})
         </button>
         <button
           type="button"
           onClick={() => setTab("trainings")}
-          className={`px-4 py-2 ${tab === "trainings" ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-600"}`}
+          className={`px-4 py-2 text-sm font-medium ${tab === "trainings" ? "border-b-2 border-blue-600 text-blue-600" : "text-slate-500 hover:text-slate-700"}`}
         >
           Trainings ({trainings.length})
         </button>
       </div>
 
       {tab === "people" && (
-        <div className="bg-white rounded shadow overflow-x-auto">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-3 py-2 text-left">Source</th>
-                <th className="px-3 py-2 text-left">Name</th>
-                <th className="px-3 py-2 text-left">Paylocity ID</th>
-                <th className="px-3 py-2 text-left">Reason</th>
-                <th className="px-3 py-2 text-left">Resolve to</th>
+            <thead>
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                <th className="px-5 py-3">Source</th>
+                <th className="px-5 py-3">Name</th>
+                <th className="px-5 py-3">Paylocity ID</th>
+                <th className="px-5 py-3">Reason</th>
+                <th className="px-5 py-3">Resolve to</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-100">
               {people.map((row) => (
                 <PersonRow
                   key={row.id}
@@ -138,7 +142,7 @@ export default function ReviewPage() {
                 />
               ))}
               {people.length === 0 && (
-                <tr><td colSpan={5} className="px-3 py-4 text-gray-500">No open items.</td></tr>
+                <tr><td colSpan={5} className="px-5 py-8 text-center text-sm text-slate-400">No open items.</td></tr>
               )}
             </tbody>
           </table>
@@ -146,17 +150,17 @@ export default function ReviewPage() {
       )}
 
       {tab === "trainings" && (
-        <div className="bg-white rounded shadow overflow-x-auto">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
           <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-3 py-2 text-left">Source</th>
-                <th className="px-3 py-2 text-left">Raw name</th>
-                <th className="px-3 py-2 text-right">Occurrences</th>
-                <th className="px-3 py-2 text-left">Resolve to</th>
+            <thead>
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                <th className="px-5 py-3">Source</th>
+                <th className="px-5 py-3">Raw name</th>
+                <th className="px-5 py-3 text-right">Occurrences</th>
+                <th className="px-5 py-3">Resolve to</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-100">
               {trainings.map((row) => (
                 <TrainingRow
                   key={row.id}
@@ -166,7 +170,7 @@ export default function ReviewPage() {
                 />
               ))}
               {trainings.length === 0 && (
-                <tr><td colSpan={4} className="px-3 py-4 text-gray-500">No open items.</td></tr>
+                <tr><td colSpan={4} className="px-5 py-8 text-center text-sm text-slate-400">No open items.</td></tr>
               )}
             </tbody>
           </table>
@@ -187,32 +191,34 @@ function PersonRow({
 }) {
   const [selected, setSelected] = useState(row.suggested_employee_id ?? "");
   return (
-    <tr className="border-t">
-      <td className="px-3 py-2">{row.source}</td>
-      <td className="px-3 py-2">{row.full_name ?? `${row.last_name ?? ""}, ${row.first_name ?? ""}`}</td>
-      <td className="px-3 py-2">{row.paylocity_id ?? ""}</td>
-      <td className="px-3 py-2">{row.reason}</td>
-      <td className="px-3 py-2">
-        <select
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          className="border rounded px-2 py-1 text-sm"
-        >
-          <option value="">Pick employee</option>
-          {employees.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.last_name}, {e.first_name} {e.paylocity_id ? `(${e.paylocity_id})` : ""}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={() => onResolve(selected)}
-          disabled={!selected}
-          className="ml-2 px-2 py-1 bg-blue-600 text-white rounded text-xs disabled:opacity-50"
-        >
-          Resolve
-        </button>
+    <tr className="hover:bg-slate-50">
+      <td className="px-5 py-3 text-slate-500">{row.source}</td>
+      <td className="px-5 py-3 font-medium text-slate-900">{row.full_name ?? `${row.last_name ?? ""}, ${row.first_name ?? ""}`}</td>
+      <td className="px-5 py-3 text-slate-500 font-mono text-xs">{row.paylocity_id ?? ""}</td>
+      <td className="px-5 py-3 text-slate-500">{row.reason}</td>
+      <td className="px-5 py-3">
+        <div className="flex items-center gap-2">
+          <select
+            value={selected}
+            onChange={(e) => setSelected(e.target.value)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          >
+            <option value="">Pick employee</option>
+            {employees.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.last_name}, {e.first_name} {e.paylocity_id ? `(${e.paylocity_id})` : ""}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => onResolve(selected)}
+            disabled={!selected}
+            className="px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
+          >
+            Resolve
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -229,31 +235,33 @@ function TrainingRow({
 }) {
   const [selected, setSelected] = useState<string>(row.suggested_training_type_id?.toString() ?? "");
   return (
-    <tr className="border-t">
-      <td className="px-3 py-2">{row.source}</td>
-      <td className="px-3 py-2 font-mono">{row.raw_name}</td>
-      <td className="px-3 py-2 text-right">{row.occurrence_count}</td>
-      <td className="px-3 py-2">
-        <select
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          className="border rounded px-2 py-1 text-sm"
-        >
-          <option value="">Pick training</option>
-          {trainingTypes.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={() => selected && onResolve(parseInt(selected, 10))}
-          disabled={!selected}
-          className="ml-2 px-2 py-1 bg-blue-600 text-white rounded text-xs disabled:opacity-50"
-        >
-          Resolve + add alias
-        </button>
+    <tr className="hover:bg-slate-50">
+      <td className="px-5 py-3 text-slate-500">{row.source}</td>
+      <td className="px-5 py-3 font-mono text-slate-900">{row.raw_name}</td>
+      <td className="px-5 py-3 text-right text-slate-500">{row.occurrence_count}</td>
+      <td className="px-5 py-3">
+        <div className="flex items-center gap-2">
+          <select
+            value={selected}
+            onChange={(e) => setSelected(e.target.value)}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          >
+            <option value="">Pick training</option>
+            {trainingTypes.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => selected && onResolve(parseInt(selected, 10))}
+            disabled={!selected}
+            className="px-3 py-2 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+          >
+            Resolve + add alias
+          </button>
+        </div>
       </td>
     </tr>
   );

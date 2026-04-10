@@ -86,7 +86,7 @@ export default function NewHiresPage() {
             Employees hired within the last 90 days — {newHires.length} found
           </p>
         </div>
-        <button onClick={doRefresh} disabled={refreshing} className="ml-auto px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-700 text-sm font-medium flex items-center gap-1.5">
+        <button onClick={doRefresh} disabled={refreshing} className="ml-auto px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 text-sm font-medium flex items-center gap-1.5">
           <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
         </button>
       </div>
@@ -100,17 +100,17 @@ export default function NewHiresPage() {
       )}
 
       {newHires.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-12 text-center">
+        <div className="bg-white rounded-xl border border-slate-200 p-12 text-center">
           <CheckCircle className="h-10 w-10 text-emerald-400 mx-auto mb-3" />
           <h3 className="text-sm font-medium text-slate-900">No new hires need attention</h3>
           <p className="text-xs text-slate-400 mt-1">All recent hires have training completions on file.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
+                <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
                   <th className="px-5 py-3">Employee</th>
                   <th className="px-5 py-3">Division</th>
                   <th className="px-5 py-3">Hire Date</th>
@@ -120,13 +120,13 @@ export default function NewHiresPage() {
                   <th className="px-5 py-3 w-28"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-slate-100">
                 {newHires.map((hire) => {
                   const pct = hire.totalTrainings > 0 ? Math.round((hire.completedTrainings / hire.totalTrainings) * 100) : 0;
                   return (
-                    <tr key={hire.name} className="hover:bg-blue-50/30 group">
+                    <tr key={hire.name} className="hover:bg-slate-50 group">
                       <td
-                        className="px-5 py-3 text-sm font-medium text-blue-700 hover:text-blue-900 cursor-pointer"
+                        className="px-5 py-3 text-sm font-medium text-blue-600 hover:text-blue-800 cursor-pointer"
                         onClick={() => setSelectedEmployee(hire.name)}
                       >
                         {hire.name}

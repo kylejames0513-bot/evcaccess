@@ -141,20 +141,22 @@ export default function ImportsPage() {
   }
 
   return (
-    <div className="p-3 sm:p-6 max-w-full sm:max-w-6xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Imports</h1>
-      <p className="text-gray-600 mb-6">
-        Upload a Paylocity, PHS, Access, or sign-in CSV. Preview the result, then commit.
-      </p>
+    <div className="p-3 sm:p-6 max-w-5xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">Imports</h1>
+        <p className="text-sm text-slate-500 mt-1">
+          Upload a Paylocity, PHS, Access, or sign-in CSV. Preview the result, then commit.
+        </p>
+      </div>
 
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
+      <div className="bg-white border border-slate-200 rounded-xl p-5">
         <div className="flex flex-wrap gap-4 items-end mb-4">
           <label className="block">
-            <span className="text-sm font-medium">Source</span>
+            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">Source</span>
             <select
               value={source}
               onChange={(e) => setSource(e.target.value as Source)}
-              className="mt-1 block w-48 rounded border-gray-300"
+              className="block w-48 px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             >
               <option value="paylocity">Paylocity</option>
               <option value="phs">PHS</option>
@@ -163,7 +165,7 @@ export default function ImportsPage() {
             </select>
           </label>
           <label className="block">
-            <span className="text-sm font-medium">CSV or XLSX file</span>
+            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">CSV or XLSX file</span>
             <input
               type="file"
               accept=".csv,.xlsx,.xls"
@@ -171,38 +173,56 @@ export default function ImportsPage() {
                 const f = e.target.files?.[0];
                 if (f) void handleFile(f);
               }}
-              className="mt-1 block"
+              className="block text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border file:border-slate-200 file:text-sm file:font-semibold file:bg-white file:text-slate-700 hover:file:bg-slate-50"
             />
           </label>
           <button
             type="button"
             onClick={preview}
             disabled={parsedRows.length === 0 || previewing}
-            className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
+            className="px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
           >
             {previewing ? "Resolving..." : `Preview ${parsedRows.length} rows`}
           </button>
         </div>
 
-        {error && <div className="text-red-600 text-sm mb-2">{error}</div>}
+        {error && <div className="bg-red-50 text-red-700 border border-red-200 rounded-lg p-3 text-sm mb-2">{error}</div>}
 
         {previewSummary && (
-          <div className="border-t pt-4 mt-4">
-            <h2 className="font-semibold mb-2">Preview</h2>
-            <dl className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm mb-4">
-              <div><dt className="text-gray-500">Rows in</dt><dd>{previewSummary.rows_in}</dd></div>
-              <div><dt className="text-gray-500">Will add</dt><dd className="text-green-700 font-semibold">{previewSummary.rows_added_estimate}</dd></div>
-              <div><dt className="text-gray-500">Skipped (non-training)</dt><dd>{previewSummary.rows_skipped_estimate}</dd></div>
-              <div><dt className="text-gray-500">Unresolved people</dt><dd className="text-amber-700">{previewSummary.unresolved_count}</dd></div>
-              <div><dt className="text-gray-500">Unknown trainings</dt><dd className="text-amber-700">{previewSummary.unknown_count}</dd></div>
-              <div><dt className="text-gray-500">Rehired profiles</dt><dd>{previewSummary.rehired_count}</dd></div>
+          <div className="border-t border-slate-100 pt-5 mt-5">
+            <h2 className="text-sm font-semibold text-slate-900 mb-3">Preview</h2>
+            <dl className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm mb-5">
+              <div>
+                <dt className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Rows in</dt>
+                <dd className="text-slate-900 font-medium mt-0.5">{previewSummary.rows_in}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Will add</dt>
+                <dd className="text-emerald-700 font-semibold mt-0.5">{previewSummary.rows_added_estimate}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Skipped (non-training)</dt>
+                <dd className="text-slate-900 font-medium mt-0.5">{previewSummary.rows_skipped_estimate}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Unresolved people</dt>
+                <dd className="text-amber-700 font-medium mt-0.5">{previewSummary.unresolved_count}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Unknown trainings</dt>
+                <dd className="text-amber-700 font-medium mt-0.5">{previewSummary.unknown_count}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Rehired profiles</dt>
+                <dd className="text-slate-900 font-medium mt-0.5">{previewSummary.rehired_count}</dd>
+              </div>
             </dl>
             <div className="flex gap-2">
               <button
                 type="button"
                 onClick={commit}
                 disabled={committing}
-                className="px-4 py-2 bg-green-600 text-white rounded disabled:opacity-50"
+                className="px-4 py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-sm font-semibold hover:bg-emerald-100 disabled:opacity-50"
               >
                 {committing ? "Committing..." : "Commit to database"}
               </button>
@@ -212,7 +232,7 @@ export default function ImportsPage() {
                   setPreviewId(null);
                   setPreviewSummary(null);
                 }}
-                className="px-4 py-2 bg-gray-200 rounded"
+                className="px-4 py-2.5 border border-slate-200 bg-white rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Discard preview
               </button>
@@ -221,43 +241,45 @@ export default function ImportsPage() {
         )}
       </div>
 
-      <h2 className="text-xl font-bold mb-2">Recent imports</h2>
-      <div className="bg-white rounded-lg shadow overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-3 py-2 text-left">Source</th>
-              <th className="px-3 py-2 text-left">Filename</th>
-              <th className="px-3 py-2 text-left">Status</th>
-              <th className="px-3 py-2 text-right">Rows in</th>
-              <th className="px-3 py-2 text-right">Added</th>
-              <th className="px-3 py-2 text-right">Unresolved</th>
-              <th className="px-3 py-2 text-right">Unknown</th>
-              <th className="px-3 py-2 text-left">Started</th>
-            </tr>
-          </thead>
-          <tbody>
-            {imports.map((row) => (
-              <tr key={row.id} className="border-t">
-                <td className="px-3 py-2">{row.source}</td>
-                <td className="px-3 py-2">{row.filename ?? ""}</td>
-                <td className="px-3 py-2">{row.status}</td>
-                <td className="px-3 py-2 text-right">{row.rows_in ?? ""}</td>
-                <td className="px-3 py-2 text-right">{row.rows_added ?? ""}</td>
-                <td className="px-3 py-2 text-right">{row.rows_unresolved ?? ""}</td>
-                <td className="px-3 py-2 text-right">{row.rows_unknown ?? ""}</td>
-                <td className="px-3 py-2">{new Date(row.started_at).toLocaleString()}</td>
+      <div>
+        <h2 className="text-lg font-bold text-slate-900 mb-3">Recent imports</h2>
+        <div className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50">
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Source</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Filename</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Status</th>
+                <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Rows in</th>
+                <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Added</th>
+                <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Unresolved</th>
+                <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Unknown</th>
+                <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Started</th>
               </tr>
-            ))}
-            {imports.length === 0 && (
-              <tr>
-                <td className="px-3 py-2 text-gray-500" colSpan={8}>
-                  No imports yet.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {imports.map((row) => (
+                <tr key={row.id} className="hover:bg-slate-50">
+                  <td className="px-3 py-2.5 text-slate-900">{row.source}</td>
+                  <td className="px-3 py-2.5 text-slate-900">{row.filename ?? ""}</td>
+                  <td className="px-3 py-2.5 text-slate-900">{row.status}</td>
+                  <td className="px-3 py-2.5 text-right text-slate-900">{row.rows_in ?? ""}</td>
+                  <td className="px-3 py-2.5 text-right text-slate-900">{row.rows_added ?? ""}</td>
+                  <td className="px-3 py-2.5 text-right text-slate-900">{row.rows_unresolved ?? ""}</td>
+                  <td className="px-3 py-2.5 text-right text-slate-900">{row.rows_unknown ?? ""}</td>
+                  <td className="px-3 py-2.5 text-slate-500">{new Date(row.started_at).toLocaleString()}</td>
+                </tr>
+              ))}
+              {imports.length === 0 && (
+                <tr>
+                  <td className="px-3 py-4 text-slate-400 text-center" colSpan={8}>
+                    No imports yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

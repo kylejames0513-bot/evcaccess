@@ -20,27 +20,31 @@ import {
   Upload,
   ListChecks,
   PenLine,
+  LogOut,
 } from "lucide-react";
 
 const mainNav = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
   { href: "/employees", label: "Employees", icon: Users },
-  { href: "/imports", label: "Imports", icon: Upload },
-  { href: "/review", label: "Review queue", icon: ListChecks },
   { href: "/schedule", label: "Schedule", icon: CalendarPlus },
   { href: "/attendance", label: "Attendance", icon: UserCheck },
   { href: "/records", label: "Records", icon: FileText },
-  { href: "/reports", label: "Reports", icon: BarChart3 },
-  { href: "/notifications", label: "Notifications", icon: Bell },
-  { href: "/new-hires", label: "New Hires", icon: UserPlus },
 ];
 
-const secondaryNav = [
+const workflowNav = [
+  { href: "/imports", label: "Imports", icon: Upload },
+  { href: "/review", label: "Review Queue", icon: ListChecks },
+  { href: "/new-hires", label: "New Hires", icon: UserPlus },
+  { href: "/reports", label: "Reports", icon: BarChart3 },
+  { href: "/notifications", label: "Notifications", icon: Bell },
+];
+
+const systemNav = [
   { href: "/trainings", label: "Training Types", icon: GraduationCap },
   { href: "/data-health", label: "Data Quality", icon: HeartPulse },
   { href: "/sync", label: "Sync", icon: RefreshCw },
-  { href: "/signin", label: "Public sign in", icon: PenLine },
+  { href: "/signin", label: "Public Sign In", icon: PenLine },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -58,49 +62,49 @@ export default function Sidebar({ onQuickRecord }: SidebarProps) {
       <Link
         key={item.href}
         href={item.href}
-        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-[13px] font-medium transition-all ${
           isActive
-            ? "bg-white/15 text-white shadow-sm"
-            : "text-blue-100 hover:bg-white/10 hover:text-white"
+            ? "bg-blue-50 text-blue-700 font-semibold"
+            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
         }`}
       >
-        <Icon className="h-5 w-5 flex-shrink-0" />
+        <Icon className={`h-[18px] w-[18px] flex-shrink-0 ${isActive ? "text-blue-600" : "text-slate-400"}`} />
         {item.label}
       </Link>
     );
   }
 
   return (
-    <aside className="hidden lg:flex lg:flex-col lg:w-60 bg-gradient-to-b from-[#1e3a5f] to-[#0f172a]">
+    <aside className="hidden lg:flex lg:flex-col lg:w-[240px] bg-white border-r border-slate-200/80 h-full">
       {/* Logo */}
-      <div className="px-5 py-5">
+      <div className="px-5 py-5 border-b border-slate-100">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center">
-            <GraduationCap className="h-5 w-5 text-white" />
+          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
+            <GraduationCap className="h-[18px] w-[18px] text-white" />
           </div>
           <div>
-            <h1 className="text-base font-bold text-white leading-tight">EVC Training</h1>
-            <p className="text-[11px] text-blue-200/70">Emory Valley Center</p>
+            <h1 className="text-[15px] font-bold text-slate-900 leading-tight">EVC Training</h1>
+            <p className="text-[11px] text-slate-400 font-medium">Emory Valley Center</p>
           </div>
         </div>
       </div>
 
       {/* Quick Record button */}
-      <div className="px-3 mb-3">
+      <div className="px-4 py-3">
         <button
           onClick={onQuickRecord}
-          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-semibold transition-colors shadow-lg shadow-emerald-900/30"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors shadow-sm"
         >
           <Zap className="h-4 w-4 shrink-0" />
           Record Training
         </button>
       </div>
 
-      {/* Main nav */}
-      <nav className="flex-1 px-3 space-y-6 overflow-y-auto">
+      {/* Navigation */}
+      <nav className="flex-1 px-3 overflow-y-auto space-y-5 pb-4">
         <div>
-          <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-blue-300/50">
-            Main
+          <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Core
           </p>
           <div className="space-y-0.5">
             {mainNav.map(navLink)}
@@ -108,29 +112,39 @@ export default function Sidebar({ onQuickRecord }: SidebarProps) {
         </div>
 
         <div>
-          <p className="px-3 mb-2 text-[10px] font-semibold uppercase tracking-wider text-blue-300/50">
-            More
+          <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Workflow
           </p>
           <div className="space-y-0.5">
-            {secondaryNav.map(navLink)}
+            {workflowNav.map(navLink)}
+          </div>
+        </div>
+
+        <div>
+          <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            System
+          </p>
+          <div className="space-y-0.5">
+            {systemNav.map(navLink)}
           </div>
         </div>
       </nav>
 
       {/* Footer */}
-      <div className="px-5 py-4 border-t border-white/10 flex items-center justify-between">
+      <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between">
         <div>
-          <p className="text-xs font-medium text-blue-200/80">HR Admin</p>
-          <p className="text-[11px] text-blue-300/50">Kyle Mahoney</p>
+          <p className="text-xs font-semibold text-slate-700">Kyle Mahoney</p>
+          <p className="text-[11px] text-slate-400">HR Admin</p>
         </div>
         <button
           onClick={async () => {
             await fetch("/api/auth", { method: "DELETE" });
             window.location.href = "/login";
           }}
-          className="text-[11px] text-blue-300/50 hover:text-white transition-colors"
+          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          title="Logout"
         >
-          Logout
+          <LogOut className="h-4 w-4" />
         </button>
       </div>
     </aside>

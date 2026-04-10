@@ -89,7 +89,7 @@ export default function RecordsPage() {
             placeholder="Search attendee, training, or source..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-72"
+            className="pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-72"
           />
         </div>
         <span className="ml-auto text-xs text-slate-400">
@@ -98,11 +98,11 @@ export default function RecordsPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full table-striped">
+          <table className="w-full">
             <thead>
-              <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
                 <th className="px-5 py-3">Attendee</th>
                 <th className="px-5 py-3">Training</th>
                 <th className="px-5 py-3">Date</th>
@@ -110,9 +110,9 @@ export default function RecordsPage() {
                 <th className="px-5 py-3">Notes</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-slate-100">
               {filtered.map((r) => (
-                <tr key={r.id} className="hover:bg-blue-50/30">
+                <tr key={r.id} className="hover:bg-slate-50">
                   <td className="px-5 py-3 text-sm text-slate-700">{r.attendee || "\u2014"}</td>
                   <td className="px-5 py-3 text-sm font-medium text-slate-900">{r.session || "\u2014"}</td>
                   <td className="px-5 py-3 text-sm text-slate-500">{formatDate(r.date)}</td>

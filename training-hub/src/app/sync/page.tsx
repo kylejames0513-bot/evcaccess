@@ -132,7 +132,7 @@ export default function SyncPage() {
           <button
             onClick={refreshAll}
             disabled={refreshing}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
             <RefreshCw
               className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
@@ -186,7 +186,7 @@ export default function SyncPage() {
             {recentSyncs.map((entry) => (
               <div
                 key={entry.timestamp}
-                className="px-5 py-3 flex items-center gap-3 text-sm"
+                className="px-5 py-3 flex items-center gap-3 text-sm hover:bg-slate-50"
               >
                 {entry.errors > 0 ? (
                   <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />

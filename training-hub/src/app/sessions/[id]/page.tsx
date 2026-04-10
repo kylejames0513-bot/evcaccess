@@ -132,8 +132,8 @@ export default function SessionReviewPage({ params }: { params: Promise<{ id: st
     void load();
   }
 
-  if (error) return <div className="p-6 text-red-600">{error}</div>;
-  if (!data) return <div className="p-6 text-gray-500">Loading session...</div>;
+  if (error) return <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700 m-6">{error}</div>;
+  if (!data) return <div className="p-6 text-slate-400">Loading session...</div>;
 
   const s = data.session;
   const isArchived = s.status === "completed";
@@ -143,67 +143,67 @@ export default function SessionReviewPage({ params }: { params: Promise<{ id: st
   const noShowCount = Object.values(statuses).filter(v => v === "no_show").length;
 
   return (
-    <div className="p-3 sm:p-6 max-w-full sm:max-w-4xl mx-auto">
+    <div className="max-w-5xl mx-auto space-y-6 p-3 sm:p-6">
       {/* Header */}
-      <div className="bg-white rounded-lg shadow p-4 mb-4">
+      <div className="bg-white rounded-xl border border-slate-200 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold">{s.training_name}</h1>
-            <p className="text-sm text-gray-500">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900">{s.training_name}</h1>
+            <p className="text-sm text-slate-500">
               {s.session_date} {s.start_time ? `at ${s.start_time}` : ""} {s.location ? `in ${s.location}` : ""}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`text-xs rounded-full px-3 py-1 font-semibold ${isArchived ? "bg-gray-100 text-gray-600" : "bg-green-100 text-green-700"}`}>
+            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md border ${isArchived ? "bg-slate-50 text-slate-500 border-slate-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"}`}>
               {isArchived ? "Archived" : "Scheduled"}
             </span>
             {isArchived ? (
-              <button type="button" onClick={reopenSession} className="flex items-center gap-1 text-xs px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg font-semibold">
+              <button type="button" onClick={reopenSession} className="flex items-center gap-1 text-xs px-3 py-1.5 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 font-semibold text-slate-900">
                 <RotateCcw className="h-3.5 w-3.5" /> Reopen
               </button>
             ) : (
-              <button type="button" onClick={archiveSession} className="flex items-center gap-1 text-xs px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg font-semibold">
+              <button type="button" onClick={archiveSession} className="flex items-center gap-1 text-xs px-3 py-1.5 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 font-semibold text-slate-900">
                 <Archive className="h-3.5 w-3.5" /> Archive
               </button>
             )}
           </div>
         </div>
         <div className="flex gap-4 mt-3 text-sm">
-          <span className="text-green-700 font-semibold">{passedCount} passed</span>
+          <span className="text-emerald-700 font-semibold">{passedCount} passed</span>
           <span className="text-red-700 font-semibold">{failedCount} failed</span>
           <span className="text-amber-700 font-semibold">{noShowCount} no-show</span>
-          <span className="text-gray-500">{data.enrollees.length} enrolled</span>
+          <span className="text-slate-500">{data.enrollees.length} enrolled</span>
         </div>
       </div>
 
       {/* Enrollees */}
-      <div className="bg-white rounded-lg shadow overflow-hidden mb-4">
-        <div className="px-4 py-3 bg-gray-50 border-b">
-          <h2 className="font-semibold text-sm">Enrolled attendees</h2>
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Enrolled attendees</h2>
         </div>
-        <div className="divide-y">
+        <div className="divide-y divide-slate-100">
           {data.enrollees.map(e => (
-            <div key={e.employee_id} className="p-3 sm:p-4">
+            <div key={e.employee_id} className="p-3 sm:p-4 hover:bg-slate-50">
               <div className="flex flex-wrap items-center gap-2 mb-2">
-                <Link href={`/employees/${e.employee_id}`} className="font-medium text-blue-600 hover:underline text-sm">
+                <Link href={`/employees/${e.employee_id}`} className="font-medium text-blue-600 hover:text-blue-800 text-sm">
                   {e.last_name}, {e.first_name}
                 </Link>
-                {e.paylocity_id && <span className="text-xs text-gray-400">{e.paylocity_id}</span>}
-                {e.department && <span className="text-xs text-gray-400">{e.department}</span>}
+                {e.paylocity_id && <span className="text-xs text-slate-400">{e.paylocity_id}</span>}
+                {e.department && <span className="text-xs text-slate-400">{e.department}</span>}
                 {e.signed_in && (
-                  <span className="text-xs bg-green-50 text-green-700 rounded px-1.5 py-0.5">
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md border bg-emerald-50 text-emerald-700 border-emerald-200">
                     Signed in {e.signin_time ?? ""}
                   </span>
                 )}
                 {!e.signed_in && (
-                  <span className="text-xs bg-red-50 text-red-600 rounded px-1.5 py-0.5">
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md border bg-red-50 text-red-700 border-red-200">
                     Did not sign in
                   </span>
                 )}
               </div>
               {!isArchived && (
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusButton current={statuses[e.employee_id]} value="passed" label="Pass" color="green"
+                  <StatusButton current={statuses[e.employee_id]} value="passed" label="Pass" color="emerald"
                     icon={<CheckCircle className="h-3.5 w-3.5" />}
                     onClick={() => setStatuses({ ...statuses, [e.employee_id]: "passed" })} />
                   <StatusButton current={statuses[e.employee_id]} value="failed" label="Fail" color="red"
@@ -215,15 +215,15 @@ export default function SessionReviewPage({ params }: { params: Promise<{ id: st
                   <input type="text" placeholder="Notes..."
                     value={notes[e.employee_id] ?? ""}
                     onChange={ev => setNotes({ ...notes, [e.employee_id]: ev.target.value })}
-                    className="text-xs rounded border-gray-200 px-2 py-1.5 flex-1 min-w-[120px]" />
+                    className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white flex-1 min-w-[120px]" />
                 </div>
               )}
               {isArchived && (
-                <span className={`text-xs font-semibold rounded px-2 py-0.5 ${
-                  e.enrollment_status === "passed" || e.enrollment_status === "attended" ? "bg-green-100 text-green-700" :
-                  e.enrollment_status === "failed" ? "bg-red-100 text-red-700" :
-                  e.enrollment_status === "no_show" ? "bg-amber-100 text-amber-700" :
-                  "bg-gray-100 text-gray-600"
+                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md border ${
+                  e.enrollment_status === "passed" || e.enrollment_status === "attended" ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                  e.enrollment_status === "failed" ? "bg-red-50 text-red-700 border-red-200" :
+                  e.enrollment_status === "no_show" ? "bg-amber-50 text-amber-700 border-amber-200" :
+                  "bg-slate-50 text-slate-500 border-slate-200"
                 }`}>
                   {e.enrollment_status}
                 </span>
@@ -231,22 +231,22 @@ export default function SessionReviewPage({ params }: { params: Promise<{ id: st
             </div>
           ))}
           {data.enrollees.length === 0 && (
-            <div className="p-4 text-sm text-gray-500">No one enrolled in this session.</div>
+            <div className="p-4 text-sm text-slate-400">No one enrolled in this session.</div>
           )}
         </div>
       </div>
 
       {/* Walk-ins */}
       {data.walk_ins.length > 0 && (
-        <div className="bg-white rounded-lg shadow overflow-hidden mb-4">
-          <div className="px-4 py-3 bg-blue-50 border-b">
-            <h2 className="font-semibold text-sm text-blue-800">Walk-ins (signed in but not enrolled)</h2>
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div className="px-4 py-3 bg-blue-50 border-b border-slate-100">
+            <h2 className="text-[11px] font-semibold uppercase tracking-wider text-blue-700">Walk-ins (signed in but not enrolled)</h2>
           </div>
-          <div className="divide-y">
+          <div className="divide-y divide-slate-100">
             {data.walk_ins.map(w => (
-              <div key={w.employee_id} className="p-3 flex items-center gap-2 text-sm">
-                <span className="font-medium">{w.last_name}, {w.first_name}</span>
-                <span className="text-xs bg-green-50 text-green-700 rounded px-1.5 py-0.5">Signed in {w.signin_time ?? ""}</span>
+              <div key={w.employee_id} className="p-3 flex items-center gap-2 text-sm hover:bg-slate-50">
+                <span className="font-medium text-slate-900">{w.last_name}, {w.first_name}</span>
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md border bg-emerald-50 text-emerald-700 border-emerald-200">Signed in {w.signin_time ?? ""}</span>
               </div>
             ))}
           </div>
@@ -255,19 +255,19 @@ export default function SessionReviewPage({ params }: { params: Promise<{ id: st
 
       {/* No-show suggestions */}
       {noShows.length > 0 && data.next_sessions.length > 0 && !isArchived && (
-        <div className="bg-amber-50 rounded-lg border border-amber-200 p-4 mb-4">
-          <h3 className="font-semibold text-sm text-amber-800 mb-2 flex items-center gap-1">
+        <div className="bg-amber-50 rounded-xl border border-amber-200 p-4">
+          <h3 className="text-sm font-semibold text-amber-800 mb-2 flex items-center gap-1">
             <AlertTriangle className="h-4 w-4" /> No-shows: add to next session?
           </h3>
           <div className="space-y-2">
             {noShows.map(ns => (
               <div key={ns.employee_id} className="flex flex-wrap items-center gap-2 text-sm">
-                <span>{ns.last_name}, {ns.first_name}</span>
-                <span className="text-gray-400">Add to:</span>
+                <span className="text-slate-900">{ns.last_name}, {ns.first_name}</span>
+                <span className="text-slate-400">Add to:</span>
                 {data.next_sessions.map(next => (
                   <button key={next.id} type="button"
                     onClick={() => addToNextSession(ns.employee_id, next.id)}
-                    className="inline-flex items-center gap-1 text-xs bg-white border border-amber-300 rounded px-2 py-1 text-amber-800 hover:bg-amber-100">
+                    className="inline-flex items-center gap-1 text-xs border border-amber-200 bg-white rounded-lg px-2 py-1 text-amber-800 hover:bg-amber-100 font-semibold">
                     <UserPlus className="h-3 w-3" />
                     {next.session_date}
                   </button>
@@ -282,12 +282,12 @@ export default function SessionReviewPage({ params }: { params: Promise<{ id: st
       {!isArchived && (
         <div className="flex flex-wrap gap-3">
           <button type="button" onClick={saveReview} disabled={saving}
-            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50 shadow">
+            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-semibold text-sm hover:bg-blue-700 disabled:opacity-50">
             {saving ? "Saving..." : "Save review"}
           </button>
-          {saved && <span className="text-green-600 text-sm self-center">Saved.</span>}
+          {saved && <span className="text-emerald-600 text-sm self-center">Saved.</span>}
           <button type="button" onClick={archiveSession}
-            className="px-4 py-2.5 bg-gray-100 text-gray-600 rounded-lg font-semibold text-sm flex items-center gap-1">
+            className="px-4 py-2.5 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 font-semibold text-sm text-slate-900 flex items-center gap-1">
             <Archive className="h-4 w-4" /> Save and archive
           </button>
         </div>
@@ -301,7 +301,7 @@ function StatusButton({ current, value, label, color, icon, onClick }: {
 }) {
   const active = current === value;
   const colors: Record<string, { active: string; inactive: string }> = {
-    green: { active: "bg-green-600 text-white", inactive: "bg-green-50 text-green-700 border border-green-200" },
+    emerald: { active: "bg-emerald-600 text-white", inactive: "bg-emerald-50 text-emerald-700 border border-emerald-200" },
     red: { active: "bg-red-600 text-white", inactive: "bg-red-50 text-red-700 border border-red-200" },
     amber: { active: "bg-amber-600 text-white", inactive: "bg-amber-50 text-amber-700 border border-amber-200" },
   };

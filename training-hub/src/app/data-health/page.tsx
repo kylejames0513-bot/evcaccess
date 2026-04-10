@@ -60,8 +60,8 @@ function Section({
           onClick={() => setOpen(!open)}
           className="flex items-center gap-3 flex-1 text-left hover:opacity-80 transition-opacity"
         >
-          <Icon className="h-4 w-4 text-slate-500 shrink-0" />
-          <span className="text-sm font-semibold text-slate-800">{title}</span>
+          <Icon className="h-4 w-4 text-slate-400 shrink-0" />
+          <span className="text-sm font-semibold text-slate-900">{title}</span>
           <span
             className={`text-xs font-medium px-2 py-0.5 rounded-full ${
               count > 0 ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"
@@ -182,7 +182,7 @@ export default function DataHealthPage() {
         <button
           onClick={doRefresh}
           disabled={refreshing}
-          className="inline-flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white text-slate-600 hover:text-slate-900 text-sm font-medium rounded-lg"
+          className="inline-flex items-center gap-2 px-3 py-2 border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-sm font-medium rounded-lg"
         >
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
           Rescan
@@ -229,7 +229,7 @@ export default function DataHealthPage() {
         {issues.missingDepartment.length > 0 ? (
           <ul className="text-sm text-slate-700 space-y-1">
             {issues.missingDepartment.map((e) => (
-              <li key={e.id} className="px-3 py-1.5 rounded bg-slate-50">
+              <li key={e.id} className="px-3 py-1.5 rounded-lg bg-slate-50">
                 {e.name}
               </li>
             ))}
@@ -248,7 +248,7 @@ export default function DataHealthPage() {
         {issues.missingHireDate.length > 0 ? (
           <ul className="text-sm text-slate-700 space-y-1">
             {issues.missingHireDate.map((e) => (
-              <li key={e.id} className="px-3 py-1.5 rounded bg-slate-50">
+              <li key={e.id} className="px-3 py-1.5 rounded-lg bg-slate-50">
                 {e.name}
               </li>
             ))}
@@ -269,7 +269,7 @@ export default function DataHealthPage() {
             {issues.badDates.map((r) => (
               <li
                 key={r.recordId}
-                className="flex items-center justify-between px-3 py-2 rounded bg-slate-50"
+                className="flex items-center justify-between px-3 py-2 rounded-lg bg-slate-50"
               >
                 <span>
                   Record <code className="text-xs">{r.recordId.slice(0, 8)}…</code> —{" "}
@@ -278,7 +278,7 @@ export default function DataHealthPage() {
                 <button
                   onClick={() => deleteBadDateRecord(r.recordId)}
                   disabled={busy === `bad_date_${r.recordId}`}
-                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50"
+                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-lg bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50"
                 >
                   {busy === `bad_date_${r.recordId}` ? (
                     <Loader2 className="h-3 w-3 animate-spin" />
@@ -308,7 +308,7 @@ export default function DataHealthPage() {
               return (
                 <div
                   key={dup.name}
-                  className="border border-slate-200 rounded-lg p-3 bg-slate-50"
+                  className="border border-slate-200 rounded-xl p-3 bg-slate-50"
                 >
                   <p className="text-sm font-semibold text-slate-900 mb-2">
                     {dup.name}
@@ -334,7 +334,7 @@ export default function DataHealthPage() {
                   <button
                     onClick={() => mergeDuplicates(dup.name, dup.ids)}
                     disabled={!selectedKeep || busy === `dup_${dup.name}`}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
                   >
                     {busy === `dup_${dup.name}` ? (
                       <Loader2 className="h-3 w-3 animate-spin" />

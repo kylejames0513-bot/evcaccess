@@ -44,17 +44,10 @@ function StatusIcon({ status }: { status: ComplianceStatus }) {
   return <Info className="h-4 w-4 text-blue-500 shrink-0" />;
 }
 
-function statusLabel(status: ComplianceStatus): string {
-  if (status === "expired") return "Expired";
-  if (status === "expiring_soon") return "Expiring Soon";
-  if (status === "needed") return "Needed";
-  return status;
-}
-
 function statusColor(status: ComplianceStatus): string {
-  if (status === "expired") return "bg-red-100 text-red-700";
-  if (status === "expiring_soon") return "bg-amber-100 text-amber-700";
-  return "bg-blue-100 text-blue-700";
+  if (status === "expired") return "bg-red-50 text-red-700 border border-red-200";
+  if (status === "expiring_soon") return "bg-amber-50 text-amber-700 border border-amber-200";
+  return "bg-blue-50 text-blue-700 border border-blue-200";
 }
 
 function formatExpiry(dateStr: string | null): string {
@@ -99,7 +92,7 @@ export default function DashboardPage() {
     setQuickRecordOpen(true);
   }
 
-  if (loading) return <Loading message="Loading dashboard…" />;
+  if (loading) return <Loading message="Loading dashboard..." />;
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
 
@@ -115,24 +108,24 @@ export default function DashboardPage() {
   return (
     <>
       <div className="space-y-6 max-w-7xl mx-auto">
-        {/* ── Header ── */}
+        {/* Header */}
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
-            <p className="text-sm text-slate-400">{todayStr}</p>
-            <h1 className="text-2xl font-bold text-slate-900 mt-0.5">{greeting} 👋</h1>
+            <p className="text-sm text-slate-400 font-medium">{todayStr}</p>
+            <h1 className="text-2xl font-bold text-slate-900 mt-0.5">{greeting}</h1>
             <p className="text-sm text-slate-500 mt-0.5">Training compliance overview for Emory Valley Center</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => openQuickRecord()}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors shadow-sm"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors shadow-sm"
             >
               <Zap className="h-4 w-4" /> Record Training
             </button>
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-slate-700 text-sm font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:border-slate-300 text-sm font-medium transition-colors"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
               Refresh
@@ -140,17 +133,17 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ── Stat row ── */}
+        {/* Stat row */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           {/* Compliance ring */}
-          <div className="col-span-2 sm:col-span-1 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center gap-4">
+          <div className="col-span-2 sm:col-span-1 bg-white rounded-xl border border-slate-200 p-5 flex items-center gap-4">
             <div className="relative w-16 h-16 shrink-0">
               <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e2e8f0" strokeWidth="3" />
+                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e2e8f0" strokeWidth="2.5" />
                 <circle
                   cx="18" cy="18" r="15.9" fill="none"
                   stroke={complianceRate >= 80 ? "#10b981" : complianceRate >= 60 ? "#f59e0b" : "#ef4444"}
-                  strokeWidth="3"
+                  strokeWidth="2.5"
                   strokeDasharray={`${complianceRate} ${100 - complianceRate}`}
                   strokeLinecap="round"
                 />
@@ -161,78 +154,43 @@ export default function DashboardPage() {
             </div>
             <div>
               <p className="text-2xl font-bold text-slate-900">{stats.fullyCompliant}</p>
-              <p className="text-xs text-slate-500">Compliant</p>
+              <p className="text-xs text-slate-500 font-medium">Compliant</p>
               <p className="text-[11px] text-slate-400">{stats.totalEmployees} total</p>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-8 h-8 rounded-lg bg-red-100 flex items-center justify-center">
-                <XCircle className="h-4 w-4 text-red-600" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-red-600">{stats.expired}</p>
-            <p className="text-xs text-slate-500 mt-0.5">Expired</p>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
-                <AlertTriangle className="h-4 w-4 text-amber-600" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-amber-600">{stats.expiringSoon}</p>
-            <p className="text-xs text-slate-500 mt-0.5">Expiring Soon</p>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                <Info className="h-4 w-4 text-blue-600" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-blue-600">{stats.needed}</p>
-            <p className="text-xs text-slate-500 mt-0.5">Needs Training</p>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
-                <CalendarDays className="h-4 w-4 text-purple-600" />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-purple-600">{stats.upcomingSessions}</p>
-            <p className="text-xs text-slate-500 mt-0.5">Scheduled Sessions</p>
-          </div>
+          <StatTile icon={XCircle} value={stats.expired} label="Expired" color="red" />
+          <StatTile icon={AlertTriangle} value={stats.expiringSoon} label="Expiring Soon" color="amber" />
+          <StatTile icon={Info} value={stats.needed} label="Needs Training" color="blue" />
+          <StatTile icon={CalendarDays} value={stats.upcomingSessions} label="Scheduled" color="violet" />
         </div>
 
-        {/* ── Two-column section ── */}
+        {/* Two-column section */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Urgent issues */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 text-red-500" />
                 <h2 className="text-sm font-semibold text-slate-900">Action Required</h2>
                 {urgentIssues.length > 0 && (
-                  <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-[10px] font-bold rounded-full">
+                  <span className="px-1.5 py-0.5 bg-red-50 text-red-600 text-[10px] font-bold rounded-full border border-red-200">
                     {urgentIssues.length}
                   </span>
                 )}
               </div>
-              <Link href="/compliance" className="text-xs text-blue-600 hover:underline flex items-center gap-0.5">
+              <Link href="/compliance" className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-0.5">
                 View all <ChevronRight className="h-3 w-3" />
               </Link>
             </div>
             {urgentIssues.length === 0 ? (
-              <div className="py-10 text-center">
-                <CheckCircle2 className="h-10 w-10 mx-auto text-emerald-400 mb-2" />
-                <p className="text-sm font-medium text-slate-700">All caught up!</p>
+              <div className="py-12 text-center">
+                <CheckCircle2 className="h-10 w-10 mx-auto text-emerald-300 mb-2" />
+                <p className="text-sm font-medium text-slate-600">All caught up!</p>
                 <p className="text-xs text-slate-400 mt-0.5">No expired or expiring trainings</p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-50">
+              <div className="divide-y divide-slate-100">
                 {urgentIssues.slice(0, 6).map((issue, i) => (
                   <div key={i} className="px-5 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors group">
                     <StatusIcon status={issue.status} />
@@ -242,13 +200,13 @@ export default function DashboardPage() {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {issue.expirationDate && (
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusColor(issue.status)}`}>
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${statusColor(issue.status)}`}>
                           {formatExpiry(issue.expirationDate)}
                         </span>
                       )}
                       <button
                         onClick={() => openQuickRecord(issue.employee, issue.training)}
-                        className="opacity-0 group-hover:opacity-100 px-2.5 py-1 text-[11px] font-medium rounded-lg bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-all"
+                        className="opacity-0 group-hover:opacity-100 px-2.5 py-1 text-[11px] font-medium rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all"
                       >
                         Record
                       </button>
@@ -260,18 +218,18 @@ export default function DashboardPage() {
           </div>
 
           {/* Upcoming sessions */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <CalendarDays className="h-4 w-4 text-purple-500" />
+                <CalendarDays className="h-4 w-4 text-violet-500" />
                 <h2 className="text-sm font-semibold text-slate-900">Upcoming Sessions</h2>
               </div>
-              <Link href="/schedule" className="text-xs text-blue-600 hover:underline flex items-center gap-0.5">
+              <Link href="/schedule" className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-0.5">
                 Schedule <ChevronRight className="h-3 w-3" />
               </Link>
             </div>
             {upcoming.length === 0 ? (
-              <div className="py-10 text-center">
+              <div className="py-12 text-center">
                 <Clock className="h-10 w-10 mx-auto text-slate-300 mb-2" />
                 <p className="text-sm font-medium text-slate-600">No upcoming sessions</p>
                 <Link href="/schedule" className="text-xs text-blue-600 hover:underline mt-1 block">
@@ -279,7 +237,7 @@ export default function DashboardPage() {
                 </Link>
               </div>
             ) : (
-              <div className="divide-y divide-slate-50">
+              <div className="divide-y divide-slate-100">
                 {upcoming.map((session, i) => {
                   const pct = session.capacity > 0 ? Math.round((session.enrolled.length / session.capacity) * 100) : 0;
                   const isFull = session.enrolled.length >= session.capacity;
@@ -293,14 +251,13 @@ export default function DashboardPage() {
                             {session.time && <span className="text-xs text-slate-400">at {session.time}</span>}
                           </div>
                         </div>
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${isFull ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-md shrink-0 border ${isFull ? "bg-red-50 text-red-600 border-red-200" : "bg-slate-50 text-slate-600 border-slate-200"}`}>
                           {session.enrolled.length}/{session.capacity}
                         </span>
                       </div>
-                      {/* capacity bar */}
-                      <div className="mt-2 h-1 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                         <div
-                          className={`h-full rounded-full transition-all ${isFull ? "bg-red-400" : "bg-purple-400"}`}
+                          className={`h-full rounded-full transition-all ${isFull ? "bg-red-400" : "bg-violet-400"}`}
                           style={{ width: `${Math.min(pct, 100)}%` }}
                         />
                       </div>
@@ -312,19 +269,19 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ── Source status strip ── */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-4 flex items-center gap-6 flex-wrap">
+        {/* Source status strip */}
+        <div className="bg-white rounded-xl border border-slate-200 px-5 py-3.5 flex items-center gap-6 flex-wrap">
           <div className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4 text-slate-400" />
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Data Sources</span>
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Data Sources</span>
           </div>
           <Link href="/paylocity-audit" className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-blue-700 transition-colors">
             <span className="w-2 h-2 rounded-full bg-blue-400"></span>
             Paylocity Audit
             <ChevronRight className="h-3 w-3" />
           </Link>
-          <Link href="/phs-import" className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-purple-700 transition-colors">
-            <span className="w-2 h-2 rounded-full bg-purple-400"></span>
+          <Link href="/phs-import" className="flex items-center gap-1.5 text-sm text-slate-600 hover:text-violet-700 transition-colors">
+            <span className="w-2 h-2 rounded-full bg-violet-400"></span>
             PHS Import
             <ChevronRight className="h-3 w-3" />
           </Link>
@@ -350,5 +307,26 @@ export default function DashboardPage() {
         defaultTraining={quickRecordTraining}
       />
     </>
+  );
+}
+
+function StatTile({ icon: Icon, value, label, color }: { icon: React.ComponentType<{ className?: string }>; value: number; label: string; color: string }) {
+  const colorMap: Record<string, { bg: string; text: string; iconBg: string }> = {
+    red:    { bg: "bg-white", text: "text-red-600",    iconBg: "bg-red-50" },
+    amber:  { bg: "bg-white", text: "text-amber-600",  iconBg: "bg-amber-50" },
+    blue:   { bg: "bg-white", text: "text-blue-600",   iconBg: "bg-blue-50" },
+    violet: { bg: "bg-white", text: "text-violet-600",  iconBg: "bg-violet-50" },
+  };
+  const c = colorMap[color] || colorMap.blue;
+  return (
+    <div className={`${c.bg} rounded-xl border border-slate-200 p-5`}>
+      <div className="flex items-center gap-2 mb-2">
+        <div className={`w-8 h-8 rounded-lg ${c.iconBg} flex items-center justify-center`}>
+          <Icon className={`h-4 w-4 ${c.text}`} />
+        </div>
+      </div>
+      <p className={`text-2xl font-bold ${c.text}`}>{value}</p>
+      <p className="text-xs text-slate-500 mt-0.5 font-medium">{label}</p>
+    </div>
   );
 }

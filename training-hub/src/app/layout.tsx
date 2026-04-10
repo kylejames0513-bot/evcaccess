@@ -23,7 +23,7 @@ export default function RootLayout({
       lang="en"
       className="h-full antialiased"
     >
-      <body className="h-full bg-[#f1f5f9] overflow-x-hidden">
+      <body className="h-full bg-[#f8fafc] overflow-x-hidden">
         <AppShell>{children}</AppShell>
       </body>
     </html>

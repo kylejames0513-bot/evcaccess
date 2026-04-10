@@ -264,7 +264,7 @@ export default function AttendancePage() {
   if (error) return <ErrorState message={error} />;
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="max-w-5xl mx-auto space-y-6">
       {/* ── Header ── */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Attendance & Entry</h1>
@@ -272,7 +272,7 @@ export default function AttendancePage() {
       </div>
 
       {/* ── Mode toggle ── */}
-      <div className="flex bg-slate-100 rounded-xl p-1 w-fit gap-1">
+      <div className="flex bg-slate-100 rounded-lg p-1 w-fit gap-1">
         {([
           { id: "session", label: "Session View", icon: ClipboardList },
           { id: "manual", label: "Direct Entry", icon: Zap },
@@ -294,16 +294,16 @@ export default function AttendancePage() {
 
       {/* ── Success / error banners ── */}
       {completeMessage && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 flex items-start gap-3">
-          <CheckCircle2 className="h-5 w-5 text-emerald-600 mt-0.5 shrink-0" />
-          <p className="text-sm text-emerald-800 whitespace-pre-line">{completeMessage}</p>
-          <button onClick={() => setCompleteMessage(null)} className="ml-auto text-emerald-400 hover:text-emerald-600">
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex items-start gap-3">
+          <CheckCircle2 className="h-5 w-5 text-emerald-700 mt-0.5 shrink-0" />
+          <p className="text-sm text-emerald-700 whitespace-pre-line">{completeMessage}</p>
+          <button onClick={() => setCompleteMessage(null)} className="ml-auto text-emerald-700 hover:text-emerald-900">
             <X className="h-4 w-4" />
           </button>
         </div>
       )}
       {completeError && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
           <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
           <p className="text-sm text-red-800">{completeError}</p>
           <button onClick={() => setCompleteError(null)} className="ml-auto text-red-400 hover:text-red-600">
@@ -316,10 +316,10 @@ export default function AttendancePage() {
           SESSION VIEW
       ═══════════════════════════════════════════════════════════ */}
       {mode === "session" && (
-        <div className="space-y-5">
+        <div className="space-y-6">
           {/* Session selector */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <label className="block text-sm font-medium text-slate-700 mb-2">
+          <div className="bg-white border border-slate-200 rounded-xl p-6">
+            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
               Select a Scheduled Session
             </label>
             {sessions.length === 0 ? (
@@ -328,9 +328,9 @@ export default function AttendancePage() {
               <select
                 value={selectedSessionId ?? ""}
                 onChange={(e) => handleSelectSession(e.target.value || null)}
-                className="w-full max-w-xl px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full max-w-xl px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="">Choose a session…</option>
+                <option value="">Choose a session...</option>
                 {sessions.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.training} — {formatDate(s.date)}{s.time ? ` at ${s.time}` : ""} ({s.enrolled.length}/{s.capacity})
@@ -341,12 +341,12 @@ export default function AttendancePage() {
           </div>
 
           {selectedSession && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
               {/* Session header */}
-              <div className="px-6 py-4 border-b border-slate-100 flex items-start justify-between gap-4">
+              <div className="px-6 py-4 border-b border-slate-200 flex items-start justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="px-2.5 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">
+                    <span className="px-2.5 py-0.5 bg-blue-50 text-blue-700 text-xs font-semibold rounded-full border border-blue-200">
                       {selectedSession.training}
                     </span>
                   </div>
@@ -357,35 +357,35 @@ export default function AttendancePage() {
                     {selectedSession.location && ` — ${selectedSession.location}`}
                   </p>
                 </div>
-                <div className="flex items-center gap-2 text-sm text-slate-600 shrink-0">
+                <div className="flex items-center gap-2 text-sm text-slate-400 shrink-0">
                   <Users className="h-4 w-4" />
                   {selectedSession.enrolled.length}/{selectedSession.capacity}
                 </div>
               </div>
 
               {/* Add to session */}
-              <div className="px-6 py-3 border-b border-slate-100 flex gap-2">
+              <div className="px-6 py-3 border-b border-slate-200 flex gap-2">
                 <div className="relative flex-1 max-w-xs">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
                   <input
                     type="text"
-                    placeholder="Add name to session…"
+                    placeholder="Add name to session..."
                     value={manualName}
                     onChange={(e) => { setManualName(e.target.value); setEnrollMsg(null); }}
                     onKeyDown={(e) => e.key === "Enter" && handleManualEnroll()}
-                    className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
                 <button
                   onClick={handleManualEnroll}
                   disabled={enrolling || !manualName.trim()}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
                 >
                   {enrolling ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
                   Add
                 </button>
                 {enrollMsg && (
-                  <span className={`text-xs self-center ${enrollMsg.ok ? "text-emerald-600" : "text-red-500"}`}>
+                  <span className={`text-xs self-center ${enrollMsg.ok ? "text-emerald-700" : "text-red-500"}`}>
                     {enrollMsg.text}
                   </span>
                 )}
@@ -404,23 +404,23 @@ export default function AttendancePage() {
                     return (
                       <div
                         key={name}
-                        className={`flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all cursor-pointer select-none ${
+                        className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all cursor-pointer select-none ${
                           isPresent
-                            ? "border-emerald-400 bg-emerald-50"
-                            : "border-slate-200 bg-white hover:border-slate-300"
+                            ? "border-2 border-blue-400 bg-blue-50"
+                            : "border border-slate-200 bg-white hover:border-slate-300"
                         }`}
                         onClick={() => togglePresent(name)}
                       >
-                        <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${isPresent ? "bg-emerald-500" : "bg-slate-200"}`}>
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${isPresent ? "bg-blue-500" : "bg-slate-200"}`}>
                           {isPresent && <CheckCircle2 className="h-4 w-4 text-white" />}
                         </div>
-                        <span className={`text-sm font-medium flex-1 ${isPresent ? "text-emerald-800" : "text-slate-700"}`}>
+                        <span className={`text-sm font-medium flex-1 ${isPresent ? "text-slate-900" : "text-slate-700"}`}>
                           {name}
                         </span>
                         <button
                           onClick={(e) => { e.stopPropagation(); markNoShow(name); }}
                           disabled={isNoShowing}
-                          className="ml-auto text-xs px-2 py-0.5 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 opacity-0 group-hover:opacity-100 transition-all"
+                          className="ml-auto text-xs px-2 py-0.5 rounded-lg bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-all"
                           title="No Show"
                         >
                           {isNoShowing ? <Loader2 className="h-3 w-3 animate-spin" /> : "NS"}
@@ -432,17 +432,17 @@ export default function AttendancePage() {
               )}
 
               {/* Footer */}
-              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between rounded-b-2xl">
-                <span className="text-sm text-slate-600">
+              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+                <span className="text-sm text-slate-500">
                   <strong className="text-slate-900">{presentNames.size}</strong> of {selectedSession.enrolled.length} marked present
                 </span>
                 <button
                   onClick={handleCompleteSession}
                   disabled={completing || presentNames.size === 0}
-                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 transition-colors"
+                  className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors"
                 >
                   {completing
-                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Completing…</>
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Completing...</>
                     : <><CheckCheck className="h-4 w-4" /> Complete Session ({presentNames.size})</>
                   }
                 </button>
@@ -458,9 +458,9 @@ export default function AttendancePage() {
       {mode === "manual" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Entry form */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
-              <Zap className="h-4 w-4 text-emerald-600" />
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-2">
+              <Zap className="h-4 w-4 text-blue-600" />
               <h2 className="text-sm font-semibold text-slate-900">Record Training Completion</h2>
             </div>
             <form onSubmit={handleDirectRecord} className="px-6 py-5 space-y-4">
@@ -469,7 +469,7 @@ export default function AttendancePage() {
               </p>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+                <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
                   Employee Name
                 </label>
                 <input
@@ -478,20 +478,20 @@ export default function AttendancePage() {
                   value={directEmployee}
                   onChange={(e) => setDirectEmployee(e.target.value)}
                   placeholder="Last, First or First Last"
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+                <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
                   Training
                 </label>
                 <select
                   value={directTraining}
                   onChange={(e) => { setDirectTraining(e.target.value); setDirectMsg(null); }}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 >
-                  <option value="">Select training…</option>
+                  <option value="">Select training...</option>
                   {Array.from(
                     new Map(TRAINING_DEFINITIONS.map((t) => [t.columnKey, t])).values()
                   ).map((t) => (
@@ -499,26 +499,26 @@ export default function AttendancePage() {
                   ))}
                 </select>
                 {directTraining && getLinkedNote(directTraining) && (
-                  <p className="text-xs text-emerald-600 mt-1.5 flex items-center gap-1">
+                  <p className="text-xs text-blue-600 mt-1.5 flex items-center gap-1">
                     <Zap className="h-3 w-3" /> {getLinkedNote(directTraining)}
                   </p>
                 )}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+                <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
                   Date
                 </label>
                 <input
                   type="date"
                   value={directDate}
                   onChange={(e) => setDirectDate(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
               {directMsg && (
-                <div className={`rounded-xl p-3 text-sm flex items-start gap-2 ${directMsg.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
+                <div className={`rounded-lg p-3 text-sm flex items-start gap-2 ${directMsg.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
                   {directMsg.ok
                     ? <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
                     : <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />}
@@ -529,10 +529,10 @@ export default function AttendancePage() {
               <button
                 type="submit"
                 disabled={directRecording || !directEmployee.trim() || !directTraining || !directDate}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 transition-colors"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-40 transition-colors"
               >
                 {directRecording
-                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Recording…</>
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Recording...</>
                   : <><Zap className="h-4 w-4" /> Record Completion</>
                 }
               </button>
@@ -540,8 +540,8 @@ export default function AttendancePage() {
           </div>
 
           {/* Recent entries */}
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-2">
               <CheckCircle2 className="h-4 w-4 text-slate-400" />
               <h2 className="text-sm font-semibold text-slate-900">This Session</h2>
             </div>
@@ -549,18 +549,18 @@ export default function AttendancePage() {
               <div className="py-12 text-center">
                 <CheckCircle2 className="h-10 w-10 mx-auto text-slate-200 mb-3" />
                 <p className="text-sm text-slate-400">No entries yet this session</p>
-                <p className="text-xs text-slate-300 mt-1">Records appear here as you add them</p>
+                <p className="text-xs text-slate-400 mt-1">Records appear here as you add them</p>
               </div>
             ) : (
-              <div className="divide-y divide-slate-50">
+              <div className="divide-y divide-slate-100">
                 {recentDirect.map((r, i) => (
                   <div key={i} className="px-6 py-3 flex items-start gap-3">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
+                    <CheckCircle2 className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-900">{r.employee}</p>
                       <p className="text-xs text-slate-500 truncate">{r.training} — {r.date}</p>
                       {r.msg.includes("auto-filled") && (
-                        <p className="text-xs text-emerald-600 mt-0.5">{r.msg.split("—").slice(1).join("—").trim()}</p>
+                        <p className="text-xs text-blue-600 mt-0.5">{r.msg.split("—").slice(1).join("—").trim()}</p>
                       )}
                     </div>
                   </div>

@@ -1,52 +1,77 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-background: #f8fafc;
-  --color-foreground: #1e293b;
-  --color-evc-blue: #1e40af;
-  --color-evc-blue-light: #3b82f6;
-  --color-evc-navy: #0f172a;
-  --color-evc-green: #059669;
-  --color-evc-red: #dc2626;
-  --color-evc-yellow: #d97706;
-  --color-evc-purple: #7c3aed;
+  --color-background: #ffffff;
+  --color-foreground: #1a1a2e;
+  --color-primary: #2563eb;
+  --color-primary-light: #3b82f6;
+  --color-primary-dark: #1d4ed8;
+  --color-accent: #0ea5e9;
+  --color-surface: #f8fafc;
+  --color-border: #e2e8f0;
+  --color-border-light: #f1f5f9;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #6366f1;
 }
 
 body {
-  background: var(--color-background);
+  background: var(--color-surface);
   color: var(--color-foreground);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Prevent horizontal overflow on all devices */
 html, body {
   overflow-x: hidden;
   scroll-behavior: smooth;
   max-width: 100vw;
 }
 
-/* Tables keep normal display. Wrap in .overflow-x-auto div for scroll.
-   The global fix is on html/body overflow-x:hidden which clips any
-   table that escapes its container. Individual pages use overflow-x-auto
-   on the table wrapper div. */
+/* Clean table defaults */
 table { border-collapse: collapse; }
-th { text-align: left; white-space: nowrap; }
+th { text-align: left; white-space: nowrap; font-weight: 500; }
 td { vertical-align: top; }
 
-/* Ensure images and embeds respect container width */
 img, video, iframe { max-width: 100%; height: auto; }
 
-/* Better table striping */
+/* Subtle table striping */
 .table-striped tbody tr:nth-child(even) {
-  background-color: #f1f5f9;
+  background-color: var(--color-surface);
 }
 
 /* Card hover effect */
 .card-hover {
-  transition: box-shadow 0.2s, transform 0.2s;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
 .card-hover:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.06);
   transform: translateY(-1px);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Focus ring utility */
+.focus-ring {
+  outline: none;
+}
+.focus-ring:focus-visible {
+  box-shadow: 0 0 0 2px white, 0 0 0 4px var(--color-primary);
 }

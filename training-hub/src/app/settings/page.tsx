@@ -86,13 +86,13 @@ function ThresholdSection() {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-3">
         <div className="p-2 bg-blue-50 rounded-lg">
           <Clock className="h-5 w-5 text-blue-600" />
         </div>
         <div>
-          <h2 className="font-semibold text-slate-900">Expiration Thresholds</h2>
+          <h2 className="text-base font-semibold text-slate-900">Expiration Thresholds</h2>
           <p className="text-xs text-slate-500">Configure when trainings are flagged as expiring on the compliance dashboard</p>
         </div>
       </div>
@@ -103,35 +103,35 @@ function ThresholdSection() {
         <div className="px-6 py-5">
           <div className="grid grid-cols-3 gap-4 max-w-lg">
             <div>
-              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Notice (days)</label>
+              <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Notice (days)</label>
               <input
                 type="number"
                 min={1}
                 value={notice}
                 onChange={(e) => setNotice(parseInt(e.target.value) || 90)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               />
               <p className="text-[10px] text-yellow-600 mt-0.5">Yellow zone</p>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Warning (days)</label>
+              <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Warning (days)</label>
               <input
                 type="number"
                 min={1}
                 value={warning}
                 onChange={(e) => setWarning(parseInt(e.target.value) || 60)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               />
               <p className="text-[10px] text-amber-600 mt-0.5">Amber zone</p>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Critical (days)</label>
+              <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Critical (days)</label>
               <input
                 type="number"
                 min={1}
                 value={critical}
                 onChange={(e) => setCritical(parseInt(e.target.value) || 30)}
-                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               />
               <p className="text-[10px] text-red-600 mt-0.5">Red zone</p>
             </div>
@@ -140,12 +140,16 @@ function ThresholdSection() {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#1e3a5f] text-white hover:bg-[#2a4d7a] disabled:opacity-50 transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-all"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Save Thresholds
             </button>
-            {saved && <span className="text-sm text-emerald-600 font-medium flex items-center gap-1"><Check className="h-4 w-4" /> Saved</span>}
+            {saved && (
+              <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg p-3 text-sm font-medium">
+                <Check className="h-4 w-4" /> Saved
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -283,18 +287,18 @@ function DeptRulesSection() {
     return (
       <div>
         <div className="flex items-center gap-3 mb-2 flex-wrap">
-          <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide">Trainings</label>
+          <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Trainings</label>
           <div className="flex items-center gap-2 ml-auto flex-wrap">
             <button
               onClick={editTracked.size === ALL_TRAININGS.length ? trackNone : trackAll}
-              className="text-xs font-medium text-blue-600 hover:text-blue-800"
+              className="text-xs font-medium text-blue-600 hover:text-blue-700"
             >
               {editTracked.size === ALL_TRAININGS.length ? "Track None" : "Track All"}
             </button>
             <span className="text-slate-300">|</span>
             <button
               onClick={editRequired.size === editTracked.size && editTracked.size > 0 ? requireNone : requireAllTracked}
-              className="text-xs font-medium text-blue-600 hover:text-blue-800"
+              className="text-xs font-medium text-blue-600 hover:text-blue-700"
             >
               {editRequired.size === editTracked.size && editTracked.size > 0 ? "Require None" : "Require All Tracked"}
             </button>
@@ -304,9 +308,9 @@ function DeptRulesSection() {
           <table className="w-full text-xs">
             <thead className="bg-slate-50 sticky top-0">
               <tr>
-                <th className="text-left px-3 py-2 font-semibold text-slate-600">Training</th>
-                <th className="text-center px-3 py-2 font-semibold text-slate-600 w-20">Tracked</th>
-                <th className="text-center px-3 py-2 font-semibold text-slate-600 w-20">Required</th>
+                <th className="text-left px-3 py-2 font-semibold text-slate-500">Training</th>
+                <th className="text-center px-3 py-2 font-semibold text-slate-500 w-20">Tracked</th>
+                <th className="text-center px-3 py-2 font-semibold text-slate-500 w-20">Required</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -324,7 +328,7 @@ function DeptRulesSection() {
                         className="inline-flex items-center justify-center"
                       >
                         <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
-                          isTracked ? "bg-[#1e3a5f] border-[#1e3a5f]" : "border-slate-300"
+                          isTracked ? "bg-blue-600 border-blue-600" : "border-slate-300"
                         }`}>
                           {isTracked && <Check className="h-3 w-3 text-white" />}
                         </div>
@@ -357,21 +361,21 @@ function DeptRulesSection() {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-amber-50 rounded-lg">
-            <Building2 className="h-5 w-5 text-amber-600" />
+          <div className="p-2 bg-blue-50 rounded-lg">
+            <Building2 className="h-5 w-5 text-blue-600" />
           </div>
           <div>
-            <h2 className="font-semibold text-slate-900">Department Training Rules</h2>
+            <h2 className="text-base font-semibold text-slate-900">Department Training Rules</h2>
             <p className="text-xs text-slate-500">Set which trainings each department tracks and requires. Employees without a rule get all tracked trainings.</p>
           </div>
         </div>
         {!isEditing && (
           <button
             onClick={startAdd}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#1e3a5f] text-white hover:bg-[#2a4d7a] transition-all"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all"
           >
             <Plus className="h-4 w-4" /> Add Rule
           </button>
@@ -388,7 +392,7 @@ function DeptRulesSection() {
           {adding && (
             <div className="px-6 py-4 border-b border-slate-200 bg-blue-50/30">
               <div className="mb-3">
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Division</label>
+                <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Division</label>
                 <select
                   value={newDept}
                   onChange={(e) => setNewDept(e.target.value)}
@@ -408,12 +412,12 @@ function DeptRulesSection() {
                 <button
                   onClick={saveEdit}
                   disabled={!newDept.trim() || saving !== null}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#1e3a5f] text-white hover:bg-[#2a4d7a] disabled:opacity-50 transition-all"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-all"
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                   Save Rule
                 </button>
-                <button onClick={cancelEdit} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">
+                <button onClick={cancelEdit} className="px-4 py-2 text-sm font-medium border border-slate-200 bg-white rounded-lg hover:bg-slate-50 text-slate-500">
                   Cancel
                 </button>
               </div>
@@ -444,12 +448,12 @@ function DeptRulesSection() {
                         <button
                           onClick={saveEdit}
                           disabled={saving !== null}
-                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#1e3a5f] text-white hover:bg-[#2a4d7a] disabled:opacity-50 transition-all"
+                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-all"
                         >
                           {saving === rule.department ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                           Save
                         </button>
-                        <button onClick={cancelEdit} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg">
+                        <button onClick={cancelEdit} className="px-4 py-2 text-sm font-medium border border-slate-200 bg-white rounded-lg hover:bg-slate-50 text-slate-500">
                           Cancel
                         </button>
                       </div>
@@ -471,7 +475,7 @@ function DeptRulesSection() {
                           <span className="text-red-600 font-medium">All excused (NA)</span>
                         ) : (
                           <>
-                            <span className="text-slate-600 font-medium">{rule.tracked.length} tracked</span>
+                            <span className="text-slate-500 font-medium">{rule.tracked.length} tracked</span>
                             {", "}
                             <span className="text-amber-600 font-medium">{rule.required.length} required</span>
                             {rule.required.length > 0 && (
@@ -484,7 +488,7 @@ function DeptRulesSection() {
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={() => startEdit(rule)}
-                        className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+                        className="px-3 py-1.5 text-xs font-medium border border-slate-200 bg-white rounded-lg hover:bg-slate-50 text-slate-500 transition-colors"
                       >
                         Edit
                       </button>
@@ -630,13 +634,13 @@ function BulkExcuseSection() {
   const allSelected = selectedTrainings.size === trackedList.length;
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-3">
-        <div className="p-2 bg-emerald-50 rounded-lg">
-          <Users className="h-5 w-5 text-emerald-600" />
+        <div className="p-2 bg-blue-50 rounded-lg">
+          <Users className="h-5 w-5 text-blue-600" />
         </div>
         <div>
-          <h2 className="font-semibold text-slate-900">Bulk Excuse</h2>
+          <h2 className="text-base font-semibold text-slate-900">Bulk Excuse</h2>
           <p className="text-xs text-slate-500">Excuse a division or individual employees from trainings</p>
         </div>
       </div>
@@ -651,13 +655,13 @@ function BulkExcuseSection() {
           <div className="flex bg-slate-100 rounded-lg p-0.5 w-fit">
             <button
               onClick={() => { setMode("division"); setResult(null); }}
-              className={`px-4 py-1.5 text-xs font-medium rounded-md transition-colors ${mode === "division" ? "bg-white shadow text-slate-900" : "text-slate-500"}`}
+              className={`px-4 py-1.5 text-xs font-medium rounded-md transition-colors ${mode === "division" ? "bg-white text-slate-900" : "text-slate-500"}`}
             >
               By Division
             </button>
             <button
               onClick={() => { setMode("individuals"); setResult(null); }}
-              className={`px-4 py-1.5 text-xs font-medium rounded-md transition-colors ${mode === "individuals" ? "bg-white shadow text-slate-900" : "text-slate-500"}`}
+              className={`px-4 py-1.5 text-xs font-medium rounded-md transition-colors ${mode === "individuals" ? "bg-white text-slate-900" : "text-slate-500"}`}
             >
               Individual Employees
             </button>
@@ -666,7 +670,7 @@ function BulkExcuseSection() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {mode === "division" ? (
               <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Division</label>
+                <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Division</label>
                 <select
                   value={division}
                   onChange={(e) => { setDivision(e.target.value); setResult(null); }}
@@ -680,7 +684,7 @@ function BulkExcuseSection() {
               </div>
             ) : (
               <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">
+                <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
                   Employees ({selectedEmployees.size} selected)
                 </label>
                 <input
@@ -688,9 +692,9 @@ function BulkExcuseSection() {
                   placeholder="Search employees..."
                   value={empSearch}
                   onChange={(e) => setEmpSearch(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white mb-2"
                 />
-                <div className="max-h-40 overflow-y-auto border border-slate-100 rounded-lg p-1 space-y-0.5">
+                <div className="max-h-40 overflow-y-auto border border-slate-200 rounded-lg p-1 space-y-0.5">
                   {filteredEmployees.slice(0, 100).map((emp) => {
                     const isSelected = selectedEmployees.has(emp.name);
                     return (
@@ -698,11 +702,11 @@ function BulkExcuseSection() {
                         key={emp.name}
                         onClick={() => toggleEmployee(emp.name)}
                         className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-xs transition-colors ${
-                          isSelected ? "bg-blue-100 text-blue-800" : "hover:bg-slate-50 text-slate-600"
+                          isSelected ? "bg-blue-50 text-blue-800" : "hover:bg-slate-50 text-slate-500"
                         }`}
                       >
                         <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${
-                          isSelected ? "bg-[#1e3a5f] border-[#1e3a5f]" : "border-slate-300"
+                          isSelected ? "bg-blue-600 border-blue-600" : "border-slate-300"
                         }`}>
                           {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
                         </div>
@@ -715,7 +719,7 @@ function BulkExcuseSection() {
             )}
 
             <div>
-              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Reason</label>
+              <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Reason</label>
               <select
                 value={reason}
                 onChange={(e) => { setReason(e.target.value); setResult(null); }}
@@ -732,17 +736,17 @@ function BulkExcuseSection() {
           {/* Training multi-select */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-semibold text-slate-600 uppercase tracking-wide">
+              <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                 Trainings ({selectedTrainings.size} selected)
               </label>
               <button
                 onClick={allSelected ? clearAllTrainings : selectAllTrainings}
-                className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                className="text-xs font-medium text-blue-600 hover:text-blue-700"
               >
                 {allSelected ? "Deselect All" : "Select All"}
               </button>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5 max-h-48 overflow-y-auto p-1 border border-slate-100 rounded-lg">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-1.5 max-h-48 overflow-y-auto p-1 border border-slate-200 rounded-lg">
               {trackedList.map(({ columnKey, name }) => {
                 const isSelected = selectedTrainings.has(columnKey);
                 return (
@@ -750,11 +754,11 @@ function BulkExcuseSection() {
                     key={columnKey}
                     onClick={() => toggleTraining(columnKey)}
                     className={`flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-xs transition-colors ${
-                      isSelected ? "bg-blue-100 text-blue-800" : "bg-slate-50 text-slate-500 hover:bg-slate-100"
+                      isSelected ? "bg-blue-50 text-blue-800" : "bg-slate-50 text-slate-500 hover:bg-slate-100"
                     }`}
                   >
                     <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${
-                      isSelected ? "bg-[#1e3a5f] border-[#1e3a5f]" : "border-slate-300"
+                      isSelected ? "bg-blue-600 border-blue-600" : "border-slate-300"
                     }`}>
                       {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
                     </div>
@@ -769,7 +773,7 @@ function BulkExcuseSection() {
             <button
               onClick={handleExcuse}
               disabled={(mode === "division" ? !division : selectedEmployees.size === 0) || selectedTrainings.size === 0 || !reason || submitting}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[#1e3a5f] text-white hover:bg-[#2a4d7a] disabled:opacity-50 transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-all"
             >
               {submitting ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Excusing...</>
@@ -779,12 +783,12 @@ function BulkExcuseSection() {
             </button>
 
             {result && (
-              <p className="text-sm text-slate-600">
-                <span className="font-semibold text-emerald-700">{result.excused} cell(s) excused</span>
+              <span className="inline-flex items-center bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg p-3 text-sm font-medium">
+                {result.excused} cell(s) excused
                 {result.skipped > 0 && (
                   <>, <span className="text-slate-400">{result.skipped} skipped</span></>
                 )}
-              </p>
+              </span>
             )}
 
             {error && <p className="text-sm text-red-600 font-medium">{error}</p>}

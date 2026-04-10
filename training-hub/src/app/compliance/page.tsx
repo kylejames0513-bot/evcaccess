@@ -112,13 +112,18 @@ export default function CompliancePage() {
   }
 
   return (
-    <div className="p-3 sm:p-6 max-w-full sm:max-w-7xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Compliance dashboard</h1>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      {/* Page header */}
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">Compliance dashboard</h1>
+        {summary && (
+          <p className="mt-1 text-sm text-slate-500">{summary.total_active_employees} active employees</p>
+        )}
+      </div>
 
+      {/* Summary stat tiles */}
       {summary && (
-        <>
-        <p className="text-sm text-gray-500 mb-2">{summary.total_active_employees} active employees</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-4">
           <Stat label="Fully compliant" value={summary.status_counts.current} color="green" />
           <Stat label="Expiring soon" value={summary.status_counts.expiring_soon} color="yellow" />
           <Stat label="Expired" value={summary.status_counts.expired} color="red" />
@@ -128,13 +133,17 @@ export default function CompliancePage() {
           <Stat label="Due in 90 days" value={summary.tier_counts.due_90} color="blue" />
           <Stat label="Overdue" value={summary.tier_counts.overdue} color="red" />
         </div>
-        </>
       )}
 
-      <div className="bg-white rounded-lg shadow p-3 mb-4 flex flex-wrap gap-3 items-end">
+      {/* Filter bar */}
+      <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-wrap gap-4 items-end">
         <label className="block">
-          <span className="text-xs text-gray-500">Department</span>
-          <select value={department} onChange={(e) => setDepartment(e.target.value)} className="mt-1 block rounded border-gray-300 text-sm">
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Department</span>
+          <select
+            value={department}
+            onChange={(e) => setDepartment(e.target.value)}
+            className="mt-1 block w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          >
             <option value="">All</option>
             {departments.map((d) => (
               <option key={d} value={d}>{d}</option>
@@ -142,18 +151,22 @@ export default function CompliancePage() {
           </select>
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Position</span>
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Position</span>
           <input
             type="text"
             value={position}
             onChange={(e) => setPosition(e.target.value)}
             placeholder="filter..."
-            className="mt-1 block rounded border-gray-300 text-sm"
+            className="mt-1 block w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
           />
         </label>
         <label className="block">
-          <span className="text-xs text-gray-500">Status</span>
-          <select value={status} onChange={(e) => setStatus(e.target.value)} className="mt-1 block rounded border-gray-300 text-sm">
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Status</span>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className="mt-1 block w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          >
             <option value="">All</option>
             <option value="current">Current</option>
             <option value="expiring_soon">Expiring soon</option>
@@ -163,43 +176,49 @@ export default function CompliancePage() {
           </select>
         </label>
         <div className="ml-auto">
-          <button type="button" onClick={exportCsv} className="px-4 py-2 bg-gray-200 rounded text-sm">
+          <button
+            type="button"
+            onClick={exportCsv}
+            className="px-4 py-2 border border-slate-200 bg-white rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+          >
             Export CSV
           </button>
         </div>
       </div>
 
-      {error && <div className="text-red-600 text-sm mb-2">{error}</div>}
-      {loading && <div className="text-gray-500 text-sm mb-2">Loading...</div>}
+      {/* Status messages */}
+      {error && <div className="text-red-600 text-sm">{error}</div>}
+      {loading && <div className="text-slate-500 text-sm">Loading...</div>}
 
-      <div className="bg-white rounded shadow overflow-x-auto">
+      {/* Data table */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
         <table className="min-w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-3 py-2 text-left">Employee</th>
-              <th className="px-3 py-2 text-left">Department</th>
-              <th className="px-3 py-2 text-left">Training</th>
-              <th className="px-3 py-2 text-left">Status</th>
-              <th className="px-3 py-2 text-left">Completion</th>
-              <th className="px-3 py-2 text-left">Expiration</th>
-              <th className="px-3 py-2 text-right">Days overdue</th>
-              <th className="px-3 py-2 text-left">Source</th>
+          <thead>
+            <tr className="border-b border-slate-100">
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Employee</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Department</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Training</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Status</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Completion</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Expiration</th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400">Days overdue</th>
+              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Source</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-100">
             {rows.map((r, i) => (
-              <tr key={`${r.employee_id}-${r.training_type_id}-${i}`} className="border-t">
-                <td className="px-3 py-2">
+              <tr key={`${r.employee_id}-${r.training_type_id}-${i}`} className="hover:bg-slate-50 transition-colors">
+                <td className="px-4 py-3 text-slate-900">
                   {r.employee_id ? (
-                    <Link href={`/employees/${r.employee_id}`} className="text-blue-600 hover:underline">
+                    <Link href={`/employees/${r.employee_id}`} className="text-blue-600 hover:underline font-medium">
                       {r.last_name}, {r.first_name}
                     </Link>
                   ) : (
                     `${r.last_name}, ${r.first_name}`
                   )}
                 </td>
-                <td className="px-3 py-2">{r.department ?? ""}</td>
-                <td className="px-3 py-2">
+                <td className="px-4 py-3 text-slate-500">{r.department ?? ""}</td>
+                <td className="px-4 py-3 text-slate-900">
                   {r.training_type_id ? (
                     <Link href={`/trainings/${r.training_type_id}`} className="text-blue-600 hover:underline">
                       {r.training_name}
@@ -208,15 +227,15 @@ export default function CompliancePage() {
                     r.training_name
                   )}
                 </td>
-                <td className="px-3 py-2"><StatusBadge status={r.status} /></td>
-                <td className="px-3 py-2">{r.completion_date ?? ""}</td>
-                <td className="px-3 py-2">{r.expiration_date ?? ""}</td>
-                <td className="px-3 py-2 text-right">{r.days_overdue ?? ""}</td>
-                <td className="px-3 py-2 text-gray-500">{r.completion_source ?? ""}</td>
+                <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+                <td className="px-4 py-3 text-slate-500">{r.completion_date ?? ""}</td>
+                <td className="px-4 py-3 text-slate-500">{r.expiration_date ?? ""}</td>
+                <td className="px-4 py-3 text-right text-slate-900 tabular-nums">{r.days_overdue ?? ""}</td>
+                <td className="px-4 py-3 text-slate-400">{r.completion_source ?? ""}</td>
               </tr>
             ))}
             {rows.length === 0 && !loading && (
-              <tr><td colSpan={8} className="px-3 py-4 text-gray-500">No rows.</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-slate-400">No rows.</td></tr>
             )}
           </tbody>
         </table>
@@ -226,18 +245,33 @@ export default function CompliancePage() {
 }
 
 function Stat({ label, value, color }: { label: string; value: number; color: string }) {
-  const colors: Record<string, string> = {
-    green: "bg-green-50 text-green-800",
-    yellow: "bg-yellow-50 text-yellow-800",
-    blue: "bg-blue-50 text-blue-800",
-    red: "bg-red-50 text-red-800",
-    amber: "bg-amber-50 text-amber-800",
-    gray: "bg-gray-100 text-gray-700",
+  const iconColors: Record<string, string> = {
+    green: "bg-emerald-50 text-emerald-600",
+    yellow: "bg-amber-50 text-amber-600",
+    blue: "bg-blue-50 text-blue-600",
+    red: "bg-red-50 text-red-600",
+    amber: "bg-orange-50 text-orange-600",
+    gray: "bg-slate-50 text-slate-500",
   };
+
+  const dotColor: Record<string, string> = {
+    green: "bg-emerald-500",
+    yellow: "bg-amber-500",
+    blue: "bg-blue-500",
+    red: "bg-red-500",
+    amber: "bg-orange-500",
+    gray: "bg-slate-400",
+  };
+
   return (
-    <div className={`rounded p-3 ${colors[color] ?? "bg-gray-100"}`}>
-      <div className="text-2xl font-bold">{value}</div>
-      <div className="text-xs">{label}</div>
+    <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-start gap-3">
+      <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${iconColors[color] ?? "bg-slate-50 text-slate-500"}`}>
+        <span className={`block w-2.5 h-2.5 rounded-full ${dotColor[color] ?? "bg-slate-400"}`} />
+      </div>
+      <div className="min-w-0">
+        <div className="text-2xl font-bold text-slate-900 leading-tight">{value}</div>
+        <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5">{label}</div>
+      </div>
     </div>
   );
 }
@@ -245,12 +279,12 @@ function Stat({ label, value, color }: { label: string; value: number; color: st
 function StatusBadge({ status }: { status: string | null }) {
   if (!status) return null;
   const colors: Record<string, string> = {
-    current: "bg-green-100 text-green-800",
-    expiring_soon: "bg-yellow-100 text-yellow-800",
-    expired: "bg-red-100 text-red-800",
-    needed: "bg-amber-100 text-amber-800",
-    excused: "bg-gray-100 text-gray-700",
+    current: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/10",
+    expiring_soon: "bg-amber-50 text-amber-700 ring-1 ring-amber-600/10",
+    expired: "bg-red-50 text-red-700 ring-1 ring-red-600/10",
+    needed: "bg-orange-50 text-orange-700 ring-1 ring-orange-600/10",
+    excused: "bg-slate-50 text-slate-600 ring-1 ring-slate-500/10",
   };
-  const cls = colors[status] ?? "bg-gray-100 text-gray-700";
-  return <span className={`text-xs rounded px-2 py-0.5 ${cls}`}>{status}</span>;
+  const cls = colors[status] ?? "bg-slate-50 text-slate-600 ring-1 ring-slate-500/10";
+  return <span className={`inline-flex items-center text-xs font-medium rounded-md px-2 py-0.5 ${cls}`}>{status}</span>;
 }

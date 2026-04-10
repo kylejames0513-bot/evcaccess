@@ -24,7 +24,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <Sidebar onQuickRecord={() => setQuickRecordOpen(true)} />
         <div className="flex flex-1 flex-col overflow-hidden">
           <MobileNav onQuickRecord={() => setQuickRecordOpen(true)} />
-          <main className="flex-1 overflow-y-auto overflow-x-hidden px-3 py-4 sm:px-6 sm:py-5 lg:px-8 max-w-full">{children}</main>
+          <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-6 max-w-full bg-[#f8fafc]">
+            {children}
+          </main>
         </div>
       </div>
       <QuickRecord isOpen={quickRecordOpen} onClose={() => setQuickRecordOpen(false)} />

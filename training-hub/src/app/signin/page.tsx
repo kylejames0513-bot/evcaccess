@@ -104,45 +104,44 @@ export default function PublicSigninPage() {
   }
 
   return (
-    <div className="min-h-[100dvh] flex flex-col" style={{ background: "linear-gradient(160deg, #081c15 0%, #1b4332 40%, #2d6a4f 100%)" }}>
+    <div className="min-h-[100dvh] flex flex-col bg-[#f8fafc]">
       {/* Header */}
-      <header className="shrink-0 text-center pt-safe-top px-4 pt-5 pb-3 sm:pt-8 sm:pb-4">
+      <header className="shrink-0 text-center pt-safe-top px-4 pt-5 pb-3 sm:pt-8 sm:pb-4 border-b border-slate-100 bg-white">
         <div className="flex items-center justify-center gap-3 mb-1">
-          <div className="w-10 h-10 rounded-xl bg-white/15 backdrop-blur flex items-center justify-center">
-            <svg className="h-6 w-6 text-emerald-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <div className="w-10 h-10 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center">
+            <svg className="h-6 w-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342" />
             </svg>
           </div>
           <div className="text-left">
-            <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight">Training Sign In</h1>
-            <p className="text-emerald-300/70 text-xs sm:text-sm">Emory Valley Center</p>
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 leading-tight">Training Sign In</h1>
+            <p className="text-sm text-slate-500">Emory Valley Center</p>
           </div>
         </div>
         <div className="mt-2 flex items-center justify-center gap-3">
-          <span className="bg-white/10 backdrop-blur rounded-full px-3 py-1 text-white text-sm font-mono">{clock}</span>
-          <span className="text-emerald-200/50 text-xs hidden sm:inline">{dateStr}</span>
+          <span className="text-4xl font-bold text-slate-900 font-mono">{clock}</span>
         </div>
+        <p className="text-sm text-slate-500 mt-1">{dateStr}</p>
       </header>
 
       {/* Main */}
-      <main className="flex-1 flex items-start justify-center px-3 sm:px-4 pb-6 pt-2">
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+      <main className="flex-1 flex items-start justify-center px-3 sm:px-4 pb-6 pt-4">
+        <div className="bg-white rounded-xl border border-slate-200 w-full max-w-lg mx-auto overflow-hidden">
 
           {/* Reminder */}
           {step === "reminder" && (
             <div className="p-6 sm:p-8 text-center space-y-5">
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-amber-50 flex items-center justify-center mx-auto ring-4 ring-amber-100">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto">
                 <svg className="h-7 w-7 sm:h-8 sm:w-8 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
               <div>
-                <h2 className="text-lg sm:text-xl font-bold text-gray-800">Before You Sign In</h2>
-                <p className="text-gray-600 mt-2 text-sm leading-relaxed">You <strong className="text-amber-700">MUST Clock In On PHS</strong> To Get Paid For This Training. Sign In Here First, Then Clock In When Prompted.</p>
+                <h2 className="text-2xl font-bold text-slate-900">Before You Sign In</h2>
+                <p className="text-sm text-slate-500 mt-2 leading-relaxed">You <strong className="text-amber-700">MUST Clock In On PHS</strong> To Get Paid For This Training. Sign In Here First, Then Clock In When Prompted.</p>
               </div>
               <button type="button" onClick={() => setStep("form")} disabled={countdown > 0}
-                className="w-full py-3.5 rounded-xl text-white font-bold text-base transition-all disabled:opacity-40"
-                style={{ background: countdown > 0 ? "#9ca3af" : "linear-gradient(135deg, #2d6a4f, #40916c)" }}>
+                className={`w-full py-3.5 rounded-lg font-semibold text-base transition-all ${countdown > 0 ? "bg-slate-300 text-white cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700"}`}>
                 {countdown > 0 ? `I understand (${countdown})` : "I understand"}
               </button>
             </div>
@@ -153,7 +152,7 @@ export default function PublicSigninPage() {
             <form onSubmit={handleReview} className="p-5 sm:p-7 space-y-4">
               <Field label="Training Session">
                 <select required value={training} onChange={(e) => setTraining(e.target.value)}
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 focus:bg-white transition-colors">
+                  className="w-full px-3 py-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white transition-colors">
                   <option value="">Select Training...</option>
                   {grouped.map(g => (
                     <optgroup key={g.cat} label={`--- ${g.cat} ---`}>
@@ -168,25 +167,25 @@ export default function PublicSigninPage() {
               <Field label="Your Full Name">
                 <input type="text" required value={name} onChange={(e) => setName(e.target.value)}
                   placeholder="First Last (As It Appears On Your Badge)" autoComplete="name" autoCapitalize="words"
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 focus:bg-white transition-colors" />
+                  className="w-full px-3 py-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white transition-colors" />
               </Field>
 
               <Field label="Notes" optional>
                 <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
-                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 focus:bg-white transition-colors resize-none"
+                  className="w-full px-3 py-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white transition-colors resize-none"
                   placeholder="Optional Notes..." />
               </Field>
 
               <label className="flex items-center gap-2.5 cursor-pointer select-none">
                 <input type="checkbox" checked={hasIssue} onChange={(e) => setHasIssue(e.target.checked)}
-                  className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4" />
-                <span className="text-sm text-gray-700">Report An Attendance Issue</span>
+                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 w-4 h-4" />
+                <span className="text-sm text-slate-700">Report An Attendance Issue</span>
               </label>
 
               {hasIssue && (
                 <div className="ml-7">
                   <select value={issueReason} onChange={(e) => setIssueReason(e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 focus:bg-white">
+                    className="w-full px-3 py-3 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
                     <option value="">What Happened?</option>
                     <option value="Arrived Late">Arrived Late</option>
                     <option value="Need To Leave Early">Need To Leave Early</option>
@@ -196,8 +195,7 @@ export default function PublicSigninPage() {
               )}
 
               <button type="submit"
-                className="w-full py-3.5 rounded-xl text-white font-bold text-base shadow-lg shadow-emerald-900/20 transition-transform active:scale-[0.98]"
-                style={{ background: "linear-gradient(135deg, #2d6a4f, #40916c)" }}>
+                className="w-full py-3.5 rounded-lg bg-blue-600 text-white font-semibold text-base hover:bg-blue-700 transition-colors active:scale-[0.98]">
                 Sign In
               </button>
             </form>
@@ -206,22 +204,23 @@ export default function PublicSigninPage() {
           {/* Confirm */}
           {step === "confirm" && (
             <div className="p-5 sm:p-7 space-y-4">
-              <h2 className="text-lg font-bold text-gray-800 text-center">Confirm Your Details</h2>
-              <div className="bg-emerald-50 rounded-xl p-4 space-y-2.5 text-sm border border-emerald-100">
+              <h2 className="text-2xl font-bold text-slate-900 text-center">Confirm Your Details</h2>
+              <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
                 <ConfirmRow label="Name" value={name} />
+                <div className="border-b border-slate-100" />
                 <ConfirmRow label="Training" value={training} />
+                <div className="border-b border-slate-100" />
                 <ConfirmRow label="Arrival" value={arrivalTime} />
-                {notes && <ConfirmRow label="Notes" value={notes} />}
-                {hasIssue && issueReason && <ConfirmRow label="Issue" value={issueReason} />}
+                {notes && (<><div className="border-b border-slate-100" /><ConfirmRow label="Notes" value={notes} /></>)}
+                {hasIssue && issueReason && (<><div className="border-b border-slate-100" /><ConfirmRow label="Issue" value={issueReason} /></>)}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <button type="button" onClick={() => setStep("form")}
-                  className="py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm">
+                  className="py-3 rounded-lg border border-slate-200 bg-white text-slate-600 font-semibold text-sm hover:bg-slate-50">
                   Go Back
                 </button>
                 <button type="button" onClick={handleConfirm} disabled={submitting}
-                  className="py-3 rounded-xl text-white font-bold text-sm shadow-lg disabled:opacity-50"
-                  style={{ background: "linear-gradient(135deg, #2d6a4f, #40916c)" }}>
+                  className="py-3 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 disabled:opacity-50">
                   {submitting ? "Recording..." : "Confirm"}
                 </button>
               </div>
@@ -231,28 +230,27 @@ export default function PublicSigninPage() {
           {/* Success */}
           {step === "success" && (
             <div className="p-5 sm:p-7 text-center space-y-4">
-              <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto ring-4 ring-emerald-50">
-                <svg className="h-7 w-7 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <div className="w-14 h-14 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center mx-auto">
+                <svg className="h-7 w-7 text-emerald-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               </div>
               <div>
-                <h2 className="text-lg font-bold text-emerald-800">Arrival Recorded</h2>
-                <p className="text-emerald-600 font-mono text-sm mt-0.5">{arrivalTime}</p>
+                <h2 className="text-2xl font-bold text-slate-900">Arrival Recorded</h2>
+                <p className="text-sm text-slate-500 font-mono mt-0.5">{arrivalTime}</p>
               </div>
-              <p className="text-sm text-gray-500">{resultMessage}</p>
+              <p className="text-sm text-slate-500">{resultMessage}</p>
 
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
                 <p className="text-sm font-semibold text-amber-800">Clock In On PHS To Get Paid.</p>
                 <a href={CLOCK_IN_URL} target="_blank" rel="noopener noreferrer"
-                  className="block w-full py-3 rounded-xl text-white font-bold text-base text-center shadow-lg transition-transform active:scale-[0.98]"
-                  style={{ background: "linear-gradient(135deg, #b45309, #d97706)" }}>
+                  className="block w-full py-3 rounded-lg bg-amber-600 text-white font-semibold text-base text-center hover:bg-amber-700 transition-colors active:scale-[0.98]">
                   Clock In To Get Paid
                 </a>
               </div>
 
               <button type="button" onClick={reset}
-                className="w-full py-3 rounded-xl border-2 border-emerald-600 text-emerald-700 font-bold text-sm transition-colors hover:bg-emerald-50">
+                className="w-full py-3 rounded-lg border border-slate-200 bg-white text-slate-700 font-semibold text-sm hover:bg-slate-50 transition-colors">
                 All Done / Next Person
               </button>
             </div>
@@ -261,15 +259,17 @@ export default function PublicSigninPage() {
           {/* Error */}
           {step === "error" && (
             <div className="p-5 sm:p-7 text-center space-y-4">
-              <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mx-auto ring-4 ring-red-50">
-                <svg className="h-7 w-7 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <div className="w-14 h-14 rounded-full bg-red-50 border border-red-200 flex items-center justify-center mx-auto">
+                <svg className="h-7 w-7 text-red-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </div>
-              <h2 className="text-lg font-bold text-red-800">Something Went Wrong</h2>
-              <p className="text-sm text-gray-600">{resultMessage}</p>
+              <h2 className="text-2xl font-bold text-slate-900">Something Went Wrong</h2>
+              <div className="bg-red-50 text-red-700 border border-red-200 rounded-xl p-4">
+                <p className="text-sm">{resultMessage}</p>
+              </div>
               <button type="button" onClick={() => setStep("form")}
-                className="w-full py-3 rounded-xl border border-gray-200 text-gray-700 font-semibold text-sm">
+                className="w-full py-3 rounded-lg border border-slate-200 bg-white text-slate-700 font-semibold text-sm hover:bg-slate-50">
                 Try Again
               </button>
             </div>
@@ -278,7 +278,7 @@ export default function PublicSigninPage() {
       </main>
 
       <footer className="shrink-0 text-center pb-safe-bottom pb-3 px-4">
-        <p className="text-emerald-300/30 text-[10px]">Emory Valley Center Training Hub</p>
+        <p className="text-slate-400 text-[10px]">Emory Valley Center Training Hub</p>
       </footer>
     </div>
   );
@@ -287,8 +287,8 @@ export default function PublicSigninPage() {
 function Field({ label, optional, children }: { label: string; optional?: boolean; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-        {label}{optional && <span className="font-normal text-gray-400 ml-1">(optional)</span>}
+      <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+        {label}{optional && <span className="font-normal text-slate-400 ml-1">(optional)</span>}
       </label>
       {children}
     </div>
@@ -298,8 +298,8 @@ function Field({ label, optional, children }: { label: string; optional?: boolea
 function ConfirmRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between items-start gap-2">
-      <span className="font-medium text-emerald-700 shrink-0">{label}</span>
-      <span className="text-gray-800 text-right">{value}</span>
+      <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider shrink-0">{label}</span>
+      <span className="text-sm text-slate-900 text-right">{value}</span>
     </div>
   );
 }

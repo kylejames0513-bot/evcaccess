@@ -95,7 +95,8 @@ export default function EmployeesPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Page Header */}
       <div className="flex items-end justify-between">
         <div className="flex items-center gap-3">
           <div>
@@ -117,18 +118,19 @@ export default function EmployeesPage() {
           </button>
         </div>
         <div className="flex gap-2">
-          <a href="/api/export?type=employees" download className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">
+          <a href="/api/export?type=employees" download className="text-xs font-medium bg-white border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 text-slate-600">
             Export Employees
           </a>
-          <a href="/api/export?type=history" download className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">
+          <a href="/api/export?type=history" download className="text-xs font-medium bg-white border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 text-slate-600">
             Export Training History
           </a>
-          <a href="/api/export?type=compliance" download className="px-3 py-1.5 text-xs font-semibold bg-white border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600">
+          <a href="/api/export?type=compliance" download className="text-xs font-medium bg-white border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 text-slate-600">
             Export Compliance
           </a>
         </div>
       </div>
 
+      {/* Excluded List Panel */}
       {showExcluded && excludedList.length > 0 && (
         <div className="bg-amber-50 rounded-xl border border-amber-200 p-4">
           <div className="flex items-center justify-between mb-3">
@@ -157,33 +159,33 @@ export default function EmployeesPage() {
         />
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center bg-white rounded-xl border border-slate-200 px-4 py-3">
+      {/* Filter Bar */}
+      <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-wrap gap-3 items-center">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input type="text" placeholder="Search..." value={search} onChange={(e) => setSearch(e.target.value)}
-            className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-48" />
+            className="pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white w-48" />
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
           <option value="all">All statuses</option>
           <option value="current">Current</option>
           <option value="expiring_soon">Expiring Soon</option>
           <option value="expired">Expired</option>
           <option value="needed">Needed</option>
         </select>
-        <select value={divisionFilter} onChange={(e) => setDivisionFilter(e.target.value)} className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <select value={divisionFilter} onChange={(e) => setDivisionFilter(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
           <option value="all">All divisions</option>
           {divisions.map((d) => <option key={d} value={d}>{formatDivision(d)}</option>)}
         </select>
         <span className="ml-auto text-xs text-slate-400">{filtered.length} employee{filtered.length !== 1 ? "s" : ""}</span>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* Employee Table */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full table-striped">
+          <table className="w-full">
             <thead>
-              <tr className="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400 border-b border-slate-100">
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
                 <th className="px-5 py-3">Employee</th>
                 <th className="px-5 py-3">Division</th>
                 <th className="px-5 py-3 w-64">Compliance</th>
@@ -191,13 +193,13 @@ export default function EmployeesPage() {
                 <th className="px-5 py-3 w-20 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50">
+            <tbody className="divide-y divide-slate-100">
               {filtered.map((emp, i) => {
                 const pct = emp.totalRequired > 0 ? Math.round((emp.completedCount / emp.totalRequired) * 100) : 0;
                 const isExcluding = excluding === emp.name;
                 return (
-                  <tr key={i} className="hover:bg-blue-50/30 group cursor-pointer" onClick={() => setSelectedEmployee(emp.name)}>
-                    <td className="px-5 py-3 text-sm font-medium text-blue-700 hover:text-blue-900">
+                  <tr key={i} className="hover:bg-slate-50 group cursor-pointer transition-colors" onClick={() => setSelectedEmployee(emp.name)}>
+                    <td className="px-5 py-3 text-sm font-medium text-blue-600 hover:text-blue-800">
                       {emp.name}
                       {emp.noShowCount > 0 && (
                         <span className="ml-2 inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide bg-red-100 text-red-700 rounded-full" title={`${emp.noShowCount} no-show(s)`}>
@@ -208,16 +210,16 @@ export default function EmployeesPage() {
                     <td className="px-5 py-3 text-sm text-slate-500">{emp.position ? formatDivision(emp.position) : "—"}</td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
-                        <div className="flex-1 h-2 bg-slate-100 rounded-full">
-                          <div className={`h-2 rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : pct >= 70 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${pct}%` }} />
+                        <div className="flex-1 h-1.5 bg-slate-100 rounded-full">
+                          <div className={`h-1.5 rounded-full transition-all ${pct === 100 ? "bg-emerald-500" : pct >= 70 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${pct}%` }} />
                         </div>
-                        <span className="text-xs font-medium text-slate-600 w-16 text-right">{emp.completedCount}/{emp.totalRequired}</span>
+                        <span className="text-xs font-medium text-slate-500 w-16 text-right">{emp.completedCount}/{emp.totalRequired}</span>
                       </div>
                     </td>
                     <td className="px-5 py-3"><StatusBadge status={emp.status} /></td>
                     <td className="px-5 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                       <button onClick={() => handleExclude(emp.name)} disabled={isExcluding}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
                         title="Remove from tracking">
                         {isExcluding ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserMinus className="h-3 w-3" />}
                       </button>
@@ -235,4 +237,3 @@ export default function EmployeesPage() {
     </div>
   );
 }
-

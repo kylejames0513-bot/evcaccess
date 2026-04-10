@@ -19,20 +19,20 @@ export default function ReportsPage() {
   const [tab, setTab] = useState<Tab>("department");
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="max-w-7xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Reports</h1>
         <p className="text-sm text-slate-500 mt-0.5">Training compliance analytics and insights</p>
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+      <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
         {TABS.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
             className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              tab === key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              tab === key ? "bg-white shadow-sm text-slate-900" : "text-slate-500 hover:text-slate-700"
             }`}
           >
             <Icon className="h-4 w-4" /> {label}
@@ -75,7 +75,7 @@ function DepartmentReport() {
   const { departments } = data;
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
         <h2 className="font-semibold text-slate-900">Compliance by Division</h2>
         <ExportButton data={departments} filename="department-compliance" columns={["division", "employeeCount", "complianceRate", "expired", "expiring", "needed"]} />
@@ -83,7 +83,7 @@ function DepartmentReport() {
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] text-slate-400 uppercase tracking-wide border-b border-slate-100">
+            <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
               <th className="px-5 py-3">Division</th>
               <th className="px-5 py-3">Employees</th>
               <th className="px-5 py-3">Compliance</th>
@@ -93,9 +93,9 @@ function DepartmentReport() {
               <th className="px-5 py-3">Needed</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="divide-y divide-slate-100">
             {departments.map((dept) => (
-              <tr key={dept.division} className="hover:bg-blue-50/30">
+              <tr key={dept.division} className="hover:bg-slate-50">
                 <td className="px-5 py-3 font-medium text-slate-900">{formatDivision(dept.division)}</td>
                 <td className="px-5 py-3 text-slate-600">{dept.employeeCount}</td>
                 <td className="px-5 py-3">
@@ -104,9 +104,9 @@ function DepartmentReport() {
                   </span>
                 </td>
                 <td className="px-5 py-3">
-                  <div className="w-full bg-slate-100 rounded-full h-2">
+                  <div className="w-full bg-slate-100 rounded-full h-1.5">
                     <div
-                      className={`h-2 rounded-full transition-all ${dept.complianceRate >= 80 ? "bg-emerald-500" : dept.complianceRate >= 50 ? "bg-amber-500" : "bg-red-500"}`}
+                      className={`h-1.5 rounded-full transition-all ${dept.complianceRate >= 80 ? "bg-emerald-500" : dept.complianceRate >= 50 ? "bg-amber-500" : "bg-red-500"}`}
                       style={{ width: `${dept.complianceRate}%` }}
                     />
                   </div>
@@ -149,7 +149,7 @@ function TrainingReport() {
   if (!data) return null;
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
         <h2 className="font-semibold text-slate-900">Training Completion Rates</h2>
         <ExportButton data={data.trainings} filename="training-completion" columns={["name", "applicable", "completed", "completionRate", "expired", "expiring", "needed"]} />
@@ -157,7 +157,7 @@ function TrainingReport() {
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] text-slate-400 uppercase tracking-wide border-b border-slate-100">
+            <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
               <th className="px-5 py-3">Training</th>
               <th className="px-5 py-3">Renewal</th>
               <th className="px-5 py-3">Applicable</th>
@@ -168,18 +168,18 @@ function TrainingReport() {
               <th className="px-5 py-3">Needed</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="divide-y divide-slate-100">
             {data.trainings.map((t) => (
-              <tr key={t.columnKey} className="hover:bg-blue-50/30">
+              <tr key={t.columnKey} className="hover:bg-slate-50">
                 <td className="px-5 py-3 font-medium text-slate-900">{t.name}</td>
                 <td className="px-5 py-3 text-xs text-slate-500">{t.renewalYears > 0 ? `${t.renewalYears}yr` : "One-time"}</td>
                 <td className="px-5 py-3 text-slate-600">{t.applicable}</td>
                 <td className="px-5 py-3 text-emerald-700 font-medium">{t.completed}</td>
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-2">
-                    <div className="flex-1 bg-slate-100 rounded-full h-2">
+                    <div className="flex-1 bg-slate-100 rounded-full h-1.5">
                       <div
-                        className={`h-2 rounded-full transition-all ${t.completionRate >= 80 ? "bg-emerald-500" : t.completionRate >= 50 ? "bg-amber-500" : "bg-red-500"}`}
+                        className={`h-1.5 rounded-full transition-all ${t.completionRate >= 80 ? "bg-emerald-500" : t.completionRate >= 50 ? "bg-amber-500" : "bg-red-500"}`}
                         style={{ width: `${t.completionRate}%` }}
                       />
                     </div>
@@ -237,7 +237,7 @@ function ForecastReport() {
       )}
 
       {/* Forecast chart */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+      <div className="bg-white rounded-xl border border-slate-200 p-6">
         <h2 className="font-semibold text-slate-900 mb-4">Upcoming Expirations (Next 12 Months)</h2>
         <div className="flex items-end gap-2 h-48">
           {data.months.map((m, i) => {
@@ -266,7 +266,7 @@ function ForecastReport() {
 
       {/* Expanded month details */}
       {expandedMonth !== null && data.months[expandedMonth].items.length > 0 && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
             <h2 className="font-semibold text-slate-900">
               {data.months[expandedMonth].month} {data.months[expandedMonth].year} — {data.months[expandedMonth].count} expiration(s)
@@ -280,15 +280,15 @@ function ForecastReport() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-[11px] text-slate-400 uppercase tracking-wide border-b border-slate-100">
+                <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
                   <th className="px-5 py-3">Employee</th>
                   <th className="px-5 py-3">Training</th>
                   <th className="px-5 py-3">Expiration Date</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-slate-100">
                 {data.months[expandedMonth].items.map((item, i) => (
-                  <tr key={i} className="hover:bg-blue-50/30">
+                  <tr key={i} className="hover:bg-slate-50">
                     <td className="px-5 py-3 font-medium text-slate-900">{item.employee}</td>
                     <td className="px-5 py-3 text-slate-600">{item.training}</td>
                     <td className="px-5 py-3 text-slate-500">{item.expirationDate}</td>
@@ -332,9 +332,9 @@ function NeedsReport() {
   });
 
   const STATUS_COLORS: Record<string, string> = {
-    expired: "bg-red-100 text-red-700",
-    expiring_soon: "bg-amber-100 text-amber-700",
-    needed: "bg-purple-100 text-purple-700",
+    expired: "bg-red-50 text-red-700 border border-red-200",
+    expiring_soon: "bg-amber-50 text-amber-700 border border-amber-200",
+    needed: "bg-purple-50 text-purple-700 border border-purple-200",
   };
 
   function exportNeedsCSV() {
@@ -353,10 +353,10 @@ function NeedsReport() {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
       <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
         <h2 className="font-semibold text-slate-900">Who Needs What ({filtered.length} employees)</h2>
-        <button onClick={exportNeedsCSV} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">
+        <button onClick={exportNeedsCSV} className="inline-flex items-center gap-1.5 text-xs font-medium bg-white border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">
           <Download className="h-3 w-3" /> CSV
         </button>
       </div>
@@ -376,25 +376,25 @@ function NeedsReport() {
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] text-slate-400 uppercase tracking-wide border-b border-slate-100">
+            <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
               <th className="px-5 py-3">Employee</th>
               <th className="px-5 py-3">Division</th>
               <th className="px-5 py-3">Missing</th>
               <th className="px-5 py-3">Trainings</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-50">
+          <tbody className="divide-y divide-slate-100">
             {filtered.slice(0, 100).map((emp, i) => (
-              <tr key={i} className="hover:bg-blue-50/30">
+              <tr key={i} className="hover:bg-slate-50">
                 <td className="px-5 py-3 font-medium text-slate-900">{emp.employee}</td>
-                <td className="px-5 py-3 text-slate-600 text-xs">{formatDivision(emp.division)}</td>
+                <td className="px-5 py-3 text-slate-500 text-xs">{formatDivision(emp.division)}</td>
                 <td className="px-5 py-3">
                   <span className="font-bold text-red-600">{emp.missing.length}</span>
                 </td>
                 <td className="px-5 py-3">
                   <div className="flex flex-wrap gap-1">
                     {emp.missing.map((m, j) => (
-                      <span key={j} className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_COLORS[m.status] || "bg-slate-100 text-slate-600"}`}>
+                      <span key={j} className={`text-[11px] font-semibold px-2 py-0.5 rounded-md ${STATUS_COLORS[m.status] || "bg-slate-50 text-slate-600 border border-slate-200"}`}>
                         {m.training}
                       </span>
                     ))}
@@ -438,7 +438,7 @@ function ExportButton({ data, filename, columns }: { data: Record<string, unknow
   }
 
   return (
-    <button onClick={handleExport} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200">
+    <button onClick={handleExport} className="inline-flex items-center gap-1.5 text-xs font-medium bg-white border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">
       <Download className="h-3 w-3" /> CSV
     </button>
   );
