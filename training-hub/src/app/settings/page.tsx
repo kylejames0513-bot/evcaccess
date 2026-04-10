@@ -35,11 +35,11 @@ export default function SettingsPage() {
       {/* Expiration Thresholds */}
       <ThresholdSection />
 
-      {/* Required Training Rules (new — supports position) */}
-      <RequiredTrainingRulesSection />
-
-      {/* Department Training Rules (legacy) */}
+      {/* Department Training Rules */}
       <DeptRulesSection />
+
+      {/* Position-Specific Requirements */}
+      <PositionRulesSection />
 
       {/* Bulk Excuse */}
       <BulkExcuseSection />
@@ -161,27 +161,25 @@ function ThresholdSection() {
 }
 
 // ────────────────────────────────────────────────────────────
-// Required Training Rules Section (new — position support)
+// Position-Specific Requirements Section
 // ────────────────────────────────────────────────────────────
 
-interface RequiredRule {
+interface PositionRule {
   id: number;
   training_type_id: number;
   department: string | null;
   position: string | null;
   is_required: boolean;
   is_universal: boolean;
-  notes: string | null;
 }
 
 interface TrainingTypeOption {
   id: number;
   name: string;
-  column_key: string;
 }
 
-function RequiredTrainingRulesSection() {
-  const [rules, setRules] = useState<RequiredRule[]>([]);
+function PositionRulesSection() {
+  const [allRules, setAllRules] = useState<PositionRule[]>([]);
   const [trainingTypes, setTrainingTypes] = useState<TrainingTypeOption[]>([]);
   const [divisions, setDivisions] = useState<string[]>([]);
   const [positions, setPositions] = useState<string[]>([]);
@@ -190,11 +188,12 @@ function RequiredTrainingRulesSection() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
 
-  // New rule form state
   const [newTrainingTypeId, setNewTrainingTypeId] = useState<number | "">("");
-  const [newScope, setNewScope] = useState<"universal" | "department" | "position">("department");
   const [newDept, setNewDept] = useState("");
   const [newPosition, setNewPosition] = useState("");
+
+  // Only show position-scoped rules (not universal/dept — those are in the dept rules section)
+  const positionRules = allRules.filter((r) => r.position != null);
 
   async function load() {
     try {
@@ -203,11 +202,11 @@ function RequiredTrainingRulesSection() {
         fetch("/api/divisions").then((r) => r.json()),
         fetch("/api/training-types").then((r) => r.json()),
       ]);
-      setRules(rulesRes.required_trainings ?? []);
+      setAllRules(rulesRes.required_trainings ?? []);
       setDivisions(divRes.divisions ?? []);
       setTrainingTypes(
         (ttRes.training_types ?? [])
-          .filter((t: TrainingTypeOption & { is_active: boolean }) => t.is_active)
+          .filter((t: TrainingTypeOption & { is_active?: boolean }) => t.is_active !== false)
           .sort((a: TrainingTypeOption, b: TrainingTypeOption) => a.name.localeCompare(b.name))
       );
     } catch {}
@@ -216,9 +215,8 @@ function RequiredTrainingRulesSection() {
 
   useEffect(() => { load(); }, []);
 
-  // Fetch positions when department changes
   useEffect(() => {
-    if (newScope === "position" && newDept) {
+    if (newDept) {
       fetch(`/api/positions?department=${encodeURIComponent(newDept)}`)
         .then((r) => r.json())
         .then((d) => setPositions(d.positions ?? []))
@@ -227,26 +225,22 @@ function RequiredTrainingRulesSection() {
       setPositions([]);
       setNewPosition("");
     }
-  }, [newDept, newScope]);
+  }, [newDept]);
 
   async function handleAdd() {
-    if (!newTrainingTypeId) return;
-    if (newScope === "department" && !newDept) return;
-    if (newScope === "position" && (!newDept || !newPosition)) return;
-
+    if (!newTrainingTypeId || !newDept || !newPosition) return;
     setSaving(true);
     try {
-      const payload: Record<string, unknown> = {
-        training_type_id: newTrainingTypeId,
-        is_required: true,
-        is_universal: newScope === "universal",
-        department: newScope !== "universal" ? newDept : null,
-        position: newScope === "position" ? newPosition : null,
-      };
       const res = await fetch("/api/required-trainings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          training_type_id: newTrainingTypeId,
+          is_required: true,
+          is_universal: false,
+          department: newDept,
+          position: newPosition,
+        }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -271,14 +265,8 @@ function RequiredTrainingRulesSection() {
     setDeleting(null);
   }
 
-  function scopeLabel(rule: RequiredRule): string {
-    if (rule.is_universal) return "All employees";
-    if (rule.position) return `${formatDivision(rule.department ?? "")} — ${rule.position}`;
-    return formatDivision(rule.department ?? "");
-  }
-
   function trainingName(id: number): string {
-    return trainingTypes.find((t) => t.id === id)?.name ?? `ID ${id}`;
+    return trainingTypes.find((t) => t.id === id)?.name ?? `Training ${id}`;
   }
 
   return (
@@ -289,8 +277,8 @@ function RequiredTrainingRulesSection() {
             <Briefcase className="h-5 w-5 text-blue-600" />
           </div>
           <div>
-            <h2 className="text-base font-semibold text-slate-900">Required Training Rules</h2>
-            <p className="text-xs text-slate-500">Set which trainings are required by department, position, or for everyone</p>
+            <h2 className="text-base font-semibold text-slate-900">Position Requirements</h2>
+            <p className="text-xs text-slate-500">Require specific certifications for positions within a department</p>
           </div>
         </div>
         {!adding && (
@@ -298,57 +286,18 @@ function RequiredTrainingRulesSection() {
             onClick={() => setAdding(true)}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-all"
           >
-            <Plus className="h-4 w-4" /> Add Rule
+            <Plus className="h-4 w-4" /> Add
           </button>
         )}
       </div>
 
       {loading ? (
-        <div className="px-6 py-12 text-center">
-          <Loader2 className="h-5 w-5 animate-spin text-slate-400 mx-auto" />
-        </div>
+        <div className="px-6 py-8 text-center"><Loader2 className="h-5 w-5 animate-spin text-slate-400 mx-auto" /></div>
       ) : (
         <>
-          {/* Add new rule form */}
           {adding && (
-            <div className="px-6 py-4 border-b border-slate-200 bg-blue-50/30 space-y-3">
-              {/* Training type */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Training</label>
-                <select
-                  value={newTrainingTypeId}
-                  onChange={(e) => setNewTrainingTypeId(e.target.value ? parseInt(e.target.value) : "")}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select a training...</option>
-                  {trainingTypes.map((tt) => (
-                    <option key={tt.id} value={tt.id}>{tt.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Scope */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Applies To</label>
-                <div className="flex bg-slate-100 rounded-lg p-0.5 w-fit">
-                  {(["universal", "department", "position"] as const).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setNewScope(s)}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                        newScope === s
-                          ? "bg-white text-slate-900 shadow-sm"
-                          : "text-slate-500 hover:text-slate-700"
-                      }`}
-                    >
-                      {s === "universal" ? "Everyone" : s === "department" ? "Department" : "Position"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Department dropdown (for dept and position scopes) */}
-              {newScope !== "universal" && (
+            <div className="px-6 py-4 border-b border-slate-200 bg-blue-50/30">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Department</label>
                   <select
@@ -356,39 +305,48 @@ function RequiredTrainingRulesSection() {
                     onChange={(e) => setNewDept(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="">Select department...</option>
+                    <option value="">Select...</option>
                     {divisions.map((d) => (
                       <option key={d} value={d}>{formatDivision(d)}</option>
                     ))}
                   </select>
                 </div>
-              )}
-
-              {/* Position dropdown (for position scope only) */}
-              {newScope === "position" && newDept && (
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Position</label>
                   <select
                     value={newPosition}
                     onChange={(e) => setNewPosition(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={!newDept}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                   >
-                    <option value="">Select position...</option>
+                    <option value="">{newDept ? "Select..." : "Choose department first"}</option>
                     {positions.map((p) => (
                       <option key={p} value={p}>{p}</option>
                     ))}
                   </select>
                 </div>
-              )}
-
-              <div className="flex items-center gap-2 pt-1">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Training</label>
+                  <select
+                    value={newTrainingTypeId}
+                    onChange={(e) => setNewTrainingTypeId(e.target.value ? parseInt(e.target.value) : "")}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select...</option>
+                    {trainingTypes.map((tt) => (
+                      <option key={tt.id} value={tt.id}>{tt.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 mt-3">
                 <button
                   onClick={handleAdd}
-                  disabled={saving || !newTrainingTypeId}
+                  disabled={saving || !newTrainingTypeId || !newDept || !newPosition}
                   className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-all"
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Save Rule
+                  Save
                 </button>
                 <button
                   onClick={() => { setAdding(false); setNewTrainingTypeId(""); setNewDept(""); setNewPosition(""); }}
@@ -400,26 +358,18 @@ function RequiredTrainingRulesSection() {
             </div>
           )}
 
-          {/* Existing rules */}
-          {rules.length === 0 && !adding ? (
-            <div className="px-6 py-10 text-center text-sm text-slate-400">
-              No required training rules configured.
+          {positionRules.length === 0 && !adding ? (
+            <div className="px-6 py-8 text-center text-sm text-slate-400">
+              No position-specific rules yet. Click Add to require a training for a specific position.
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {rules.map((rule) => (
+              {positionRules.map((rule) => (
                 <div key={rule.id} className="px-6 py-3 flex items-center justify-between hover:bg-slate-50 group">
                   <div>
                     <p className="text-sm font-medium text-slate-900">{trainingName(rule.training_type_id)}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {rule.is_universal && (
-                        <span className="inline-flex items-center gap-1 text-blue-600 font-medium">
-                          <ShieldCheck className="h-3 w-3" /> Universal
-                        </span>
-                      )}
-                      {!rule.is_universal && (
-                        <span className="text-slate-500">{scopeLabel(rule)}</span>
-                      )}
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {formatDivision(rule.department ?? "")} &mdash; {rule.position}
                     </p>
                   </div>
                   <button
@@ -439,8 +389,7 @@ function RequiredTrainingRulesSection() {
 
       <div className="px-6 py-3 border-t border-slate-100 bg-slate-50">
         <p className="text-xs text-slate-500">
-          {rules.length} rule{rules.length !== 1 ? "s" : ""} configured.
-          Position rules override department rules. Department rules override universal.
+          Position rules add requirements on top of department rules. e.g. &quot;Case Managers in Behavioral Health need Med Recert&quot;
         </p>
       </div>
     </div>
