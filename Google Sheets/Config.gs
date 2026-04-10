@@ -28,13 +28,13 @@ var TRAINING_ACCESS_SHEET_NAME = "Training";
 //   Maps form dropdown values (from the HTML sign-in form
 //   and Training Records sheet) to column headers on the
 //   Training sheet. Values are ARRAYS so a session can
-//   write to multiple columns (e.g., CPR → CPR + FIRSTAID).
+//   write to multiple columns (e.g., CPR → CPR).
 //
 // ************************************************************
 
 var SESSION_TO_COLUMN = {
   // ── QR form values (original dropdown) ──
-  "CPR":                          ["CPR", "FIRSTAID"],
+  "CPR":                          ["CPR"],
   "Ukeru":                        ["Ukeru"],
   "Initial Med Training (4 Days)":["MED_TRAIN"],
   "Post Med":                     ["POST MED"],
@@ -44,7 +44,7 @@ var SESSION_TO_COLUMN = {
   "Van Lyft Training":            ["VR"],
 
   // ── Alternate / pasted names ──
-  "CPR/FA":                       ["CPR", "FIRSTAID"],
+  "CPR/FA":                       ["CPR"],
   "UKERU":                        ["Ukeru"],
   "Initial Med Class":            ["MED_TRAIN"],
   "Med Recert":                   ["MED_TRAIN"],
@@ -401,8 +401,6 @@ var EXPIRING_SOON_DAYS = 60;
 // ************************************************************
 
 var AUTO_FILL_RULES = [
-  { source: "CPR",       target: "FIRSTAID",  offset: 0 },
-  { source: "FIRSTAID",  target: "CPR",       offset: 0 },
   { source: "MED_TRAIN", target: "POST MED",  offset: 1 },
   { source: "POST MED",  target: "MED_TRAIN", offset: -1 }
 ];

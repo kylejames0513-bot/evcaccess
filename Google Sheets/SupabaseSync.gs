@@ -18,7 +18,7 @@ const NAME_FIX_SHEET = "Attendee Name Fixes";
 
 const PAYLOCITY_MAP = {
   "cpr.fa": "CPR", "cpr/fa": "CPR", "cpr": "CPR", "cpr/first aid": "CPR",
-  "first aid": "FIRSTAID", "firstaid": "FIRSTAID",
+  "first aid": "CPR", "firstaid": "CPR",
   "med training": "MED_TRAIN", "med cert": "MED_TRAIN", "med recert": "MED_TRAIN",
   "medication training": "MED_TRAIN", "initial med training": "MED_TRAIN",
   "post med": "POST MED",
@@ -64,7 +64,7 @@ const SYNC_EXCUSALS = {
 
 // All training columns for the merged sheet (in order)
 const MERGED_TRAINING_COLS = [
-  "CPR", "FIRSTAID", "Ukeru", "MED_TRAIN", "POST MED", "Mealtime", "POM",
+  "CPR", "Ukeru", "MED_TRAIN", "POST MED", "Mealtime", "POM",
   "Pers Cent Thnk", "Safety Care", "Meaningful Day", "MD refresh", "GERD",
   "HCO Training", "Health Passport", "Diabetes", "Falls", "Dysphagia Overview",
   "Rights Training", "Title VI", "Active Shooter", "Skills System", "CPI",
@@ -429,8 +429,8 @@ function buildMergedSheet() {
           updateBest_(bestDates, pKey + "|" + pCol, pd, "paylocity");
           payDateCount++;
 
-          if (pCol === "CPR") updateBest_(bestDates, pKey + "|FIRSTAID", pd, "paylocity");
-          if (pCol === "FIRSTAID") updateBest_(bestDates, pKey + "|CPR", pd, "paylocity");
+          // First Aid is inactive — CPR/FA is the single combined training.
+          if (pCol === "FIRSTAID") { pCol = "CPR"; }  // remap legacy FIRSTAID → CPR
         }
       }
     }
@@ -489,8 +489,8 @@ function buildMergedSheet() {
           updateBest_(bestDates, qKey + "|" + qCol, qd, "phs");
           phsDateCount++;
 
-          if (qCol === "CPR") updateBest_(bestDates, qKey + "|FIRSTAID", qd, "phs");
-          if (qCol === "FIRSTAID") updateBest_(bestDates, qKey + "|CPR", qd, "phs");
+          // First Aid is inactive — remap to CPR
+          if (qCol === "FIRSTAID") qCol = "CPR";
         }
       }
     }
