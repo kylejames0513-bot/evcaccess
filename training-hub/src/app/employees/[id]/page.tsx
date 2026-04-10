@@ -34,9 +34,16 @@ interface ComplianceRow {
   completion_date: string | null;
   expiration_date: string | null;
   days_overdue: number | null;
+  excusal_reason: string | null;
   due_in_30: boolean | null;
   due_in_60: boolean | null;
   due_in_90: boolean | null;
+}
+
+interface TrainingType {
+  id: number;
+  name: string;
+  column_key: string;
 }
 
 interface DetailPayload {
@@ -45,13 +52,6 @@ interface DetailPayload {
   compliance: ComplianceRow[];
 }
 
-/**
- * /employees/[id]
- *
- * Per-employee audit trail. Works for both active and terminated
- * employees. Active employees show the compliance status table on top;
- * terminated employees show only the history table.
- */
 export default function EmployeeDetailPage({
   params,
 }: {
@@ -60,16 +60,62 @@ export default function EmployeeDetailPage({
   const { id } = use(params);
   const [data, setData] = useState<DetailPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [trainingTypes, setTrainingTypes] = useState<TrainingType[]>([]);
+  const [excusing, setExcusing] = useState<number | null>(null);
+  const [removing, setRemoving] = useState<number | null>(null);
 
-  useEffect(() => {
-    fetch(`/api/employee-detail?id=${encodeURIComponent(id)}`)
-      .then((r) => r.json())
-      .then((j) => {
-        if (j.error) setError(j.error);
-        else setData(j);
-      })
-      .catch((e) => setError(e.message));
-  }, [id]);
+  async function load() {
+    try {
+      const [detail, tt] = await Promise.all([
+        fetch(`/api/employee-detail?id=${encodeURIComponent(id)}`).then((r) => r.json()),
+        fetch("/api/training-types").then((r) => r.json()),
+      ]);
+      if (detail.error) setError(detail.error);
+      else setData(detail);
+      setTrainingTypes(tt.training_types ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Load failed");
+    }
+  }
+
+  useEffect(() => { void load(); }, [id]);
+
+  async function excuseTraining(trainingTypeId: number) {
+    if (!data) return;
+    const tt = trainingTypes.find((t) => t.id === trainingTypeId);
+    if (!tt) return;
+    setExcusing(trainingTypeId);
+    try {
+      const res = await fetch("/api/bulk-excuse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeNames: [`${data.employee.first_name} ${data.employee.last_name}`],
+          trainingColumnKeys: [tt.column_key],
+          reason: "N/A",
+        }),
+      });
+      if (res.ok) await load();
+    } catch {}
+    setExcusing(null);
+  }
+
+  async function removeExcusal(trainingTypeId: number) {
+    if (!data) return;
+    setRemoving(trainingTypeId);
+    try {
+      const res = await fetch("/api/excusal/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employee_id: data.employee.id,
+          training_type_id: trainingTypeId,
+        }),
+      });
+      if (res.ok) await load();
+    } catch {}
+    setRemoving(null);
+  }
 
   if (error) return <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700 m-6">{error}</div>;
   if (!data) return <div className="p-6 text-slate-400">Loading...</div>;
@@ -116,6 +162,7 @@ export default function EmployeeDetailPage({
                     <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Completion</th>
                     <th className="px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Expiration</th>
                     <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Days overdue</th>
+                    <th className="px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -126,6 +173,25 @@ export default function EmployeeDetailPage({
                       <td className="px-3 py-2 text-slate-900">{c.completion_date ?? ""}</td>
                       <td className="px-3 py-2 text-slate-900">{c.expiration_date ?? ""}</td>
                       <td className="px-3 py-2 text-right text-slate-900">{c.days_overdue ?? ""}</td>
+                      <td className="px-3 py-2 text-right">
+                        {c.status === "excused" ? (
+                          <button
+                            onClick={() => c.training_type_id && removeExcusal(c.training_type_id)}
+                            disabled={removing === c.training_type_id}
+                            className="text-xs text-slate-500 hover:text-red-600 font-medium disabled:opacity-50"
+                          >
+                            {removing === c.training_type_id ? "..." : "Remove excuse"}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => c.training_type_id && excuseTraining(c.training_type_id)}
+                            disabled={excusing === c.training_type_id}
+                            className="text-xs text-blue-600 hover:text-blue-700 font-medium disabled:opacity-50"
+                          >
+                            {excusing === c.training_type_id ? "..." : "Excuse"}
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
