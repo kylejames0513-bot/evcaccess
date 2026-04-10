@@ -110,24 +110,41 @@ function addSupabaseSyncMenu() {
 // ════════════════════════════════════════════════════════════
 
 function scheduledSync() {
-  Logger.log("scheduledSync started at " + new Date().toISOString());
+  var now = new Date();
+  var et = Utilities.formatDate(now, "America/New_York", "u:H").split(":");
+  var dayOfWeek = parseInt(et[0], 10); // 1=Monday … 7=Sunday
+  var hour = parseInt(et[1], 10);
+
+  // Only run Mon(1)–Fri(5), 8 AM – 5 PM ET
+  if (dayOfWeek > 5 || hour < 8 || hour >= 17) {
+    Logger.log("scheduledSync skipped — outside Mon–Fri 8–5 ET (day=" + dayOfWeek + " hour=" + hour + ")");
+    return;
+  }
+
+  Logger.log("scheduledSync started at " + now.toISOString());
   buildMergedSheet();
   pushMergedToSupabase();
   Logger.log("scheduledSync finished at " + new Date().toISOString());
 }
 
 /**
- * Install a nightly trigger that runs scheduledSync at ~2 AM.
- * Idempotent — removes any existing scheduledSync trigger first.
+ * Install hourly triggers that run scheduledSync Mon–Fri, 8 AM – 5 PM.
+ * Idempotent — removes any existing scheduledSync triggers first.
+ *
+ * Google Apps Script doesn't support "weekday-only hourly" in a single
+ * trigger, so we use an everyHours(1) trigger and gate on day/time
+ * inside scheduledSync itself.
  */
 function installAutoSync() {
-  removeAutoSync(); // clear any existing trigger
+  removeAutoSync(); // clear any existing triggers
   ScriptApp.newTrigger("scheduledSync")
     .timeBased()
-    .everyDays(1)
-    .atHour(2)
+    .everyHours(1)
     .create();
-  notify_("Auto-Sync Installed", "scheduledSync will run nightly around 2 AM.\n\nTo remove: Supabase Sync menu → Remove Auto-Sync");
+  notify_("Auto-Sync Installed",
+    "scheduledSync will run hourly Mon–Fri, 8 AM – 5 PM ET.\n" +
+    "Outside that window it skips automatically.\n\n" +
+    "To remove: Supabase Sync menu → Remove Auto-Sync");
 }
 
 /**
