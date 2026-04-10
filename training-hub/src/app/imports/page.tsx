@@ -284,6 +284,7 @@ export default function ImportsPage() {
                 <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Unresolved</th>
                 <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Unknown</th>
                 <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Started</th>
+                <th className="px-3 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -291,17 +292,69 @@ export default function ImportsPage() {
                 <tr key={row.id} className="hover:bg-slate-50">
                   <td className="px-3 py-2.5 text-slate-900">{row.source}</td>
                   <td className="px-3 py-2.5 text-slate-900">{row.filename ?? ""}</td>
-                  <td className="px-3 py-2.5 text-slate-900">{row.status}</td>
+                  <td className="px-3 py-2.5">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                      row.status === "committed" ? "bg-emerald-50 text-emerald-700" :
+                      row.status === "preview" ? "bg-amber-50 text-amber-700" :
+                      row.status === "failed" ? "bg-red-50 text-red-700" :
+                      "bg-slate-100 text-slate-600"
+                    }`}>
+                      {row.status}
+                    </span>
+                  </td>
                   <td className="px-3 py-2.5 text-right text-slate-900">{row.rows_in ?? ""}</td>
                   <td className="px-3 py-2.5 text-right text-slate-900">{row.rows_added ?? ""}</td>
                   <td className="px-3 py-2.5 text-right text-slate-900">{row.rows_unresolved ?? ""}</td>
                   <td className="px-3 py-2.5 text-right text-slate-900">{row.rows_unknown ?? ""}</td>
                   <td className="px-3 py-2.5 text-slate-500">{new Date(row.started_at).toLocaleString()}</td>
+                  <td className="px-3 py-2.5 text-right">
+                    {row.status === "preview" && (
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={async () => {
+                            setCommitting(true);
+                            setError(null);
+                            try {
+                              const r = await fetch(`/api/imports/${row.id}`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ action: "commit" }),
+                              });
+                              const j = await r.json();
+                              if (!r.ok) throw new Error(j.error || "Commit failed");
+                              setPreviewId(null);
+                              setPreviewSummary(null);
+                              void loadImports();
+                            } catch (e) {
+                              setError(e instanceof Error ? e.message : "Commit failed");
+                            } finally {
+                              setCommitting(false);
+                            }
+                          }}
+                          disabled={committing}
+                          className="px-2.5 py-1 text-xs font-semibold rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          Commit
+                        </button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await fetch(`/api/imports/${row.id}`, { method: "DELETE" });
+                            } catch {}
+                            void loadImports();
+                          }}
+                          className="px-2.5 py-1 text-xs font-medium rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50"
+                        >
+                          Discard
+                        </button>
+                      </div>
+                    )}
+                  </td>
                 </tr>
               ))}
               {imports.length === 0 && (
                 <tr>
-                  <td className="px-3 py-4 text-slate-400 text-center" colSpan={8}>
+                  <td className="px-3 py-4 text-slate-400 text-center" colSpan={9}>
                     No imports yet.
                   </td>
                 </tr>
