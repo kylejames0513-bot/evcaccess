@@ -7,7 +7,7 @@ import MobileNav from "@/components/MobileNav";
 import AuthGuard from "@/components/AuthGuard";
 import QuickRecord from "@/components/QuickRecord";
 
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/signin"];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
