@@ -1,13 +1,29 @@
 import { addEnrollees } from "@/lib/training-data";
+import { createServerClient } from "@/lib/supabase";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { sessionId, names } = body;
+    const { sessionId, names, action } = body;
 
-    if (!sessionId || !names || !Array.isArray(names) || names.length === 0) {
+    if (!sessionId) {
+      return Response.json({ error: "sessionId is required" }, { status: 400 });
+    }
+
+    // Remove all enrollees from a session
+    if (action === "remove_all") {
+      const supabase = createServerClient();
+      const { error } = await supabase
+        .from("enrollments")
+        .delete()
+        .eq("session_id", sessionId);
+      if (error) throw error;
+      return Response.json({ success: true, removed: true });
+    }
+
+    if (!names || !Array.isArray(names) || names.length === 0) {
       return Response.json(
-        { error: "Missing required fields: sessionId, names (array)" },
+        { error: "Missing required fields: names (array)" },
         { status: 400 }
       );
     }

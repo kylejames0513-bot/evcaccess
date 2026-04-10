@@ -256,48 +256,48 @@ export default function SchedulePage() {
                       </div>
                       <button
                         onClick={() => setEditingSession(session)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-slate-50 text-slate-600 hover:bg-slate-100"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-colors bg-slate-50 text-slate-600 hover:bg-slate-100"
                       >
-                        <Pencil className="h-4 w-4" />
+                        <Pencil className="h-3 w-3" />
                         Edit
                       </button>
                       <a
                         href={`/sessions/${session.id}`}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-blue-50 text-blue-700 hover:bg-blue-100"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-colors bg-blue-50 text-blue-700 hover:bg-blue-100"
                       >
-                        <ClipboardCheck className="h-4 w-4" />
-                        Review Attendance
+                        <ClipboardCheck className="h-3 w-3" />
+                        Attendance
                       </a>
                       <button
                         onClick={() => setFinalizingSession(session.id)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors bg-amber-50 text-amber-700 hover:bg-amber-100"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-colors bg-amber-50 text-amber-700 hover:bg-amber-100"
                       >
-                        <ClipboardCheck className="h-4 w-4" />
+                        <AlertTriangle className="h-3 w-3" />
                         No-Shows
                       </button>
                       <button
                         onClick={() => handleAutoFill(session)}
                         disabled={isFull || autoFilling === session.id}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                        className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-colors ${
                           isFull
                             ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                             : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                         }`}
                         title="Auto-fill with employees who need this training"
                       >
-                        {autoFilling === session.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                        {autoFilling === session.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
                         Auto-Fill
                       </button>
                       <button
                         onClick={() => setEnrollingSession(session.id)}
                         disabled={isFull}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+                        className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-colors ${
                           isFull
                             ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                             : "bg-blue-50 text-blue-700 hover:bg-blue-100"
                         }`}
                       >
-                        <UserPlus className="h-4 w-4" />
+                        <UserPlus className="h-3 w-3" />
                         Enroll
                       </button>
                       {deletingSession === session.id ? (
@@ -330,7 +330,7 @@ export default function SchedulePage() {
 
                   {/* Enrolled list */}
                   {enrolledCount > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
                       {session.enrolled.map((name) => (
                         <EnrolledChip
                           key={name}
@@ -340,6 +340,7 @@ export default function SchedulePage() {
                           onRemoved={refresh}
                         />
                       ))}
+                      <RemoveAllButton sessionId={session.id} count={enrolledCount} onRemoved={refresh} />
                     </div>
                   )}
 
@@ -705,6 +706,60 @@ function EnrollModal({
         </div>
       </div>
     </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────
+// Remove All button for a session
+// ────────────────────────────────────────────────────────────
+
+function RemoveAllButton({ sessionId, count, onRemoved }: { sessionId: string; count: number; onRemoved: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [removing, setRemoving] = useState(false);
+
+  async function handleRemoveAll() {
+    setRemoving(true);
+    try {
+      const res = await fetch("/api/enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, action: "remove_all" }),
+      });
+      if (res.ok) onRemoved();
+    } catch {}
+    setRemoving(false);
+    setConfirming(false);
+  }
+
+  if (confirming) {
+    return (
+      <span className="inline-flex items-center gap-1 ml-1">
+        <button
+          onClick={handleRemoveAll}
+          disabled={removing}
+          className="px-2 py-0.5 text-[11px] font-semibold rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+        >
+          {removing ? "..." : `Remove all ${count}`}
+        </button>
+        <button
+          onClick={() => setConfirming(false)}
+          className="text-[11px] text-slate-400 hover:text-slate-600"
+        >
+          cancel
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setConfirming(true)}
+      className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md text-red-500 hover:bg-red-50 hover:text-red-700 transition-colors ml-1"
+      title="Remove all enrolled people"
+    >
+      <XCircle className="h-3 w-3" />
+      Clear all
+    </button>
   );
 }
 
