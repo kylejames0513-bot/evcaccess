@@ -137,8 +137,8 @@ export default function PublicSigninPage() {
                 </svg>
               </div>
               <div>
-                <h2 className="text-lg sm:text-xl font-bold text-gray-800">Before you sign in</h2>
-                <p className="text-gray-600 mt-2 text-sm leading-relaxed">You <strong className="text-amber-700">must clock in on InfoServ</strong> to get paid for this training. Sign in here first, then clock in when prompted.</p>
+                <h2 className="text-lg sm:text-xl font-bold text-gray-800">Before You Sign In</h2>
+                <p className="text-gray-600 mt-2 text-sm leading-relaxed">You <strong className="text-amber-700">MUST Clock In On PHS</strong> To Get Paid For This Training. Sign In Here First, Then Clock In When Prompted.</p>
               </div>
               <button type="button" onClick={() => setStep("form")} disabled={countdown > 0}
                 className="w-full py-3.5 rounded-xl text-white font-bold text-base transition-all disabled:opacity-40"
@@ -154,7 +154,7 @@ export default function PublicSigninPage() {
               <Field label="Training Session">
                 <select required value={training} onChange={(e) => setTraining(e.target.value)}
                   className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 focus:bg-white transition-colors">
-                  <option value="">Select training...</option>
+                  <option value="">Select Training...</option>
                   {grouped.map(g => (
                     <optgroup key={g.cat} label={`--- ${g.cat} ---`}>
                       {g.items.sort((a, b) => a.name.localeCompare(b.name)).map(t => (
@@ -167,29 +167,29 @@ export default function PublicSigninPage() {
 
               <Field label="Your Full Name">
                 <input type="text" required value={name} onChange={(e) => setName(e.target.value)}
-                  placeholder="First Last" autoComplete="name" autoCapitalize="words"
+                  placeholder="First Last (As It Appears On Your Badge)" autoComplete="name" autoCapitalize="words"
                   className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 focus:bg-white transition-colors" />
               </Field>
 
               <Field label="Notes" optional>
                 <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
                   className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 focus:bg-white transition-colors resize-none"
-                  placeholder="Optional..." />
+                  placeholder="Optional Notes..." />
               </Field>
 
               <label className="flex items-center gap-2.5 cursor-pointer select-none">
                 <input type="checkbox" checked={hasIssue} onChange={(e) => setHasIssue(e.target.checked)}
                   className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4" />
-                <span className="text-sm text-gray-700">Report an attendance issue</span>
+                <span className="text-sm text-gray-700">Report An Attendance Issue</span>
               </label>
 
               {hasIssue && (
                 <div className="ml-7">
                   <select value={issueReason} onChange={(e) => setIssueReason(e.target.value)}
                     className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-3 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 focus:bg-white">
-                    <option value="">What happened?</option>
-                    <option value="Arrived late">Arrived late</option>
-                    <option value="Need to leave early">Need to leave early</option>
+                    <option value="">What Happened?</option>
+                    <option value="Arrived Late">Arrived Late</option>
+                    <option value="Need To Leave Early">Need To Leave Early</option>
                     <option value="Other">Other</option>
                   </select>
                 </div>
@@ -206,7 +206,7 @@ export default function PublicSigninPage() {
           {/* Confirm */}
           {step === "confirm" && (
             <div className="p-5 sm:p-7 space-y-4">
-              <h2 className="text-lg font-bold text-gray-800 text-center">Confirm your details</h2>
+              <h2 className="text-lg font-bold text-gray-800 text-center">Confirm Your Details</h2>
               <div className="bg-emerald-50 rounded-xl p-4 space-y-2.5 text-sm border border-emerald-100">
                 <ConfirmRow label="Name" value={name} />
                 <ConfirmRow label="Training" value={training} />
@@ -217,7 +217,7 @@ export default function PublicSigninPage() {
               <div className="grid grid-cols-2 gap-3">
                 <button type="button" onClick={() => setStep("form")}
                   className="py-3 rounded-xl border border-gray-200 text-gray-600 font-semibold text-sm">
-                  Go back
+                  Go Back
                 </button>
                 <button type="button" onClick={handleConfirm} disabled={submitting}
                   className="py-3 rounded-xl text-white font-bold text-sm shadow-lg disabled:opacity-50"
@@ -237,17 +237,17 @@ export default function PublicSigninPage() {
                 </svg>
               </div>
               <div>
-                <h2 className="text-lg font-bold text-emerald-800">Arrival recorded</h2>
+                <h2 className="text-lg font-bold text-emerald-800">Arrival Recorded</h2>
                 <p className="text-emerald-600 font-mono text-sm mt-0.5">{arrivalTime}</p>
               </div>
               <p className="text-sm text-gray-500">{resultMessage}</p>
 
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
-                <p className="text-sm font-semibold text-amber-800">Clock in on InfoServ to get paid.</p>
+                <p className="text-sm font-semibold text-amber-800">Clock In On PHS To Get Paid.</p>
                 <a href={CLOCK_IN_URL} target="_blank" rel="noopener noreferrer"
                   className="block w-full py-3 rounded-xl text-white font-bold text-base text-center shadow-lg transition-transform active:scale-[0.98]"
                   style={{ background: "linear-gradient(135deg, #b45309, #d97706)" }}>
-                  Clock In to Get Paid
+                  Clock In To Get Paid
                 </a>
               </div>
 
@@ -266,11 +266,11 @@ export default function PublicSigninPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </div>
-              <h2 className="text-lg font-bold text-red-800">Something went wrong</h2>
+              <h2 className="text-lg font-bold text-red-800">Something Went Wrong</h2>
               <p className="text-sm text-gray-600">{resultMessage}</p>
               <button type="button" onClick={() => setStep("form")}
                 className="w-full py-3 rounded-xl border border-gray-200 text-gray-700 font-semibold text-sm">
-                Try again
+                Try Again
               </button>
             </div>
           )}

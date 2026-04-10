@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 // Pages that don't require authentication
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/signin"];
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
