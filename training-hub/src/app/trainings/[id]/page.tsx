@@ -66,7 +66,7 @@ export default function TrainingDetailPage({
   }, {});
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-3 sm:p-6 max-w-full sm:max-w-6xl mx-auto">
       <div className="bg-white rounded shadow p-4 mb-6">
         <h1 className="text-2xl font-bold">{t.name}</h1>
         <dl className="grid grid-cols-3 gap-2 text-sm mt-2">

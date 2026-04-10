@@ -141,7 +141,7 @@ export default function ImportsPage() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-3 sm:p-6 max-w-full sm:max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Imports</h1>
       <p className="text-gray-600 mb-6">
         Upload a Paylocity, PHS, Access, or sign-in CSV. Preview the result, then commit.

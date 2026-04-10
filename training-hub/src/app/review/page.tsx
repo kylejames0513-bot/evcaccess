@@ -93,7 +93,7 @@ export default function ReviewPage() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-3 sm:p-6 max-w-full sm:max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Resolution review</h1>
       <p className="text-gray-600 mb-6">
         Review queue for import rows the resolver could not match. Resolving a row attaches it to a real employee or training. Resolved trainings also create an alias so future imports pick them up automatically.

@@ -77,7 +77,7 @@ export default function EmployeeDetailPage({
   const e = data.employee;
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-3 sm:p-6 max-w-full sm:max-w-6xl mx-auto">
       <div className="bg-white rounded-lg shadow p-4 mb-6">
         <div className="flex flex-wrap items-baseline gap-4">
           <h1 className="text-2xl font-bold">

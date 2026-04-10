@@ -112,7 +112,7 @@ export default function CompliancePage() {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-3 sm:p-6 max-w-full sm:max-w-7xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Compliance dashboard</h1>
 
       {summary && (
