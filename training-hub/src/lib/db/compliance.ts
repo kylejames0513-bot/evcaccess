@@ -39,9 +39,19 @@ export async function listCompliance(
 
   query = query.order("last_name", { nullsFirst: false }).order("first_name", { nullsFirst: false });
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  // Supabase default limit is 1000 rows. Paginate to get all results.
+  const allRows: EmployeeCompliance[] = [];
+  const PAGE_SIZE = 1000;
+  let offset = 0;
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allRows.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+  return allRows;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -80,11 +90,22 @@ export async function getComplianceSummary(): Promise<ComplianceSummary> {
   const client = db();
 
   // Pull all compliance rows (one per employee+training). The view
-  // already filters to active employees only.
-  const { data: rows, error } = await client
-    .from("employee_compliance")
-    .select("employee_id, status, due_in_30, due_in_60, due_in_90, days_overdue");
-  if (error) throw error;
+  // already filters to active employees only. Paginate to avoid the
+  // default 1000-row Supabase limit.
+  const rows: { employee_id: string | null; status: string | null; due_in_30: boolean | null; due_in_60: boolean | null; due_in_90: boolean | null; days_overdue: number | null }[] = [];
+  const PAGE = 1000;
+  let off = 0;
+  while (true) {
+    const { data, error } = await client
+      .from("employee_compliance")
+      .select("employee_id, status, due_in_30, due_in_60, due_in_90, days_overdue")
+      .range(off, off + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < PAGE) break;
+    off += PAGE;
+  }
 
   // Group by employee, pick worst status per employee.
   const byEmployee = new Map<string, {
