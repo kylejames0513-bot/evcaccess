@@ -23,6 +23,7 @@ import {
   findEmployeeByAlias,
   findEmployeeByName,
   findEmployeeCandidatesByName,
+  findEmployeesByNamePrefix,
   findFuzzyCandidates,
   getEmployeeByPaylocityId,
 } from "@/lib/db/employees";
@@ -195,7 +196,7 @@ export type ResolutionFailure =
   | { reason: "invalid_id"; paylocityId: string };
 
 export type ResolutionResult =
-  | { ok: true; employee: Employee; matchedBy: "paylocity_id" | "name" | "alias_array" | "alias_text" | "fuzzy" }
+  | { ok: true; employee: Employee; matchedBy: "paylocity_id" | "name" | "name_prefix" | "alias_array" | "alias_text" | "fuzzy" }
   | { ok: false; failure: ResolutionFailure };
 
 export interface ResolveInput {
@@ -243,6 +244,19 @@ export async function resolveEmployee(input: ResolveInput): Promise<ResolutionRe
     const candidates = await findEmployeeCandidatesByName(last, first);
     if (candidates.length > 1) {
       return { ok: false, failure: { reason: "ambiguous", candidates } };
+    }
+
+    // 2b. first_name prefix match. Catches the common mismatch where the
+    //     DB stores "Heather M." but the import source sends just "Heather"
+    //     (parseName strips middle initials). The query requires a space
+    //     after the first name so "Heather" matches "Heather M." but not
+    //     "Heatherly".
+    const prefixMatches = await findEmployeesByNamePrefix(last, first);
+    if (prefixMatches.length === 1) {
+      return { ok: true, employee: prefixMatches[0], matchedBy: "name_prefix" };
+    }
+    if (prefixMatches.length > 1) {
+      return { ok: false, failure: { reason: "ambiguous", candidates: prefixMatches } };
     }
   }
 

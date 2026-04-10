@@ -143,6 +143,29 @@ export async function findFuzzyCandidates(
 }
 
 /**
+ * Find employees by exact last name and first name prefix. Catches the common
+ * case where the DB stores "Heather M." but the import source sends just
+ * "Heather" (or vice-versa after parseName strips the middle initial).
+ *
+ * The query matches `first_name ILIKE 'firstName %'`, requiring a space after
+ * the given first name so "Heather" matches "Heather M." but not "Heatherly".
+ *
+ * Returns all matches so the caller can handle ambiguity.
+ */
+export async function findEmployeesByNamePrefix(
+  lastName: string,
+  firstName: string
+): Promise<Employee[]> {
+  const { data, error } = await db()
+    .from("employees")
+    .select("*")
+    .ilike("last_name", lastName)
+    .ilike("first_name", `${firstName} %`);
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
  * Find an employee whose `aliases` array contains the given full-name string.
  * Uses the GIN index. Used by the resolver for PHS rows that come in as
  * "Last, First" or "First Last" strings.
