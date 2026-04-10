@@ -55,19 +55,29 @@ export async function GET(req: NextRequest) {
       if (counts.expired > 0) status = "expired";
       else if (counts.expiring > 0) status = "expiring_soon";
       else if (counts.needed > 0) status = "needed";
+      // Emit both old and new keys so the legacy page.tsx works
+      // alongside the new /employees/[id] page.
+      const completed = counts.current + counts.excused;
       return {
+        // New keys
         id: emp.id,
         last_name: emp.last_name,
         first_name: emp.first_name,
         paylocity_id: emp.paylocity_id,
         department: emp.department,
-        position: emp.position,
         job_title: emp.job_title,
         is_active: emp.is_active,
         terminated_at: emp.terminated_at,
         counts,
         total_required: total,
         status,
+        // Legacy keys the old page expects
+        name: `${emp.first_name ?? ""} ${emp.last_name ?? ""}`.trim(),
+        employeeId: emp.paylocity_id ?? emp.id,
+        position: emp.department ?? emp.position ?? "",
+        completedCount: completed,
+        totalRequired: total,
+        noShowCount: 0,
       };
     });
 

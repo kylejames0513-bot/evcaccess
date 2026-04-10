@@ -1,5 +1,6 @@
 import { getComplianceSummary, listCompliance } from "@/lib/db/compliance";
 import { getEmployeeCounts } from "@/lib/db/employees";
+import { createServerClient } from "@/lib/supabase";
 
 /**
  * GET /api/dashboard
@@ -9,9 +10,13 @@ import { getEmployeeCounts } from "@/lib/db/employees";
  */
 export async function GET() {
   try {
-    const [summary, employeeCounts] = await Promise.all([
+    const [summary, employeeCounts, scheduledCount] = await Promise.all([
       getComplianceSummary(),
       getEmployeeCounts(),
+      createServerClient()
+        .from("training_sessions")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "scheduled"),
     ]);
 
     const expiredRows = await listCompliance({ status: "expired" });
@@ -37,7 +42,7 @@ export async function GET() {
         expiringSoon: summary.status_counts.expiring_soon,
         expired: summary.status_counts.expired,
         needed: summary.status_counts.needed,
-        upcomingSessions: 0,
+        upcomingSessions: scheduledCount.count ?? 0,
         criticalExpiring: summary.tier_counts.due_30,
       },
       urgentIssues: urgent,
