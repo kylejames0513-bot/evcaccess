@@ -121,6 +121,28 @@ export async function findEmployeeCandidatesByName(
 }
 
 /**
+ * Pull a candidate set for fuzzy matching. Narrows by first letter of
+ * last_name to keep the in-memory pool small (one of ~26 buckets, each
+ * with ~85 rows for the EVC dataset). Caller computes Levenshtein
+ * similarity client-side via the fuzzy module.
+ *
+ * Includes both active and inactive employees so the fuzzy matcher can
+ * find an orphaned former-employee row to suggest.
+ */
+export async function findFuzzyCandidates(
+  lastNamePrefix: string
+): Promise<Employee[]> {
+  const letter = lastNamePrefix.trim().charAt(0);
+  if (!letter) return [];
+  const { data, error } = await db()
+    .from("employees")
+    .select("*")
+    .ilike("last_name", `${letter}%`);
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
  * Find an employee whose `aliases` array contains the given full-name string.
  * Uses the GIN index. Used by the resolver for PHS rows that come in as
  * "Last, First" or "First Last" strings.

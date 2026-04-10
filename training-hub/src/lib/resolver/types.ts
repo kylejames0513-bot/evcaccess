@@ -31,6 +31,7 @@ export interface ResolvedUnresolvedPerson {
   full_name: string | null;
   paylocity_id: string | null;
   reason: "no_match" | "ambiguous" | "invalid_id" | "name_collision" | "special_status" | "name_map_no_match";
+  suggested_employee_id?: string | null;
 }
 
 export interface ResolvedUnknownTraining {

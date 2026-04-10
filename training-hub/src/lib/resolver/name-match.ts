@@ -23,8 +23,14 @@ import {
   findEmployeeByAlias,
   findEmployeeByName,
   findEmployeeCandidatesByName,
+  findFuzzyCandidates,
   getEmployeeByPaylocityId,
 } from "@/lib/db/employees";
+import {
+  classifyFuzzy,
+  pickBestFuzzy,
+  type FuzzyMatchResult,
+} from "./fuzzy";
 import type { Employee } from "@/types/database";
 
 export interface ParsedName {
@@ -93,17 +99,103 @@ export function namesEqual(a: ParsedName, b: ParsedName): boolean {
   );
 }
 
+/**
+ * Take a raw first-name string and split out an embedded quoted nickname
+ * if present. Returns the cleaned legal first name plus the preferred
+ * name, if any. Examples:
+ *
+ *   'Michael "Mike"'    -> { first: 'Michael', preferred: 'Mike' }
+ *   'Jamie "Jamie"'     -> { first: 'Jamie',   preferred: 'Jamie' }
+ *   'Catherine'         -> { first: 'Catherine', preferred: null }
+ *   'Niyonyishu (Frank)'-> { first: 'Niyonyishu', preferred: 'Frank' }  (parens form)
+ *
+ * The parens variant exists for one of Kyle's name_map rows.
+ */
+export function splitFirstName(raw: string): { first: string; preferred: string | null } {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed) return { first: "", preferred: null };
+
+  // Quoted nickname: Michael "Mike"
+  const quote = trimmed.match(/^([^"]+?)\s*"([^"]+)"\s*$/);
+  if (quote) {
+    return { first: quote[1].trim(), preferred: quote[2].trim() };
+  }
+
+  // Parenthesized nickname: Niyonyishu (Frank)
+  const paren = trimmed.match(/^([^(]+?)\s*\(([^)]+)\)\s*$/);
+  if (paren) {
+    return { first: paren[1].trim(), preferred: paren[2].trim() };
+  }
+
+  return { first: trimmed, preferred: null };
+}
+
+export interface BuildAliasesInput {
+  lastName: string;
+  firstName: string;
+  preferredName?: string | null;
+  middleName?: string | null;
+}
+
+/**
+ * Build the canonical alias set for an employee row. Returns every
+ * common shape that downstream sources might use to refer to the same
+ * person. Output is deduplicated and excludes empty strings. Always
+ * returns at least the (last, first) pair if those are present.
+ *
+ * The output of this function is what gets merged into employees.aliases
+ * during ingest, and what the alias-array lookup in resolveEmployee
+ * checks against.
+ */
+export function buildNameAliases(input: BuildAliasesInput): string[] {
+  const last = input.lastName.trim();
+  const first = input.firstName.trim();
+  const preferred = (input.preferredName ?? "").trim();
+  const middle = (input.middleName ?? "").trim();
+
+  if (!last || !first) return [];
+
+  const aliases = new Set<string>();
+  const addPair = (f: string) => {
+    if (!f) return;
+    aliases.add(`${last}, ${f}`);
+    aliases.add(`${f} ${last}`);
+  };
+
+  // Legal name
+  addPair(first);
+
+  // Preferred name (if different)
+  if (preferred && normalizeNameComponent(preferred) !== normalizeNameComponent(first)) {
+    addPair(preferred);
+  }
+
+  // First + middle initial
+  if (middle) {
+    const midInitial = middle.charAt(0);
+    addPair(`${first} ${midInitial}`);
+  }
+
+  // Quoted-form for the original sheet shape (e.g. 'Michael "Mike"')
+  if (preferred && normalizeNameComponent(preferred) !== normalizeNameComponent(first)) {
+    aliases.add(`${last}, ${first} "${preferred}"`);
+    aliases.add(`${first} "${preferred}" ${last}`);
+  }
+
+  return [...aliases];
+}
+
 // ────────────────────────────────────────────────────────────
 // Async employee lookups, server-only
 // ────────────────────────────────────────────────────────────
 
 export type ResolutionFailure =
   | { reason: "no_match" }
-  | { reason: "ambiguous"; candidates: Employee[] }
+  | { reason: "ambiguous"; candidates: Employee[]; suggestion?: Employee }
   | { reason: "invalid_id"; paylocityId: string };
 
 export type ResolutionResult =
-  | { ok: true; employee: Employee; matchedBy: "paylocity_id" | "name" | "alias_array" | "alias_text" }
+  | { ok: true; employee: Employee; matchedBy: "paylocity_id" | "name" | "alias_array" | "alias_text" | "fuzzy" }
   | { ok: false; failure: ResolutionFailure };
 
 export interface ResolveInput {
@@ -171,6 +263,29 @@ export async function resolveEmployee(input: ResolveInput): Promise<ResolutionRe
     if (a) return { ok: true, employee: a, matchedBy: "alias_array" };
     const b = await findEmployeeByAlias(firstLast);
     if (b) return { ok: true, employee: b, matchedBy: "alias_array" };
+  }
+
+  // 4. Fuzzy match as the last resort. Conservative thresholds: a strong
+  //    fuzzy match (score >= 0.92) is treated as a real match; a weak one
+  //    (0.82..0.92) is returned as a suggestion via the ambiguous failure
+  //    so the resolution review UI can offer it to a human.
+  if (last && first) {
+    const candidates = await findFuzzyCandidates(last);
+    const best = pickBestFuzzy(candidates, last, first);
+    const verdict = classifyFuzzy(best);
+    if (verdict === "strong" && best) {
+      return { ok: true, employee: best.employee, matchedBy: "fuzzy" };
+    }
+    if (verdict === "weak" && best) {
+      return {
+        ok: false,
+        failure: {
+          reason: "ambiguous",
+          candidates: [best.employee],
+          suggestion: best.employee,
+        },
+      };
+    }
   }
 
   if (input.paylocityId && input.paylocityId.trim().length > 0) {

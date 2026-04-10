@@ -57,6 +57,8 @@ export async function resolveSigninBatch(rows: SigninRow[]): Promise<ResolvedBat
     });
 
     if (!resolution.ok) {
+      const suggestion =
+        resolution.failure.reason === "ambiguous" ? resolution.failure.suggestion?.id ?? null : null;
       batch.unresolved_people.push({
         source: "signin",
         raw_payload: row as unknown as Record<string, unknown>,
@@ -65,6 +67,7 @@ export async function resolveSigninBatch(rows: SigninRow[]): Promise<ResolvedBat
         full_name: row.attendeeName,
         paylocity_id: null,
         reason: resolution.failure.reason === "invalid_id" ? "invalid_id" : resolution.failure.reason,
+        suggested_employee_id: suggestion,
       });
       continue;
     }

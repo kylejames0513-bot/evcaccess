@@ -48,6 +48,8 @@ export async function resolveAccessBatch(rows: AccessRow[]): Promise<ResolvedBat
     // Match the employee once per row, then walk every training column.
     const resolution = await resolveEmployee({ lastName, firstName });
     if (!resolution.ok) {
+      const suggestion =
+        resolution.failure.reason === "ambiguous" ? resolution.failure.suggestion?.id ?? null : null;
       batch.unresolved_people.push({
         source: "access",
         raw_payload: row as unknown as Record<string, unknown>,
@@ -56,6 +58,7 @@ export async function resolveAccessBatch(rows: AccessRow[]): Promise<ResolvedBat
         full_name: `${lastName}, ${firstName}`,
         paylocity_id: null,
         reason: resolution.failure.reason === "invalid_id" ? "invalid_id" : resolution.failure.reason,
+        suggested_employee_id: suggestion,
       });
       continue;
     }

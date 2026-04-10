@@ -93,6 +93,8 @@ export async function resolvePaylocityBatch(rows: PaylocityRow[]): Promise<Resol
     }
 
     if (!resolution.ok) {
+      const suggestion =
+        resolution.failure.reason === "ambiguous" ? resolution.failure.suggestion?.id ?? null : null;
       batch.unresolved_people.push({
         source: "paylocity",
         raw_payload: row as unknown as Record<string, unknown>,
@@ -101,6 +103,7 @@ export async function resolvePaylocityBatch(rows: PaylocityRow[]): Promise<Resol
         full_name: lastName && firstName ? `${lastName}, ${firstName}` : null,
         paylocity_id: paylocityId || null,
         reason: resolution.failure.reason === "invalid_id" ? "invalid_id" : resolution.failure.reason,
+        suggested_employee_id: suggestion,
       });
       continue;
     }
