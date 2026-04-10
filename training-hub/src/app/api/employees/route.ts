@@ -1,47 +1,77 @@
-import { getTrainingData } from "@/lib/training-data";
-import { TRAINING_DEFINITIONS } from "@/config/trainings";
-import { getNoShows } from "@/lib/hub-settings";
+import { listEmployees } from "@/lib/db/employees";
+import { listCompliance } from "@/lib/db/compliance";
+import type { NextRequest } from "next/server";
 
-export async function GET() {
+/**
+ * GET /api/employees
+ *
+ * Query params:
+ *   active=true|false (default: true, set "all" to include both)
+ *   department, position
+ *
+ * Returns one row per employee with their aggregate compliance status
+ * (rolled up from employee_compliance view rows).
+ */
+export async function GET(req: NextRequest) {
   try {
-    const [data, noShowRecords] = await Promise.all([
-      getTrainingData(),
-      getNoShows(),
-    ]);
+    const params = req.nextUrl.searchParams;
+    const activeParam = params.get("active");
+    const includeInactive = activeParam === "all" || activeParam === "false";
+    const department = params.get("department") ?? undefined;
+    const position = params.get("position") ?? undefined;
 
-    // Build no-show count lookup
-    const noShowCounts = new Map<string, number>();
-    for (const rec of noShowRecords) {
-      noShowCounts.set(rec.name.toLowerCase(), rec.incidents.length);
+    const employees = await listEmployees({
+      activeOnly: !includeInactive,
+      department,
+      position,
+    });
+
+    // For each employee, count their statuses from the compliance view.
+    // One read per page is fine for HR dashboards. If this becomes a hot
+    // path, fold it into a server-side aggregate.
+    const compliance = await listCompliance();
+    const byEmployee = new Map<string, { current: number; expired: number; expiring: number; needed: number; excused: number }>();
+    for (const row of compliance) {
+      if (!row.employee_id) continue;
+      const e = byEmployee.get(row.employee_id) ?? { current: 0, expired: 0, expiring: 0, needed: 0, excused: 0 };
+      if (row.status === "current") e.current += 1;
+      else if (row.status === "expired") e.expired += 1;
+      else if (row.status === "expiring_soon") e.expiring += 1;
+      else if (row.status === "needed") e.needed += 1;
+      else if (row.status === "excused") e.excused += 1;
+      byEmployee.set(row.employee_id, e);
     }
 
-    const employees = data.map((emp) => {
-      const statuses = Object.values(emp.trainings);
-      const total = statuses.length;
-      const completed = statuses.filter(
-        (t) => t.status === "current" || t.status === "excused"
-      ).length;
-      const hasExpired = statuses.some((t) => t.status === "expired");
-      const hasExpiring = statuses.some((t) => t.status === "expiring_soon");
-
-      let overallStatus: string;
-      if (hasExpired) overallStatus = "expired";
-      else if (hasExpiring) overallStatus = "expiring_soon";
-      else if (completed < total) overallStatus = "needed";
-      else overallStatus = "current";
-
+    const result = employees.map((emp) => {
+      const counts = byEmployee.get(emp.id) ?? {
+        current: 0,
+        expired: 0,
+        expiring: 0,
+        needed: 0,
+        excused: 0,
+      };
+      const total = counts.current + counts.expired + counts.expiring + counts.needed + counts.excused;
+      let status: "expired" | "expiring_soon" | "needed" | "current" = "current";
+      if (counts.expired > 0) status = "expired";
+      else if (counts.expiring > 0) status = "expiring_soon";
+      else if (counts.needed > 0) status = "needed";
       return {
-        name: emp.name,
-        employeeId: emp.employeeId,
+        id: emp.id,
+        last_name: emp.last_name,
+        first_name: emp.first_name,
+        paylocity_id: emp.paylocity_id,
+        department: emp.department,
         position: emp.position,
-        completedCount: completed,
-        totalRequired: total,
-        status: overallStatus,
-        noShowCount: noShowCounts.get(emp.name.toLowerCase()) || 0,
+        job_title: emp.job_title,
+        is_active: emp.is_active,
+        terminated_at: emp.terminated_at,
+        counts,
+        total_required: total,
+        status,
       };
     });
 
-    return Response.json({ employees });
+    return Response.json({ employees: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return Response.json({ error: message }, { status: 500 });
