@@ -50,9 +50,9 @@ export async function resolvePaylocityBatch(rows: PaylocityRow[]): Promise<Resol
   const unknownAggregator = new Map<string, { occurrences: number; sample: PaylocityRow }>();
 
   for (const row of rows) {
-    const paylocityId = (row["Employee Id"] ?? "").trim();
-    const lastName = (row["Last Name"] ?? "").trim();
-    const firstName = (row["First Name"] ?? "").trim();
+    const paylocityId = String(row["Employee Id"] ?? "").trim();
+    const lastName = String(row["Last Name"] ?? "").trim();
+    const firstName = String(row["First Name"] ?? "").trim();
     const rawTraining = paylocityRawName(row.Skill, row.Code);
 
     // 1. Match the training first; some rows we skip outright before
