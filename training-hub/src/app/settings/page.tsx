@@ -188,7 +188,7 @@ function PositionRulesSection() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
 
-  const [newTrainingTypeId, setNewTrainingTypeId] = useState<number | "">("");
+  const [selectedTrainingIds, setSelectedTrainingIds] = useState<Set<number>>(new Set());
   const [newDept, setNewDept] = useState("");
   const [newPosition, setNewPosition] = useState("");
 
@@ -227,31 +227,45 @@ function PositionRulesSection() {
     }
   }, [newDept]);
 
+  function toggleTraining(id: number) {
+    const next = new Set(selectedTrainingIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedTrainingIds(next);
+  }
+
+  // IDs already required for the current dept+position combo
+  const alreadyRequired = new Set(
+    positionRules
+      .filter((r) => r.department?.toLowerCase() === newDept.toLowerCase() && r.position?.toLowerCase() === newPosition.toLowerCase())
+      .map((r) => r.training_type_id)
+  );
+
   async function handleAdd() {
-    if (!newTrainingTypeId || !newDept || !newPosition) return;
+    if (selectedTrainingIds.size === 0 || !newDept || !newPosition) return;
     setSaving(true);
     try {
-      const res = await fetch("/api/required-trainings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          training_type_id: newTrainingTypeId,
-          is_required: true,
-          is_universal: false,
-          department: newDept,
-          position: newPosition,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        alert(err.error || "Failed to add rule");
-      } else {
-        setAdding(false);
-        setNewTrainingTypeId("");
-        setNewDept("");
-        setNewPosition("");
-        await load();
+      let failed = false;
+      for (const ttId of selectedTrainingIds) {
+        const res = await fetch("/api/required-trainings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            training_type_id: ttId,
+            is_required: true,
+            is_universal: false,
+            department: newDept,
+            position: newPosition,
+          }),
+        });
+        if (!res.ok) failed = true;
       }
+      if (failed) alert("Some rules could not be saved (may already exist)");
+      setAdding(false);
+      setSelectedTrainingIds(new Set());
+      setNewDept("");
+      setNewPosition("");
+      await load();
     } catch {}
     setSaving(false);
   }
@@ -297,12 +311,12 @@ function PositionRulesSection() {
         <>
           {adding && (
             <div className="px-6 py-4 border-b border-slate-200 bg-blue-50/30">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Department</label>
                   <select
                     value={newDept}
-                    onChange={(e) => setNewDept(e.target.value)}
+                    onChange={(e) => { setNewDept(e.target.value); setNewPosition(""); setSelectedTrainingIds(new Set()); }}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select...</option>
@@ -315,7 +329,7 @@ function PositionRulesSection() {
                   <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Position</label>
                   <select
                     value={newPosition}
-                    onChange={(e) => setNewPosition(e.target.value)}
+                    onChange={(e) => { setNewPosition(e.target.value); setSelectedTrainingIds(new Set()); }}
                     disabled={!newDept}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                   >
@@ -325,31 +339,51 @@ function PositionRulesSection() {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Training</label>
-                  <select
-                    value={newTrainingTypeId}
-                    onChange={(e) => setNewTrainingTypeId(e.target.value ? parseInt(e.target.value) : "")}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">Select...</option>
-                    {trainingTypes.map((tt) => (
-                      <option key={tt.id} value={tt.id}>{tt.name}</option>
-                    ))}
-                  </select>
-                </div>
               </div>
+
+              {/* Training checkboxes — shown once position is selected */}
+              {newDept && newPosition && (
+                <div className="mt-3">
+                  <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Required Trainings
+                    <span className="text-slate-400 font-normal ml-1">({selectedTrainingIds.size} selected)</span>
+                  </label>
+                  <div className="border border-slate-200 rounded-lg overflow-hidden max-h-52 overflow-y-auto bg-white">
+                    {trainingTypes.map((tt) => {
+                      const checked = selectedTrainingIds.has(tt.id);
+                      const exists = alreadyRequired.has(tt.id);
+                      return (
+                        <label
+                          key={tt.id}
+                          className={`flex items-center gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50 border-b border-slate-50 last:border-0 ${exists ? "opacity-40" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked || exists}
+                            disabled={exists}
+                            onChange={() => toggleTraining(tt.id)}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className={checked ? "text-slate-900 font-medium" : "text-slate-600"}>{tt.name}</span>
+                          {exists && <span className="text-[10px] text-slate-400 ml-auto">already set</span>}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center gap-2 mt-3">
                 <button
                   onClick={handleAdd}
-                  disabled={saving || !newTrainingTypeId || !newDept || !newPosition}
+                  disabled={saving || selectedTrainingIds.size === 0 || !newDept || !newPosition}
                   className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-all"
                 >
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Save
+                  Save {selectedTrainingIds.size > 0 ? `(${selectedTrainingIds.size})` : ""}
                 </button>
                 <button
-                  onClick={() => { setAdding(false); setNewTrainingTypeId(""); setNewDept(""); setNewPosition(""); }}
+                  onClick={() => { setAdding(false); setSelectedTrainingIds(new Set()); setNewDept(""); setNewPosition(""); }}
                   className="px-4 py-2 text-sm font-medium border border-slate-200 bg-white rounded-lg hover:bg-slate-50 text-slate-500"
                 >
                   Cancel
