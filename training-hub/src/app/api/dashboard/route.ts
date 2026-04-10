@@ -4,14 +4,8 @@ import { getEmployeeCounts } from "@/lib/db/employees";
 /**
  * GET /api/dashboard
  *
- * Top-of-page summary for the root dashboard. Pulls from the new
- * employee_compliance view + employee count aggregates.
- *
- * Returns:
- *   {
- *     stats: { totalEmployees, totalActive, totalInactive, statusCounts, tierCounts, employeesWithAnyIssue }
- *     urgentIssues: top 8 expired/expiring_soon rows from the compliance view
- *   }
+ * Returns the shape the existing root page.tsx expects so the dashboard
+ * keeps working without a full page rewrite.
  */
 export async function GET() {
   try {
@@ -20,8 +14,6 @@ export async function GET() {
       getEmployeeCounts(),
     ]);
 
-    // Pull urgent issues directly from the compliance view, ordered by
-    // expiration_date asc so the closest deadlines surface first.
     const expiredRows = await listCompliance({ status: "expired" });
     const expiringRows = await listCompliance({ status: "expiring_soon" });
     const urgent = [...expiredRows, ...expiringRows]
@@ -31,27 +23,25 @@ export async function GET() {
       })
       .slice(0, 8)
       .map((row) => ({
-        employee_id: row.employee_id,
-        first_name: row.first_name,
-        last_name: row.last_name,
-        department: row.department,
-        training_name: row.training_name,
-        status: row.status,
-        completion_date: row.completion_date,
-        expiration_date: row.expiration_date,
-        days_overdue: row.days_overdue,
+        employee: `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim(),
+        training: row.training_name ?? "",
+        status: row.status ?? "needed",
+        date: row.completion_date ?? null,
+        expirationDate: row.expiration_date ?? null,
       }));
 
     return Response.json({
       stats: {
-        total_employees: employeeCounts.active + employeeCounts.inactive,
-        total_active: employeeCounts.active,
-        total_inactive: employeeCounts.inactive,
-        status_counts: summary.status_counts,
-        tier_counts: summary.tier_counts,
-        employees_with_any_issue: summary.employees_with_any_issue,
+        totalEmployees: employeeCounts.active,
+        fullyCompliant: summary.status_counts.current,
+        expiringSoon: summary.status_counts.expiring_soon,
+        expired: summary.status_counts.expired,
+        needed: summary.status_counts.needed,
+        upcomingSessions: 0,
+        criticalExpiring: summary.tier_counts.due_30,
       },
-      urgent_issues: urgent,
+      urgentIssues: urgent,
+      upcoming: [],
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
