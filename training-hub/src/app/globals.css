@@ -26,10 +26,13 @@ html, body {
   max-width: 100vw;
 }
 
-/* Make all tables scroll horizontally inside their container instead
-   of blowing out the page width */
-table { display: block; overflow-x: auto; }
-thead, tbody, tr { display: table; width: 100%; table-layout: auto; }
+/* Tables keep normal display. Wrap in .overflow-x-auto div for scroll.
+   The global fix is on html/body overflow-x:hidden which clips any
+   table that escapes its container. Individual pages use overflow-x-auto
+   on the table wrapper div. */
+table { border-collapse: collapse; }
+th { text-align: left; white-space: nowrap; }
+td { vertical-align: top; }
 
 /* Ensure images and embeds respect container width */
 img, video, iframe { max-width: 100%; height: auto; }
