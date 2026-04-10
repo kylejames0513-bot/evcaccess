@@ -6,36 +6,54 @@ export async function GET() {
   try {
     const db = createServerClient();
 
-    const [summary, employeeCounts, scheduledResult] = await Promise.all([
+    const [summary, employeeCounts] = await Promise.all([
       getComplianceSummary(),
       getEmployeeCounts(),
-      db
-        .from("training_sessions")
-        .select(`
-          id, session_date, start_time, location, capacity, status,
-          training_types ( name ),
-          enrollments ( id, employee_id )
-        `)
-        .eq("status", "scheduled")
-        .order("session_date", { ascending: true }),
     ]);
 
-    if (scheduledResult.error) throw scheduledResult.error;
+    // Fetch scheduled sessions with training name and enrolled employee names
+    const { data: sessions, error: sessErr } = await db
+      .from("training_sessions")
+      .select("id, session_date, start_time, location, capacity, training_type_id")
+      .eq("status", "scheduled")
+      .order("session_date", { ascending: true })
+      .limit(10);
+    if (sessErr) throw sessErr;
 
-    const upcoming = (scheduledResult.data ?? []).slice(0, 6).map((s: Record<string, unknown>) => {
-      const tt = s.training_types as { name: string } | null;
-      const enrollments = s.enrollments as Array<{ id: string }> | null;
-      return {
-        id: s.id,
-        training: tt?.name ?? "Unknown",
-        date: s.session_date as string,
-        time: (s.start_time as string) ?? "",
-        location: (s.location as string) ?? "",
-        enrolledCount: enrollments?.length ?? 0,
-        capacity: s.capacity as number,
-      };
-    });
+    // Get training names for these sessions
+    const typeIds = [...new Set((sessions ?? []).map(s => s.training_type_id))];
+    const { data: types } = typeIds.length > 0
+      ? await db.from("training_types").select("id, name").in("id", typeIds)
+      : { data: [] };
+    const typeMap = new Map((types ?? []).map(t => [t.id, t.name]));
 
+    // Get enrollments with employee names
+    const sessionIds = (sessions ?? []).map(s => s.id);
+    const { data: enrollments } = sessionIds.length > 0
+      ? await db
+          .from("enrollments")
+          .select("session_id, employees(first_name, last_name)")
+          .in("session_id", sessionIds)
+      : { data: [] };
+
+    const enrolledBySession = new Map<string, string[]>();
+    for (const e of enrollments ?? []) {
+      const emp = e.employees as unknown as { first_name: string; last_name: string } | null;
+      const name = emp ? `${emp.first_name} ${emp.last_name}`.trim() : "Unknown";
+      const list = enrolledBySession.get(e.session_id) ?? [];
+      list.push(name);
+      enrolledBySession.set(e.session_id, list);
+    }
+
+    const upcoming = (sessions ?? []).slice(0, 6).map(s => ({
+      training: typeMap.get(s.training_type_id) ?? "Unknown",
+      date: s.session_date,
+      time: s.start_time ?? "",
+      enrolled: enrolledBySession.get(s.id) ?? [],
+      capacity: s.capacity,
+    }));
+
+    // Urgent compliance issues
     const expiredRows = await listCompliance({ status: "expired" });
     const expiringRows = await listCompliance({ status: "expiring_soon" });
     const urgent = [...expiredRows, ...expiringRows]
@@ -59,7 +77,7 @@ export async function GET() {
         expiringSoon: summary.status_counts.expiring_soon,
         expired: summary.status_counts.expired,
         needed: summary.status_counts.needed,
-        upcomingSessions: scheduledResult.data?.length ?? 0,
+        upcomingSessions: sessions?.length ?? 0,
         criticalExpiring: summary.tier_counts.due_30,
       },
       urgentIssues: urgent,
