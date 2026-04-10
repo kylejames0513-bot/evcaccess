@@ -15,8 +15,11 @@ import type {
   UnknownTraining,
   UnknownTrainingInsert,
   UnknownTrainingUpdate,
+  ImportSource,
 } from "@/types/database";
 import { addTrainingAlias } from "@/lib/db/trainings";
+import { matchTraining, phsRawName, paylocityRawName } from "@/lib/resolver/training-match";
+import { parseDate } from "@/lib/resolver/date-parse";
 
 function db(): DbClient {
   return createServerClient();
@@ -91,6 +94,85 @@ export async function resolveUnresolvedPerson(
     .single();
   if (error) throw error;
   return data;
+}
+
+/**
+ * After resolving an unresolved_people row to a specific employee,
+ * re-extract the training info from raw_payload and insert the
+ * training_record that was missed during the original import.
+ *
+ * Returns the training_record id if created, or null if the raw_payload
+ * didn't contain enough info (special_status, unknown training, missing
+ * dates, etc.). Uses ON CONFLICT DO NOTHING so it's safe to call on
+ * records that have already been backfilled.
+ */
+export async function backfillTrainingRecord(
+  row: UnresolvedPerson,
+  employeeId: string
+): Promise<string | null> {
+  // special_status rows (Med Admin No Show / Fail) are not completions.
+  if (row.reason === "special_status") return null;
+
+  const payload = row.raw_payload as Record<string, unknown> | null;
+  if (!payload) return null;
+
+  const source = row.source as ImportSource;
+  let trainingRawName: string | null = null;
+  let completionDateRaw: unknown = null;
+  let expirationDateRaw: unknown = null;
+
+  if (source === "phs") {
+    const decision = phsRawName(
+      payload["Upload Category"] as string | undefined,
+      payload["Upload Type"] as string | undefined
+    );
+    if (!decision || "specialStatus" in decision) return null;
+    trainingRawName = decision.name;
+    completionDateRaw = payload["Effective Date"];
+    expirationDateRaw = payload["Expiration Date"];
+  } else if (source === "paylocity") {
+    trainingRawName = paylocityRawName(
+      payload["Skill"] as string | undefined,
+      payload["Code"] as string | undefined
+    );
+    completionDateRaw = payload["Effective/Issue Date"];
+    expirationDateRaw = payload["Expiration Date"];
+  } else if (source === "signin") {
+    trainingRawName = (payload["trainingSession"] as string) ?? null;
+    completionDateRaw = payload["dateOfTraining"];
+  } else {
+    // access / cutover / manual — raw_payload shapes vary too much
+    // for generic backfill. Skip for now.
+    return null;
+  }
+
+  if (!trainingRawName) return null;
+
+  const trainingOutcome = await matchTraining(source, trainingRawName);
+  if (trainingOutcome.kind !== "matched") return null;
+
+  const completionDate = parseDate(completionDateRaw as string | number | Date | null);
+  if (!completionDate) return null;
+  const expirationDate = parseDate(expirationDateRaw as string | number | Date | null);
+
+  const { data, error } = await db()
+    .from("training_records")
+    .upsert(
+      {
+        employee_id: employeeId,
+        training_type_id: trainingOutcome.trainingType.id,
+        completion_date: completionDate,
+        expiration_date: expirationDate ?? null,
+        source,
+        notes: `Backfilled from resolved unresolved_people ${row.id}`,
+      },
+      { onConflict: "employee_id,training_type_id,completion_date", ignoreDuplicates: true }
+    )
+    .select("id")
+    .maybeSingle();
+
+  if (error) throw error;
+  return data?.id ?? null;
 }
 
 // ────────────────────────────────────────────────────────────

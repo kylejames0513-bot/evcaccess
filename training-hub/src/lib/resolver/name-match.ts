@@ -13,6 +13,7 @@
 // The pure parsing helpers handle the messy real shapes:
 //
 //   - "Last, First"                            (PHS, name_map)
+//   - "Last, CREDENTIAL, First"                (PHS with license, e.g. LCSW)
 //   - 'Last, First "Preferred"'                (Training tab)
 //   - "First Last"                             (signin form)
 //   - "First Middle Last"                      (Paylocity Middle Name col)
@@ -40,6 +41,39 @@ export interface ParsedName {
   preferred: string | null; // the quoted nickname if present
 }
 
+// Professional credentials/licenses that PHS (and occasionally other
+// sources) embed in the name field between last and first name, e.g.
+// "Cupp, LCSW, Heather". Matched case-insensitively.
+const KNOWN_CREDENTIALS = new Set([
+  "LCSW", "LISW", "LSW", "MSW", "LMSW", "LICSW", "LICW",
+  "RN", "BSN", "MSN", "DNP", "APRN", "FNP", "CNP",
+  "LPN", "CNA", "STNA", "RNA",
+  "MD", "DO", "PA", "NP", "DPM", "DDS", "DMD",
+  "PHD", "EDD", "PSYD", "DRPH",
+  "LPC", "LPCC", "LCPC", "NCC", "LMHC",
+  "OT", "OTR", "PT", "PTA", "DPT",
+  "CRNA", "EMT", "AEMT",
+  "RT", "RRT", "CRT",
+  "RD", "LD", "CDN",
+  "LMFT", "MFT",
+  "BCBA", "RBT",
+  "PHARMD", "RPH",
+]);
+
+/**
+ * Return true if a token looks like a professional credential rather
+ * than a name. Checks the known list first, then falls back to a
+ * heuristic: all-uppercase letters (after stripping dots/hyphens),
+ * 2–8 characters.
+ */
+function isCredential(token: string): boolean {
+  const clean = token.replace(/[.\-]/g, "").trim();
+  if (clean.length === 0) return false;
+  if (KNOWN_CREDENTIALS.has(clean.toUpperCase())) return true;
+  // Heuristic: short all-caps token that isn't a plausible name
+  return clean.length >= 2 && clean.length <= 8 && /^[A-Z]+$/.test(clean);
+}
+
 /**
  * Parse a single string into (first, last, preferred). Handles all
  * the formats listed in the file header. Returns null if the input
@@ -56,9 +90,21 @@ export function parseName(raw: string): ParsedName | null {
   const stripped = quoteMatch ? trimmed.replace(quoteMatch[0], "").trim() : trimmed;
 
   // "Last, First [Middle ...]"
+  // Also handles "Last, CREDENTIAL, First" where CREDENTIAL is a
+  // professional license like LCSW, RN, etc. PHS sometimes embeds
+  // credentials between the last name and first name.
   if (stripped.includes(",")) {
-    const [lastRaw, firstRaw] = stripped.split(",", 2);
-    const last = lastRaw.trim();
+    const parts = stripped.split(",").map((p) => p.trim()).filter(Boolean);
+    // Strip credential-like tokens from middle positions. A credential
+    // token is all-uppercase letters (plus optional dots/hyphens), 2-8
+    // chars, and sits between the first and last comma-separated parts.
+    const filtered = [parts[0]];
+    for (let i = 1; i < parts.length; i++) {
+      if (i < parts.length - 1 && isCredential(parts[i])) continue;
+      filtered.push(parts[i]);
+    }
+    const [lastRaw, firstRaw] = [filtered[0], filtered.slice(1).join(" ")];
+    const last = (lastRaw ?? "").trim();
     const firstParts = (firstRaw ?? "").trim().split(/\s+/);
     const first = firstParts[0] ?? "";
     if (last.length > 0 && first.length > 0) {
