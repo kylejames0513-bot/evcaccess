@@ -3,7 +3,8 @@ import { getHistoryForEmployee } from "@/lib/db/history";
 import { getMasterCompletionsForEmployee } from "@/lib/db/completions";
 import { listExcusalsForEmployee } from "@/lib/db/excusals";
 import { listCompliance } from "@/lib/db/compliance";
-import { listTrainingTypes } from "@/lib/db/trainings";
+import { listTrainingTypes, getTrainingTypeById } from "@/lib/db/trainings";
+import { createServerClient } from "@/lib/supabase";
 import type { NextRequest } from "next/server";
 
 /**
@@ -76,7 +77,25 @@ export async function GET(req: NextRequest) {
       return Response.json({ error: `Employee "${name}" not found` }, { status: 404 });
     }
 
-    // Build the old shape the modal expects
+    // Build the old shape the modal expects, but ONLY for required trainings
+    const db = createServerClient();
+    const { data: rules } = await db.from("required_trainings").select("*").eq("is_required", true);
+
+    // Determine which training_type_ids are required for this employee
+    const requiredTypeIds = new Set<number>();
+    for (const rule of rules ?? []) {
+      if (rule.is_universal) {
+        requiredTypeIds.add(rule.training_type_id);
+      } else if (rule.department && employee.department &&
+        rule.department.toLowerCase() === employee.department.toLowerCase()) {
+        if (rule.position == null) {
+          requiredTypeIds.add(rule.training_type_id);
+        } else if (employee.position && rule.position.toLowerCase() === employee.position.toLowerCase()) {
+          requiredTypeIds.add(rule.training_type_id);
+        }
+      }
+    }
+
     const [history, excusals, allTypes] = await Promise.all([
       getHistoryForEmployee(employee.id),
       listExcusalsForEmployee(employee.id),
@@ -85,8 +104,9 @@ export async function GET(req: NextRequest) {
 
     const excusalMap = new Map(excusals.map(e => [e.training_type_id, e.reason]));
 
-    // Build per-training entries the modal expects
-    const trainings = allTypes.map(tt => {
+    // Only show trainings required for this employee
+    const requiredTypes = allTypes.filter(tt => requiredTypeIds.has(tt.id));
+    const trainings = requiredTypes.map(tt => {
       const records = history.filter(h => h.training_type_id === tt.id);
       const latest = records[0]; // already sorted desc by completion_date
       const excusalReason = excusalMap.get(tt.id);
