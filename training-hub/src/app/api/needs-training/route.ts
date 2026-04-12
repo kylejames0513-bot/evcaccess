@@ -59,6 +59,21 @@ export async function GET(request: Request) {
     const lookAheadDays = def?.lookAheadDays ?? 30;
     const postExpGraceDays = def?.postExpGraceDays ?? 0;
 
+    // Is this the "recert" side of a paired Initial → Recert training?
+    // If so, we should exclude people who have no prior completion since
+    // they need the Initial class, not the Recert class.
+    let isRecertHalf = false;
+    if (trainingType.renewal_years > 0) {
+      const { data: siblings } = await supabase
+        .from("training_types")
+        .select("id, renewal_years")
+        .eq("column_key", trainingType.column_key)
+        .eq("is_active", true);
+      if ((siblings ?? []).some((s) => s.id !== trainingType.id && s.renewal_years === 0)) {
+        isRecertHalf = true;
+      }
+    }
+
     // 2. Fetch compliance rows for this training type, post-process for shared column_key
     const rawRows = await listCompliance({ trainingTypeId: trainingType.id });
     const fixed = await fixSharedColumnKeyCompliance(rawRows);
@@ -74,7 +89,12 @@ export async function GET(request: Request) {
       .filter((row) => {
         if (!row.employee_id) return false;
         if (row.status === "excused") return false;
-        if (row.status === "needed") return true;
+        if (row.status === "needed") {
+          // Recert-half trainings: "needed" means they've never had any prior
+          // med completion. They belong in the Initial Med class, not Recert.
+          if (isRecertHalf) return false;
+          return true;
+        }
         if (row.status === "expired") {
           if (postExpGraceDays === 0) return true;
           if (!row.expiration_date) return true;
