@@ -11,7 +11,7 @@
 // completion or one excusal in the resolved batch.
 // ============================================================
 
-import { matchTraining } from "./training-match";
+import { matchTraining, upgradeInitialToRecert } from "./training-match";
 import { parseName, resolveEmployee } from "./name-match";
 import { parseDate } from "./date-parse";
 import {
@@ -87,9 +87,10 @@ export async function resolveAccessBatch(rows: AccessRow[]): Promise<ResolvedBat
           else unknownAggregator.set(key, { occurrences: 1, sample: row });
           continue;
         }
+        const trainingTypeId = await upgradeInitialToRecert(employeeId, trainingOutcome.trainingType.id);
         const completion: ResolvedCompletion = {
           employee_id: employeeId,
-          training_type_id: trainingOutcome.trainingType.id,
+          training_type_id: trainingTypeId,
           completion_date: completionDate,
           expiration_date: null,
           source: "access",

@@ -21,7 +21,7 @@
 // ============================================================
 
 import { reactivateEmployee } from "@/lib/db/employees";
-import { matchTraining, paylocityRawName } from "./training-match";
+import { matchTraining, paylocityRawName, upgradeInitialToRecert } from "./training-match";
 import { resolveEmployee } from "./name-match";
 import { findRehireCandidate } from "./rehire";
 import { parseDate } from "./date-parse";
@@ -125,9 +125,15 @@ export async function resolvePaylocityBatch(rows: PaylocityRow[]): Promise<Resol
     }
     const expirationDate = parseDate(row["Expiration Date"] ?? null);
 
+    // Upgrade Initial → Recert if the employee already has a prior completion
+    const trainingTypeId = await upgradeInitialToRecert(
+      resolution.employee.id,
+      trainingOutcome.trainingType.id
+    );
+
     const completion: ResolvedCompletion = {
       employee_id: resolution.employee.id,
-      training_type_id: trainingOutcome.trainingType.id,
+      training_type_id: trainingTypeId,
       completion_date: completionDate,
       expiration_date: expirationDate ?? null,
       source: "paylocity",

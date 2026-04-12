@@ -14,7 +14,7 @@
 //   - Drivers License rows are skipped wholesale.
 // ============================================================
 
-import { matchTraining, phsRawName } from "./training-match";
+import { matchTraining, phsRawName, upgradeInitialToRecert } from "./training-match";
 import { parseName, resolveEmployee } from "./name-match";
 import { parseDate } from "./date-parse";
 import { emptyBatch, type ResolvedBatch, type ResolvedCompletion } from "./types";
@@ -113,9 +113,15 @@ export async function resolvePhsBatch(rows: PhsRow[]): Promise<ResolvedBatch> {
     }
     const expirationDate = parseDate(row["Expiration Date"] ?? null);
 
+    // Upgrade Initial → Recert if the employee already has a prior completion
+    const trainingTypeId = await upgradeInitialToRecert(
+      resolution.employee.id,
+      trainingOutcome.trainingType.id
+    );
+
     const completion: ResolvedCompletion = {
       employee_id: resolution.employee.id,
-      training_type_id: trainingOutcome.trainingType.id,
+      training_type_id: trainingTypeId,
       completion_date: completionDate,
       expiration_date: expirationDate ?? null,
       source: "phs",
