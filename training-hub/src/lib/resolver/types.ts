@@ -14,14 +14,12 @@ import type {
   ExcusalInsert,
 } from "@/types/database";
 
-export interface ResolvedCompletion extends TrainingRecordInsert {
-  // No extra fields; this is just an alias so the resolver layer can
-  // evolve the shape later without touching every parser.
-}
-
-export interface ResolvedExcusal extends ExcusalInsert {
-  // Same.
-}
+// Aliases exposed so the resolver layer can evolve the shape later
+// without touching every parser. Using `type` instead of `interface {}`
+// because an empty interface is equivalent to its supertype and
+// eslint flags it.
+export type ResolvedCompletion = TrainingRecordInsert;
+export type ResolvedExcusal = ExcusalInsert;
 
 export interface ResolvedUnresolvedPerson {
   source: ImportSource;

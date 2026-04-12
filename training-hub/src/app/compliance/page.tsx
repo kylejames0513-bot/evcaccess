@@ -55,6 +55,9 @@ export default function CompliancePage() {
 
   useEffect(() => {
     void load();
+    // load is stable (declared in component scope) — exhaustive-deps is
+    // suppressed so we don't re-run on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [department, position, status]);
 
   async function load() {

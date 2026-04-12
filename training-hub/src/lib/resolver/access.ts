@@ -12,7 +12,7 @@
 // ============================================================
 
 import { matchTraining, upgradeInitialToRecert } from "./training-match";
-import { parseName, resolveEmployee } from "./name-match";
+import { resolveEmployee } from "./name-match";
 import { parseDate } from "./date-parse";
 import {
   emptyBatch,

@@ -1,10 +1,9 @@
-// @ts-nocheck -- Legacy file slated for deletion in a follow-up cleanup
-// once the few remaining /api routes that import from it are migrated
-// to src/lib/db. The shape mismatches against the new generated types
-// are intentional in this transitional state. Do not write new code
-// here; use src/lib/db instead.
+// Legacy training-data layer. Still used by the out-of-scope schedule/
+// reports/enrollment routes. Do not write new code here; use src/lib/db
+// instead. The @ts-nocheck that used to sit at the top was removed once
+// the helpers below were tightened up.
 import { createServerClient } from "./supabase";
-import { TRAINING_DEFINITIONS, AUTO_FILL_RULES } from "@/config/trainings";
+import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import { toFirstLast as toFirstLastUtil, namesMatch } from "@/lib/name-utils";
 import type { ComplianceStatus } from "@/types/database";
 
@@ -16,27 +15,9 @@ import type { ComplianceStatus } from "@/types/database";
 // and direct table queries for sessions/enrollments.
 // ============================================================
 
-// Excusal codes from Config.gs (kept for backward compat with imported data)
-const EXCUSAL_CODES = new Set([
-  "NA", "N/A", "N/",
-  "VP", "DIR", "DIRECTOR", "CEO", "CFO", "COO", "CMO",
-  "AVP", "SVP", "EVP", "PRESIDENT",
-  "MGR", "MANAGER", "SUPERVISOR", "SUPV",
-  "ELC", "EI",
-  "FACILITIES", "MAINT",
-  "HR", "FINANCE", "FIN", "IT", "ADMIN",
-  "NURSE", "LPN", "RN", "CNA",
-  "BH", "PA", "BA", "QA", "TAC",
-  "BOARD",
-  "FX1", "FX2", "FX3", "FS",
-  "F X 2", "FX 1",
-  "FX1*", "FX1/NS", "FX1 - S", "FX1 - R",
-  "TRAINER", "LP", "NS", "LLL",
-]);
-
-function isExcusal(value: string): boolean {
-  return EXCUSAL_CODES.has(value.trim().toUpperCase());
-}
+// (Removed: EXCUSAL_CODES / isExcusal helpers. Excusal detection now
+// lives in the excusals table — the `source` column tags rows from
+// Config.gs as `merged_sheet` and they're cleaned up in cutover.)
 
 // --------------------------------------------------------
 // Employee + compliance data from Supabase
@@ -374,7 +355,21 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
   if (error) throw new Error(`Failed to load sessions: ${error.message}`);
   if (!sessions) return [];
 
-  return sessions.map((s: any) => {
+  type SessionJoin = {
+    id: string;
+    session_date: string;
+    start_time: string | null;
+    location: string | null;
+    capacity: number;
+    status: string;
+    training_types: { name: string } | null;
+    enrollments: Array<{
+      status: string;
+      employees: { first_name: string | null; last_name: string | null } | null;
+    }>;
+  };
+
+  return (sessions as unknown as SessionJoin[]).map((s) => {
     const trainingName = s.training_types?.name || "Unknown";
     const sessionDate = new Date(s.session_date);
     const enrolledNames: string[] = [];
@@ -587,7 +582,9 @@ export async function addEnrollees(
     .in("training_sessions.status", ["scheduled", "in_progress"])
     .neq("status", "cancelled");
 
-  const allEnrolledIds = new Set((otherEnrollments || []).map((e: any) => e.employee_id));
+  const allEnrolledIds = new Set(
+    (otherEnrollments ?? []).map((e: { employee_id: string }) => e.employee_id)
+  );
 
   let added = 0;
   const addedNames: string[] = [];
@@ -739,10 +736,17 @@ async function findEmployee(
 // Helper: find session by UUID
 // --------------------------------------------------------
 
+type SessionByIdRow = {
+  id: string;
+  session_date: string;
+  training_type_id: number;
+  training_types: { name: string } | null;
+};
+
 async function fetchSessionById(
   supabase: ReturnType<typeof createServerClient>,
   sessionId: string
-): Promise<{ id: string; session_date: string; training_type_id: string; training_name: string } | null> {
+): Promise<{ id: string; session_date: string; training_type_id: number; training_name: string } | null> {
   const { data: s } = await supabase
     .from("training_sessions")
     .select("id, session_date, training_type_id, training_types(name)")
@@ -750,11 +754,12 @@ async function fetchSessionById(
     .maybeSingle();
 
   if (!s) return null;
+  const typed = s as unknown as SessionByIdRow;
 
   return {
-    id: (s as any).id,
-    session_date: (s as any).session_date,
-    training_type_id: (s as any).training_type_id,
-    training_name: (s as any).training_types?.name || "Unknown",
+    id: typed.id,
+    session_date: typed.session_date,
+    training_type_id: typed.training_type_id,
+    training_name: typed.training_types?.name || "Unknown",
   };
 }
