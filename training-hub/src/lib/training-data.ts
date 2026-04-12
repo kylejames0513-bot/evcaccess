@@ -113,25 +113,54 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
 
   const empIds = empRows.map((e) => e.id);
 
-  // Fetch latest training records per employee+type (paginate in chunks of employee IDs)
-  const recordMap = new Map<string, { completion_date: string; expiration_date: string | null; training_type_id: number }[]>();
+  // Fetch latest training record per (employee, training_type).
+  //
+  // Two-pass build:
+  //   1. latestByKey  :  "empId|ttId" -> newest record seen
+  //   2. recordMap    :  empId        -> Record[]  (used by the compliance loop below)
+  //
+  // We chunk employee IDs (CHUNK) so the PostgREST `IN (...)` clause stays
+  // reasonable, and we paginate inside each chunk (PAGE_SIZE) via range()
+  // because the PostgREST default caps a single response at 1000 rows. The
+  // previous implementation overloaded one Map with both composite-key dedup
+  // entries AND employee-id entries, which was fragile and silently dropped
+  // records as the data set grew beyond a few hundred employees.
+  type TrainingRecordRow = {
+    employee_id: string;
+    training_type_id: number;
+    completion_date: string;
+    expiration_date: string | null;
+  };
+  const latestByKey = new Map<string, TrainingRecordRow>();
   const CHUNK = 200;
+  const PAGE_SIZE = 1000;
   for (let i = 0; i < empIds.length; i += CHUNK) {
     const chunk = empIds.slice(i, i + CHUNK);
-    const { data: records } = await supabase
-      .from("training_records")
-      .select("employee_id, training_type_id, completion_date, expiration_date")
-      .in("employee_id", chunk)
-      .order("completion_date", { ascending: false });
-
-    for (const r of records || []) {
-      const key = `${r.employee_id}|${r.training_type_id}`;
-      if (!recordMap.has(key)) {
-        if (!recordMap.has(r.employee_id)) recordMap.set(r.employee_id, []);
-        recordMap.get(r.employee_id)!.push(r);
-        recordMap.set(key, [r]); // mark as seen
+    let offset = 0;
+    for (;;) {
+      const { data: records, error: recErr } = await supabase
+        .from("training_records")
+        .select("employee_id, training_type_id, completion_date, expiration_date")
+        .in("employee_id", chunk)
+        .order("completion_date", { ascending: false })
+        .order("id", { ascending: false })
+        .range(offset, offset + PAGE_SIZE - 1);
+      if (recErr) throw new Error(`Failed to load training_records: ${recErr.message}`);
+      if (!records || records.length === 0) break;
+      for (const r of records as TrainingRecordRow[]) {
+        const key = `${r.employee_id}|${r.training_type_id}`;
+        if (!latestByKey.has(key)) latestByKey.set(key, r);
       }
+      if (records.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
     }
+  }
+
+  const recordMap = new Map<string, TrainingRecordRow[]>();
+  for (const r of latestByKey.values()) {
+    const list = recordMap.get(r.employee_id) ?? [];
+    list.push(r);
+    recordMap.set(r.employee_id, list);
   }
 
   // Fetch excusals (well under 1000)

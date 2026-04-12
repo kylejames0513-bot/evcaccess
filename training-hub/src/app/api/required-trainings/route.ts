@@ -2,34 +2,34 @@ import {
   listRequiredTrainings,
   insertRequiredTraining,
 } from "@/lib/db/requirements";
-import type { NextRequest } from "next/server";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 
 /**
  * GET /api/required-trainings
  * Returns every rule, ordered universal -> dept -> position.
  */
-export async function GET() {
-  try {
-    const rows = await listRequiredTrainings();
-    return Response.json({ required_trainings: rows });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
-  }
-}
+export const GET = withApiHandler(async () => {
+  const rows = await listRequiredTrainings();
+  return { required_trainings: rows };
+});
 
 /**
  * POST /api/required-trainings
  * Body: { training_type_id: number, department?: string, position?: string,
  *         is_required?: boolean, is_universal?: boolean, notes?: string }
  */
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const inserted = await insertRequiredTraining(body);
-    return Response.json({ required_training: inserted });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
+export const POST = withApiHandler(async (req) => {
+  const body = await req.json();
+  if (typeof body?.training_type_id !== "number") {
+    throw new ApiError("training_type_id is required and must be a number", 400, "missing_field");
   }
-}
+  if (body.is_universal === false && !body.department && !body.position) {
+    throw new ApiError(
+      "A non-universal rule must specify at least a department or position",
+      400,
+      "invalid_field"
+    );
+  }
+  const inserted = await insertRequiredTraining(body);
+  return { required_training: inserted };
+});
