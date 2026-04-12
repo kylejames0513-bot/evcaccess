@@ -38,6 +38,8 @@ export const TRAINING_DEFINITIONS: TrainingDef[] = [
     classCapacity: 10,
     schedule: { recurring: [{ weekday: "Thursday" }] },
     weeksOut: 4,
+    lookAheadDays: 90,       // show people expiring within 90 days
+    postExpGraceDays: 30,    // also show people expired up to 30 days ago
     aliases: ["cpr"],
   },
   {
