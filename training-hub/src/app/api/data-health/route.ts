@@ -45,6 +45,15 @@ export async function GET() {
     const employeeRows: EmployeeRow[] = (employeesData || []) as EmployeeRow[];
     const employeeIds = employeeRows.map((e) => e.id);
 
+    // Also fetch inactive/terminated employees so their historical records
+    // and excusals don't get flagged as orphans. A true orphan is a record
+    // pointing at an employee_id that doesn't exist at all.
+    const { data: allEmployeesData } = await supabase
+      .from("employees")
+      .select("id")
+      .limit(10000);
+    const allEmployeeIds = new Set((allEmployeesData || []).map((e) => e.id));
+
     // Paginate training records
     const records = await fetchAllPaged<{
       id: string;
@@ -66,8 +75,12 @@ export async function GET() {
       supabase.from("excusals").select("id, employee_id, training_type_id")
     );
 
-    // Build lookup of valid employee IDs
-    const validEmployeeIds = new Set(employeeIds);
+    // Build lookup of valid employee IDs (includes terminated employees
+    // so their historical records are not flagged as orphans)
+    const validEmployeeIds = allEmployeeIds;
+    // Keep the active-only set around for other checks that care
+    const activeEmployeeIds = new Set(employeeIds);
+    void activeEmployeeIds;
 
     // ──────── Issue 1: Employees missing department ────────
     const missingDepartment = employeeRows
