@@ -1,20 +1,31 @@
 import { listUnknownTrainings } from "@/lib/db/resolution";
-import type { NextRequest } from "next/server";
+import { withApiHandler } from "@/lib/api-handler";
 
 /**
  * GET /api/review/trainings
- * Query: ?open=true (default), import_id?, source?
+ *
+ * Query params (all optional):
+ *   open=false                   include resolved rows too (default: open only)
+ *   import_id=<uuid>             scope to a single import
+ *   source=paylocity|phs|...     scope to a single source
+ *   search=<needle>              substring match on raw_name
+ *   page=1                       1-based page, default 1
+ *   page_size=50                 default 50, max 500
  */
-export async function GET(req: NextRequest) {
-  try {
-    const params = req.nextUrl.searchParams;
-    const open = params.get("open") !== "false";
-    const importId = params.get("import_id") ?? undefined;
-    const source = params.get("source") ?? undefined;
-    const rows = await listUnknownTrainings({ openOnly: open, importId, source });
-    return Response.json({ unknown_trainings: rows });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
-  }
-}
+export const GET = withApiHandler(async (req) => {
+  const params = req.nextUrl.searchParams;
+  const result = await listUnknownTrainings({
+    openOnly: params.get("open") !== "false",
+    importId: params.get("import_id") ?? undefined,
+    source: params.get("source") ?? undefined,
+    search: params.get("search") ?? undefined,
+    page: params.get("page") ? Number(params.get("page")) : undefined,
+    pageSize: params.get("page_size") ? Number(params.get("page_size")) : undefined,
+  });
+  return {
+    unknown_trainings: result.rows,
+    total: result.total,
+    page: result.page,
+    page_size: result.pageSize,
+  };
+});

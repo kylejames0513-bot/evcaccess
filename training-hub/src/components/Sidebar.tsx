@@ -9,6 +9,7 @@ import {
   GraduationCap,
   Settings,
   ClipboardCheck,
+  ShieldCheck,
   UserCheck,
   Bell,
   FileText,
@@ -42,6 +43,7 @@ const workflowNav = [
 
 const systemNav = [
   { href: "/trainings", label: "Training Types", icon: GraduationCap },
+  { href: "/required-trainings", label: "Required Trainings", icon: ShieldCheck },
   { href: "/data-health", label: "Data Quality", icon: HeartPulse },
   { href: "/sync", label: "Sync", icon: RefreshCw },
   { href: "/signin", label: "Public Sign In", icon: PenLine },

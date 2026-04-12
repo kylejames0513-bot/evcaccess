@@ -3,45 +3,33 @@ import {
   updateRequiredTraining,
   deleteRequiredTraining,
 } from "@/lib/db/requirements";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 import type { NextRequest } from "next/server";
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await ctx.params;
-    const numId = parseInt(id, 10);
-    if (Number.isNaN(numId)) return Response.json({ error: "Invalid id" }, { status: 400 });
-    const row = await getRequiredTrainingById(numId);
-    if (!row) return Response.json({ error: "Not found" }, { status: 404 });
-    return Response.json({ required_training: row });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
+function parseId(raw: string): number {
+  const n = parseInt(raw, 10);
+  if (Number.isNaN(n)) {
+    throw new ApiError("Invalid id — must be a number", 400, "invalid_field");
   }
+  return n;
 }
 
-export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await ctx.params;
-    const numId = parseInt(id, 10);
-    if (Number.isNaN(numId)) return Response.json({ error: "Invalid id" }, { status: 400 });
-    const patch = await req.json();
-    const updated = await updateRequiredTraining(numId, patch);
-    return Response.json({ required_training: updated });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
-  }
-}
+export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
+  const params = await ctx!.params;
+  const row = await getRequiredTrainingById(parseId(params.id));
+  if (!row) throw new ApiError("Required training not found", 404, "not_found");
+  return { required_training: row };
+});
 
-export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await ctx.params;
-    const numId = parseInt(id, 10);
-    if (Number.isNaN(numId)) return Response.json({ error: "Invalid id" }, { status: 400 });
-    await deleteRequiredTraining(numId);
-    return Response.json({ ok: true });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
-  }
-}
+export const PATCH = withApiHandler(async (req: NextRequest, ctx) => {
+  const params = await ctx!.params;
+  const patch = await req.json();
+  const updated = await updateRequiredTraining(parseId(params.id), patch);
+  return { required_training: updated };
+});
+
+export const DELETE = withApiHandler(async (_req: NextRequest, ctx) => {
+  const params = await ctx!.params;
+  await deleteRequiredTraining(parseId(params.id));
+  return { ok: true };
+});

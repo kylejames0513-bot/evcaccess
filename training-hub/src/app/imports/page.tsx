@@ -60,6 +60,23 @@ function ProgressBar({ label }: { label: string }) {
   );
 }
 
+// Minimal column-presence check per source. We don't validate values here
+// — that's the resolver's job. We just want to fail fast if the user
+// picked the wrong source for the file they uploaded.
+function requiredHeadersFor(source: Source): string[] {
+  switch (source) {
+    case "paylocity":
+      return ["Last Name", "First Name"];
+    case "phs":
+      return ["Employee Last Name", "Employee First Name"];
+    case "access":
+      return ["Last Name", "First Name"];
+    case "signin":
+      // Sign-in uploads use camelCase or the titled variants.
+      return []; // handled after normalization below
+  }
+}
+
 export default function ImportsPage() {
   const [source, setSource] = useState<Source>("paylocity");
   const [parsedRows, setParsedRows] = useState<Record<string, unknown>[]>([]);
@@ -86,21 +103,74 @@ export default function ImportsPage() {
     }
   }
 
+  // Keep in sync with MAX_ROWS / MAX_BYTES enforced by /api/imports.
+  const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25 MB
+  const MAX_ROWS = 50_000;
+  const ALLOWED_EXTS = [".csv", ".xlsx", ".xls"];
+
   async function handleFile(file: File) {
     setError(null);
     setPreviewId(null);
     setPreviewSummary(null);
     setParsedRows([]);
     setFilename(file.name);
+
+    // File-level guardrails — fail fast before we burn memory on xlsx.read.
+    const lower = file.name.toLowerCase();
+    if (!ALLOWED_EXTS.some((ext) => lower.endsWith(ext))) {
+      setError(
+        `Unsupported file type. Upload one of: ${ALLOWED_EXTS.join(", ")}`
+      );
+      return;
+    }
+    if (file.size === 0) {
+      setError("File is empty");
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      setError(
+        `File is ${(file.size / 1024 / 1024).toFixed(1)} MB, which exceeds the ${
+          MAX_FILE_BYTES / 1024 / 1024
+        } MB limit. Split the file into smaller batches.`
+      );
+      return;
+    }
+
     setParsing(true);
     try {
       const xlsx = await import("xlsx");
       const buf = await file.arrayBuffer();
       const wb = xlsx.read(buf, { type: "array" });
+      if (!wb.SheetNames.length) {
+        throw new Error("Workbook contains no sheets");
+      }
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const rows = xlsx.utils.sheet_to_json<Record<string, unknown>>(sheet, {
         defval: null,
       });
+
+      if (rows.length === 0) {
+        throw new Error("First sheet is empty — no rows to import");
+      }
+      if (rows.length > MAX_ROWS) {
+        throw new Error(
+          `File has ${rows.length.toLocaleString()} rows, which exceeds the ${MAX_ROWS.toLocaleString()}-row limit. Split into smaller batches.`
+        );
+      }
+
+      // Source-specific required-column check gives the user a clear
+      // error instead of a silent "everything is unresolved" preview.
+      const firstRow = rows[0];
+      const headers = Object.keys(firstRow);
+      const missing = requiredHeadersFor(source).filter(
+        (h) => !headers.some((k) => k.trim().toLowerCase() === h.toLowerCase())
+      );
+      if (missing.length) {
+        throw new Error(
+          `Missing expected ${source} columns: ${missing.join(", ")}. Got: ${headers.join(", ") || "(none)"}`
+        );
+      }
+
       if (source === "signin") {
         for (const row of rows) {
           if (row["Attendee Name"] && !row.attendeeName) row.attendeeName = row["Attendee Name"];

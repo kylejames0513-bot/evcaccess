@@ -33,19 +33,45 @@ export interface ListUnresolvedPeopleOptions {
   openOnly?: boolean;
   importId?: string;
   source?: string;
+  reason?: string;
+  search?: string;   // matches first_name / last_name / full_name
+  page?: number;     // 1-based
+  pageSize?: number; // default 50, max 500
+}
+
+export interface PaginatedResult<T> {
+  rows: T[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export async function listUnresolvedPeople(
   opts: ListUnresolvedPeopleOptions = {}
-): Promise<UnresolvedPerson[]> {
-  let query = db().from("unresolved_people").select("*");
+): Promise<PaginatedResult<UnresolvedPerson>> {
+  const page = Math.max(1, opts.page ?? 1);
+  const pageSize = Math.min(500, Math.max(1, opts.pageSize ?? 50));
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = db()
+    .from("unresolved_people")
+    .select("*", { count: "exact" });
   if (opts.openOnly) query = query.is("resolved_at", null);
   if (opts.importId) query = query.eq("import_id", opts.importId);
   if (opts.source) query = query.eq("source", opts.source);
-  query = query.order("created_at", { ascending: false });
-  const { data, error } = await query;
+  if (opts.reason) query = query.eq("reason", opts.reason);
+  if (opts.search && opts.search.trim()) {
+    const needle = `%${opts.search.trim().replace(/[%,]/g, "")}%`;
+    query = query.or(
+      `full_name.ilike.${needle},first_name.ilike.${needle},last_name.ilike.${needle},paylocity_id.ilike.${needle}`
+    );
+  }
+  query = query.order("created_at", { ascending: false }).range(from, to);
+
+  const { data, error, count } = await query;
   if (error) throw error;
-  return data ?? [];
+  return { rows: data ?? [], total: count ?? 0, page, pageSize };
 }
 
 export async function getUnresolvedPerson(id: string): Promise<UnresolvedPerson | null> {
@@ -183,19 +209,37 @@ export interface ListUnknownTrainingsOptions {
   openOnly?: boolean;
   importId?: string;
   source?: string;
+  search?: string;   // matches raw_name
+  page?: number;
+  pageSize?: number;
 }
 
 export async function listUnknownTrainings(
   opts: ListUnknownTrainingsOptions = {}
-): Promise<UnknownTraining[]> {
-  let query = db().from("unknown_trainings").select("*");
+): Promise<PaginatedResult<UnknownTraining>> {
+  const page = Math.max(1, opts.page ?? 1);
+  const pageSize = Math.min(500, Math.max(1, opts.pageSize ?? 50));
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = db()
+    .from("unknown_trainings")
+    .select("*", { count: "exact" });
   if (opts.openOnly) query = query.is("resolved_at", null);
   if (opts.importId) query = query.eq("import_id", opts.importId);
   if (opts.source) query = query.eq("source", opts.source);
-  query = query.order("occurrence_count", { ascending: false }).order("created_at", { ascending: false });
-  const { data, error } = await query;
+  if (opts.search && opts.search.trim()) {
+    const needle = `%${opts.search.trim().replace(/[%,]/g, "")}%`;
+    query = query.ilike("raw_name", needle);
+  }
+  query = query
+    .order("occurrence_count", { ascending: false })
+    .order("created_at", { ascending: false })
+    .range(from, to);
+
+  const { data, error, count } = await query;
   if (error) throw error;
-  return data ?? [];
+  return { rows: data ?? [], total: count ?? 0, page, pageSize };
 }
 
 export async function getUnknownTraining(id: string): Promise<UnknownTraining | null> {

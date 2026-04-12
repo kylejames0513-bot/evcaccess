@@ -10,8 +10,55 @@
 //      Clears Supabase training data, pushes employees + records + excusals
 // ============================================================
 
-const SUPABASE_URL = "https://xkfvipcxnzwyskknkmpj.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrZnZpcGN4bnp3eXNra25rbXBqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTY5NjU5MCwiZXhwIjoyMDkxMjcyNTkwfQ.VjmNtuLvrZoSEGiSLAcHHBBsbx-I72jSH5eIoOHejrk";
+// ============================================================
+// SECURITY: Supabase credentials are read from Apps Script Script Properties,
+// NOT hardcoded in source. Configure them once via the Apps Script editor:
+//   File → Project properties → Script properties
+//     SUPABASE_URL = https://<your-project>.supabase.co
+//     SUPABASE_KEY = <service role key>
+// Or run the helper `setSupabaseCredentials_()` below from the editor.
+// ============================================================
+function getSupabaseUrl_() {
+  var url = PropertiesService.getScriptProperties().getProperty("SUPABASE_URL");
+  if (!url) {
+    throw new Error(
+      "SUPABASE_URL is not set. Open File → Project properties → Script properties and add SUPABASE_URL."
+    );
+  }
+  return url;
+}
+
+function getSupabaseKey_() {
+  var key = PropertiesService.getScriptProperties().getProperty("SUPABASE_KEY");
+  if (!key) {
+    throw new Error(
+      "SUPABASE_KEY is not set. Open File → Project properties → Script properties and add SUPABASE_KEY (service role)."
+    );
+  }
+  return key;
+}
+
+/**
+ * One-shot helper: run this once from the Apps Script editor after pasting
+ * values below, then DELETE the values before saving the file.
+ */
+function setSupabaseCredentials_() {
+  var url = "";   // paste once, then clear before saving
+  var key = "";   // paste once, then clear before saving
+  if (!url || !key) {
+    throw new Error("Paste url/key into setSupabaseCredentials_() temporarily, run once, then clear them.");
+  }
+  PropertiesService.getScriptProperties().setProperties({
+    SUPABASE_URL: url,
+    SUPABASE_KEY: key,
+  }, true);
+}
+
+// Backwards-compatible lazy accessors. These getters resolve to the Script
+// Property values on first access, so existing references to the bare names
+// (SUPABASE_URL / SUPABASE_KEY) continue to work without any secret in source.
+Object.defineProperty(this, "SUPABASE_URL", { get: getSupabaseUrl_ });
+Object.defineProperty(this, "SUPABASE_KEY", { get: getSupabaseKey_ });
 
 const MERGED_SHEET = "Merged";
 const NAME_FIX_SHEET = "Attendee Name Fixes";

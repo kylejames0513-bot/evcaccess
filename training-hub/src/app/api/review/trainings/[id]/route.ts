@@ -1,4 +1,5 @@
 import { resolveUnknownTraining } from "@/lib/db/resolution";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 import type { NextRequest } from "next/server";
 
 /**
@@ -9,27 +10,23 @@ import type { NextRequest } from "next/server";
  * row pointing raw_name at the chosen training_type, so future imports
  * pick it up automatically. See db/resolution.ts.
  */
-export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await ctx.params;
-    const body = (await req.json()) as {
-      resolved_to_training_type_id: number;
-      resolved_by?: string;
-    };
-    if (!body.resolved_to_training_type_id) {
-      return Response.json(
-        { error: "resolved_to_training_type_id is required" },
-        { status: 400 }
-      );
-    }
-    const updated = await resolveUnknownTraining(
-      id,
-      body.resolved_to_training_type_id,
-      body.resolved_by
+export const POST = withApiHandler(async (req: NextRequest, ctx) => {
+  const params = await ctx!.params;
+  const body = (await req.json()) as {
+    resolved_to_training_type_id?: number;
+    resolved_by?: string;
+  };
+  if (!body.resolved_to_training_type_id) {
+    throw new ApiError(
+      "resolved_to_training_type_id is required",
+      400,
+      "missing_field"
     );
-    return Response.json({ unknown_training: updated });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
   }
-}
+  const updated = await resolveUnknownTraining(
+    params.id,
+    body.resolved_to_training_type_id,
+    body.resolved_by
+  );
+  return { unknown_training: updated };
+});
