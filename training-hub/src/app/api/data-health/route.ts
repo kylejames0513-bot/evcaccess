@@ -24,35 +24,32 @@ async function fetchAllPaged<T>(
 export const GET = withApiHandler(async () => {
   const supabase = createServerClient();
 
-    // Fetch all active employees
-    interface EmployeeRow {
-      id: string;
-      first_name: string | null;
-      last_name: string | null;
-      department: string | null;
-      hire_date: string | null;
-      is_active: boolean;
-    }
+  interface EmployeeRow {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    department: string | null;
+    hire_date: string | null;
+    is_active: boolean;
+  }
 
-    const { data: employeesData, error: empError } = await supabase
+  // Fetch ALL employees paginated. Critical that we don't use a plain
+  // `.limit(n)` here because PostgREST silently caps single responses
+  // at 1000 rows regardless of the limit value. With ~2200 employees,
+  // using `.limit(10000)` only returned the first 1000, which caused
+  // every record/excusal pointing at an employee beyond row 1000 to be
+  // falsely flagged as an orphan (~3800 training records and ~5600
+  // excusals wrongly flagged). A true orphan is a row whose
+  // employee_id does not exist in the employees table at all —
+  // terminated employees still count.
+  const allEmployees = await fetchAllPaged<EmployeeRow>(() =>
+    supabase
       .from("employees")
       .select("id, first_name, last_name, department, hire_date, is_active")
-      .eq("is_active", true)
-      .order("last_name")
-      .limit(10000);
+  );
 
-    if (empError) throw new Error(`Failed to load employees: ${empError.message}`);
-    const employeeRows: EmployeeRow[] = (employeesData || []) as EmployeeRow[];
-    const employeeIds = employeeRows.map((e) => e.id);
-
-    // Also fetch inactive/terminated employees so their historical records
-    // and excusals don't get flagged as orphans. A true orphan is a record
-    // pointing at an employee_id that doesn't exist at all.
-    const { data: allEmployeesData } = await supabase
-      .from("employees")
-      .select("id")
-      .limit(10000);
-    const allEmployeeIds = new Set((allEmployeesData || []).map((e) => e.id));
+  const employeeRows: EmployeeRow[] = allEmployees.filter((e) => e.is_active);
+  const allEmployeeIds = new Set(allEmployees.map((e) => e.id));
 
     // Paginate training records
     const records = await fetchAllPaged<{
@@ -75,12 +72,10 @@ export const GET = withApiHandler(async () => {
       supabase.from("excusals").select("id, employee_id, training_type_id")
     );
 
-    // Build lookup of valid employee IDs (includes terminated employees
-    // so their historical records are not flagged as orphans)
-    const validEmployeeIds = allEmployeeIds;
-    // Keep the active-only set around for other checks that care
-    const activeEmployeeIds = new Set(employeeIds);
-    void activeEmployeeIds;
+  // A true orphan is a row whose employee_id does not exist in the
+  // employees table AT ALL. Terminated employees (is_active=false) are
+  // NOT orphans — their history is deliberately preserved.
+  const validEmployeeIds = allEmployeeIds;
 
     // ──────── Issue 1: Employees missing department ────────
     const missingDepartment = employeeRows

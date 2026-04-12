@@ -374,7 +374,9 @@ export default function DataHealthPage() {
       >
         {issues.orphanRecords.length > 0 ? (
           <p className="text-xs text-slate-500">
-            Records pointing at deleted/inactive employees:{" "}
+            Records whose employee_id no longer exists in the employees
+            table. Terminated employees still count as valid — their
+            history is preserved. Count:{" "}
             {issues.orphanRecords.length}
           </p>
         ) : (
@@ -406,7 +408,8 @@ export default function DataHealthPage() {
       >
         {issues.orphanExcusals.length > 0 ? (
           <p className="text-xs text-slate-500">
-            Excusals pointing at deleted/inactive employees:{" "}
+            Excusals whose employee_id no longer exists in the employees
+            table. Terminated employees still count as valid. Count:{" "}
             {issues.orphanExcusals.length}
           </p>
         ) : (
