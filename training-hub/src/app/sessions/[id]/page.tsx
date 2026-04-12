@@ -2,7 +2,8 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCircle, XCircle, AlertTriangle, UserX, Archive, RotateCcw, UserPlus } from "lucide-react";
+import { CheckCircle, XCircle, AlertTriangle, UserX, Archive, RotateCcw, UserPlus, FileText } from "lucide-react";
+import ClassMemoModal from "@/components/ClassMemoModal";
 
 interface Enrollee {
   enrollment_id: string;
@@ -60,6 +61,7 @@ export default function SessionReviewPage({ params }: { params: Promise<{ id: st
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [memoOpen, setMemoOpen] = useState(false);
 
   useEffect(() => {
     void load();
@@ -160,6 +162,14 @@ export default function SessionReviewPage({ params }: { params: Promise<{ id: st
             <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-md border ${isArchived ? "bg-slate-50 text-slate-500 border-slate-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"}`}>
               {isArchived ? "Archived" : "Scheduled"}
             </span>
+            <button
+              type="button"
+              onClick={() => setMemoOpen(true)}
+              className="flex items-center gap-1 text-xs px-3 py-1.5 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 font-semibold text-blue-700"
+              title="Generate a class memo to forward to attendees and their managers"
+            >
+              <FileText className="h-3.5 w-3.5" /> Create class memo
+            </button>
             {isArchived ? (
               <button type="button" onClick={reopenSession} className="flex items-center gap-1 text-xs px-3 py-1.5 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 font-semibold text-slate-900">
                 <RotateCcw className="h-3.5 w-3.5" /> Reopen
@@ -295,6 +305,12 @@ export default function SessionReviewPage({ params }: { params: Promise<{ id: st
           </button>
         </div>
       )}
+
+      <ClassMemoModal
+        sessionId={id}
+        open={memoOpen}
+        onClose={() => setMemoOpen(false)}
+      />
     </div>
   );
 }
