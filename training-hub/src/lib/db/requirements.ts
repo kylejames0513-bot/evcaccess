@@ -19,7 +19,6 @@ import type {
   RequiredTraining,
   RequiredTrainingInsert,
   RequiredTrainingUpdate,
-  Employee,
 } from "@/types/database";
 
 function db(): DbClient {

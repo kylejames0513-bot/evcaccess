@@ -64,7 +64,28 @@ export default function EmployeeDetailPage({
   const [excusing, setExcusing] = useState<number | null>(null);
   const [removing, setRemoving] = useState<number | null>(null);
 
-  async function load() {
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [detail, tt] = await Promise.all([
+          fetch(`/api/employee-detail?id=${encodeURIComponent(id)}`).then((r) => r.json()),
+          fetch("/api/training-types").then((r) => r.json()),
+        ]);
+        if (cancelled) return;
+        if (detail.error) setError(detail.error);
+        else setData(detail);
+        setTrainingTypes(tt.training_types ?? []);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "Load failed");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  async function reload() {
     try {
       const [detail, tt] = await Promise.all([
         fetch(`/api/employee-detail?id=${encodeURIComponent(id)}`).then((r) => r.json()),
@@ -77,8 +98,6 @@ export default function EmployeeDetailPage({
       setError(e instanceof Error ? e.message : "Load failed");
     }
   }
-
-  useEffect(() => { void load(); }, [id]);
 
   async function excuseTraining(trainingTypeId: number) {
     if (!data) return;
@@ -95,7 +114,7 @@ export default function EmployeeDetailPage({
           reason: "N/A",
         }),
       });
-      if (res.ok) await load();
+      if (res.ok) await reload();
     } catch {}
     setExcusing(null);
   }
@@ -112,7 +131,7 @@ export default function EmployeeDetailPage({
           training_type_id: trainingTypeId,
         }),
       });
-      if (res.ok) await load();
+      if (res.ok) await reload();
     } catch {}
     setRemoving(null);
   }

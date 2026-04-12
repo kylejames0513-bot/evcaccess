@@ -44,7 +44,8 @@ export function parseDate(value: DateLike): string | null {
   // US m/d/y.
   const usMatch = trimmed.match(US_DATE);
   if (usMatch) {
-    let [, m, d, y] = usMatch;
+    const [, m, d] = usMatch;
+    let y = usMatch[3];
     if (y.length === 2) {
       // Two-digit years: 70-99 = 1900s, 00-69 = 2000s. Mirrors xlrd.
       const yy = parseInt(y, 10);

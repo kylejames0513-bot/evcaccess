@@ -61,7 +61,10 @@ export default function SessionReviewPage({ params }: { params: Promise<{ id: st
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => { void load(); }, [id]);
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   async function load() {
     try {

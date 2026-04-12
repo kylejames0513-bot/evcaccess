@@ -7,34 +7,47 @@ import { Loader2 } from "lucide-react";
 // Pages that don't require authentication
 const PUBLIC_PATHS = ["/login", "/signin"];
 
+function isPublicPath(pathname: string): boolean {
+  return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+}
+
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [checking, setChecking] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
 
-  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  // Compute initial state from the current pathname so the effect
+  // never has to synchronously setState for the "public page" case.
+  // This is the pattern React 19 recommends for deriving state from
+  // props/navigation without cascading renders.
+  const isPublic = isPublicPath(pathname);
+  const [checking, setChecking] = useState(!isPublic);
+  const [authenticated, setAuthenticated] = useState(isPublic);
 
   useEffect(() => {
-    if (isPublic) {
-      setChecking(false);
-      setAuthenticated(true);
-      return;
-    }
+    if (isPublic) return; // no work to do on public pages
 
-    fetch("/api/auth")
-      .then((r) => r.json())
-      .then((data) => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth");
+        const data = await res.json();
+        if (cancelled) return;
         if (data.authenticated) {
           setAuthenticated(true);
         } else {
           router.push("/login");
         }
-      })
-      .catch(() => {
+      } catch {
+        if (cancelled) return;
         router.push("/login");
-      })
-      .finally(() => setChecking(false));
+      } finally {
+        if (!cancelled) setChecking(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [pathname, isPublic, router]);
 
   if (checking) {

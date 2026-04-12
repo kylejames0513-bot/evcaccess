@@ -213,18 +213,38 @@ function PositionRulesSection() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    // Defer through a microtask so setState inside load() doesn't run
+    // synchronously during the effect body (react-hooks/set-state-in-effect).
+    void Promise.resolve().then(load);
+  }, []);
 
   useEffect(() => {
-    if (newDept) {
-      fetch(`/api/positions?department=${encodeURIComponent(newDept)}`)
-        .then((r) => r.json())
-        .then((d) => setPositions(d.positions ?? []))
-        .catch(() => setPositions([]));
-    } else {
-      setPositions([]);
-      setSelectedPositions(new Set());
+    if (!newDept) {
+      // Clear asynchronously so we don't setState inside the effect body.
+      // React 19's react-hooks/set-state-in-effect rule flags synchronous
+      // setState calls because they cascade renders.
+      void Promise.resolve().then(() => {
+        setPositions([]);
+        setSelectedPositions(new Set());
+      });
+      return;
     }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/positions?department=${encodeURIComponent(newDept)}`
+        );
+        const d = await res.json();
+        if (!cancelled) setPositions(d.positions ?? []);
+      } catch {
+        if (!cancelled) setPositions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [newDept]);
 
   function togglePosition(pos: string) {

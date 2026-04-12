@@ -28,11 +28,7 @@ import {
   findFuzzyCandidates,
   getEmployeeByPaylocityId,
 } from "@/lib/db/employees";
-import {
-  classifyFuzzy,
-  pickBestFuzzy,
-  type FuzzyMatchResult,
-} from "./fuzzy";
+import { classifyFuzzy, pickBestFuzzy } from "./fuzzy";
 import type { Employee } from "@/types/database";
 
 export interface ParsedName {
