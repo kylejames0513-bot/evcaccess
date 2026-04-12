@@ -1,17 +1,14 @@
 import { getTrainingData, getComplianceIssues } from "@/lib/training-data";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
-import { getExpirationThresholds } from "@/lib/hub-settings";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 
-export async function GET(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const type = searchParams.get("type") || "department";
+export const GET = withApiHandler(async (request) => {
+  const type = request.nextUrl.searchParams.get("type") || "department";
 
-    const [data, issues, thresholds] = await Promise.all([
-      getTrainingData(),
-      getComplianceIssues(),
-      getExpirationThresholds(),
-    ]);
+  const [data, issues] = await Promise.all([
+    getTrainingData(),
+    getComplianceIssues(),
+  ]);
 
     if (type === "department") {
       // Compliance by division
@@ -46,7 +43,7 @@ export async function GET(request: Request) {
           : 100,
       })).sort((a, b) => a.complianceRate - b.complianceRate);
 
-      return Response.json({ departments });
+    return { departments };
     }
 
     if (type === "training") {
@@ -87,7 +84,7 @@ export async function GET(request: Request) {
         };
       }).sort((a, b) => a.completionRate - b.completionRate);
 
-      return Response.json({ trainings });
+    return { trainings };
     }
 
     if (type === "forecast") {
@@ -128,7 +125,7 @@ export async function GET(request: Request) {
         }
       }
 
-      return Response.json({ months, overdue: { count: overdue.length, items: overdue.slice(0, 50) } });
+    return { months, overdue: { count: overdue.length, items: overdue.slice(0, 50) } };
     }
 
     if (type === "needs") {
@@ -153,12 +150,8 @@ export async function GET(request: Request) {
 
       employeeNeeds.sort((a, b) => b.missing.length - a.missing.length);
 
-      return Response.json({ employees: employeeNeeds });
-    }
-
-    return Response.json({ error: "Unknown report type" }, { status: 400 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
+    return { employees: employeeNeeds };
   }
-}
+
+  throw new ApiError("Unknown report type", 400, "invalid_field");
+});

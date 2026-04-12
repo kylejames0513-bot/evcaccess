@@ -1,24 +1,21 @@
 import { setExcusal } from "@/lib/training-data";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { employeeName, trainingColumnKey, excused, reason } = body;
+export const POST = withApiHandler(async (request) => {
+  const body = await request.json();
+  const { employeeName, trainingColumnKey, excused, reason } = body;
 
-    if (!employeeName || !trainingColumnKey || typeof excused !== "boolean") {
-      return Response.json(
-        { error: "Missing required fields: employeeName, trainingColumnKey, excused (boolean)" },
-        { status: 400 }
-      );
-    }
-
-    const result = await setExcusal(employeeName, trainingColumnKey, excused, reason);
-    if (!result.success) {
-      return Response.json({ error: result.message }, { status: 400 });
-    }
-    return Response.json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
+  if (!employeeName || !trainingColumnKey || typeof excused !== "boolean") {
+    throw new ApiError(
+      "Missing required fields: employeeName, trainingColumnKey, excused (boolean)",
+      400,
+      "missing_field"
+    );
   }
-}
+
+  const result = await setExcusal(employeeName, trainingColumnKey, excused, reason);
+  if (!result.success) {
+    throw new ApiError(result.message, 400, "bad_request");
+  }
+  return result;
+});

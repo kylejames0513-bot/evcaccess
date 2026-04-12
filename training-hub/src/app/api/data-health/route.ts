@@ -1,4 +1,5 @@
 import { createServerClient } from "@/lib/supabase";
+import { withApiHandler } from "@/lib/api-handler";
 
 // ============================================================
 // Data Quality scan — Supabase-native checks
@@ -20,9 +21,8 @@ async function fetchAllPaged<T>(
   return out;
 }
 
-export async function GET() {
-  try {
-    const supabase = createServerClient();
+export const GET = withApiHandler(async () => {
+  const supabase = createServerClient();
 
     // Fetch all active employees
     interface EmployeeRow {
@@ -166,19 +166,15 @@ export async function GET() {
       totalExcusals: excusals.length,
     };
 
-    return Response.json({
-      summary,
-      issues: {
-        missingDepartment,
-        missingHireDate,
-        badDates,
-        duplicateEmployees,
-        orphanRecords,
-        orphanExcusals,
-      },
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
-  }
-}
+  return {
+    summary,
+    issues: {
+      missingDepartment,
+      missingHireDate,
+      badDates,
+      duplicateEmployees,
+      orphanRecords,
+      orphanExcusals,
+    },
+  };
+});

@@ -1,28 +1,23 @@
 import { createSession } from "@/lib/training-data";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { trainingType, date, time, location, enrollees } = body;
+export const POST = withApiHandler(async (request) => {
+  const body = await request.json();
+  const { trainingType, date, time, location, enrollees } = body;
 
-    if (!trainingType || !date) {
-      return Response.json(
-        { error: "Missing required fields: trainingType, date" },
-        { status: 400 }
-      );
-    }
-
-    const result = await createSession(
-      trainingType,
-      date,
-      time || "",
-      location || "",
-      enrollees || []
+  if (!trainingType || !date) {
+    throw new ApiError(
+      "Missing required fields: trainingType, date",
+      400,
+      "missing_field"
     );
-
-    return Response.json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
   }
-}
+
+  return await createSession(
+    trainingType,
+    date,
+    time || "",
+    location || "",
+    enrollees || []
+  );
+});

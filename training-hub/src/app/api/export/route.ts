@@ -1,5 +1,5 @@
 import { createServerClient } from "@/lib/supabase";
-import type { NextRequest } from "next/server";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 
 /**
  * GET /api/export?type=employees|history|compliance
@@ -10,9 +10,8 @@ import type { NextRequest } from "next/server";
  * - history: every employee with every training record (one row per completion)
  * - compliance: active employees with their required training statuses
  */
-export async function GET(req: NextRequest) {
-  try {
-    const type = req.nextUrl.searchParams.get("type") ?? "history";
+export const GET = withApiHandler(async (req) => {
+  const type = req.nextUrl.searchParams.get("type") ?? "history";
     const db = createServerClient();
 
     let csv = "";
@@ -108,21 +107,17 @@ export async function GET(req: NextRequest) {
       }
       filename = `evc_compliance_${today()}.csv`;
 
-    } else {
-      return Response.json({ error: "type must be employees, history, or compliance" }, { status: 400 });
-    }
-
-    return new Response(csv, {
-      headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${filename}"`,
-      },
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
+  } else {
+    throw new ApiError("type must be employees, history, or compliance", 400, "invalid_field");
   }
-}
+
+  return new Response(csv, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    },
+  });
+});
 
 function esc(val: string): string {
   if (val.includes(",") || val.includes('"') || val.includes("\n")) {

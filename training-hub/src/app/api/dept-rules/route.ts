@@ -1,53 +1,63 @@
-// @ts-nocheck -- Legacy route superseded by /api/required-trainings.
-// Slated for deletion once the settings page migrates to the new
-// required_trainings table CRUD.
+// Legacy route superseded by /api/required-trainings. Slated for
+// deletion once the settings page migrates to the new required_trainings
+// table CRUD. Kept tidy in the meantime.
 import { getDeptRules, setDeptRule, removeDeptRule } from "@/lib/hub-settings";
 import { createServerClient } from "@/lib/supabase";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 
-export async function GET() {
-  try {
-    const rules = await getDeptRules();
-    return Response.json({ rules });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
+export const GET = withApiHandler(async () => {
+  const rules = await getDeptRules();
+  return { rules };
+});
+
+export const POST = withApiHandler(async (request) => {
+  const body = await request.json();
+  const { action, department } = body;
+
+  if (!department) {
+    throw new ApiError("Missing department", 400, "missing_field");
   }
+
+  if (action === "remove") {
+    const rules = await removeDeptRule(department);
+    return { rules };
+  }
+
+  const { tracked, required } = body;
+  if (!tracked || !Array.isArray(tracked)) {
+    throw new ApiError("Missing tracked array", 400, "missing_field");
+  }
+
+  const rules = await setDeptRule(department, tracked, required || []);
+
+  // Apply changes to Supabase immediately
+  try {
+    await applyRuleToSupabase(department, new Set(tracked));
+  } catch (err) {
+    console.error("Failed to apply rule to Supabase:", err);
+  }
+
+  return { rules };
+});
+
+interface EmployeeLite {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  department: string | null;
 }
 
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { action, department } = body;
+interface ExcusalLite {
+  id: string;
+  employee_id: string;
+  training_type_id: number;
+  reason: string;
+}
 
-    if (!department) {
-      return Response.json({ error: "Missing department" }, { status: 400 });
-    }
-
-    if (action === "remove") {
-      const rules = await removeDeptRule(department);
-      return Response.json({ rules });
-    }
-
-    const { tracked, required } = body;
-    if (!tracked || !Array.isArray(tracked)) {
-      return Response.json({ error: "Missing tracked array" }, { status: 400 });
-    }
-
-    const rules = await setDeptRule(department, tracked, required || []);
-
-    // Apply changes to Supabase immediately
-    try {
-      await applyRuleToSupabase(department, new Set(tracked));
-    } catch (err) {
-      console.error("Failed to apply rule to Supabase:", err);
-    }
-
-    return Response.json({ rules });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
-  }
+interface RecordLite {
+  employee_id: string;
+  training_type_id: number;
 }
 
 /**
@@ -69,7 +79,7 @@ async function applyRuleToSupabase(department: string, trackedSet: Set<string>) 
 
   // Filter by department (flexible match)
   const deptLower = department.toLowerCase().replace(/\s*-\s*/g, "-");
-  const deptEmployees = (employees || []).filter((emp: any) => {
+  const deptEmployees = ((employees || []) as EmployeeLite[]).filter((emp) => {
     const empDiv = (emp.department || "").trim().toLowerCase().replace(/\s*-\s*/g, "-");
     return empDiv === deptLower;
   });
@@ -91,14 +101,14 @@ async function applyRuleToSupabase(department: string, trackedSet: Set<string>) 
     .from("training_types")
     .select("id, column_key");
 
-  const colKeyToTypeId = new Map<string, string>();
+  const colKeyToTypeId = new Map<string, number>();
   for (const tt of trainingTypes || []) {
-    if (allTrainingCols.has(tt.column_key)) {
+    if (tt.column_key && allTrainingCols.has(tt.column_key)) {
       colKeyToTypeId.set(tt.column_key, tt.id);
     }
   }
 
-  const employeeIds = deptEmployees.map((e: any) => e.id);
+  const employeeIds = deptEmployees.map((e) => e.id);
 
   // Fetch existing excusals for these employees
   const { data: excusals } = await supabase
@@ -113,16 +123,14 @@ async function applyRuleToSupabase(department: string, trackedSet: Set<string>) 
     .in("employee_id", employeeIds);
 
   const excusalMap = new Map<string, { id: string; reason: string }>();
-  for (const exc of excusals || []) {
+  for (const exc of (excusals || []) as ExcusalLite[]) {
     excusalMap.set(`${exc.employee_id}|${exc.training_type_id}`, { id: exc.id, reason: exc.reason });
   }
 
   const recordSet = new Set<string>();
-  for (const rec of records || []) {
+  for (const rec of (records || []) as RecordLite[]) {
     recordSet.add(`${rec.employee_id}|${rec.training_type_id}`);
   }
-
-  let cellsWritten = 0;
 
   for (const emp of deptEmployees) {
     for (const colKey of allTrainingCols) {
@@ -137,7 +145,6 @@ async function applyRuleToSupabase(department: string, trackedSet: Set<string>) 
         // Tracked — remove NA excusal if present
         if (existingExcusal && (existingExcusal.reason === "NA" || existingExcusal.reason === "N/A")) {
           await supabase.from("excusals").delete().eq("id", existingExcusal.id);
-          cellsWritten++;
         }
       } else {
         // Not tracked — add NA excusal if no record and no excusal
@@ -146,7 +153,6 @@ async function applyRuleToSupabase(department: string, trackedSet: Set<string>) 
             { employee_id: emp.id, training_type_id: typeId, reason: "NA" },
             { onConflict: "employee_id,training_type_id" }
           );
-          cellsWritten++;
         }
       }
     }

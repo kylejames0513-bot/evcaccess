@@ -1,5 +1,5 @@
 import { createServerClient } from "@/lib/supabase";
-import type { NextRequest } from "next/server";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 
 /**
  * POST /api/bulk-excuse
@@ -15,9 +15,8 @@ import type { NextRequest } from "next/server";
  * universal ones like CPR — the compliance view checks excusals first
  * regardless of how the requirement was created.
  */
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
+export const POST = withApiHandler(async (req) => {
+  const body = await req.json();
     const {
       division,
       employeeNames,
@@ -30,12 +29,13 @@ export async function POST(req: NextRequest) {
       reason: string;
     };
 
-    if (!trainingColumnKeys?.length || !reason) {
-      return Response.json(
-        { error: "trainingColumnKeys (array) and reason are required" },
-        { status: 400 }
-      );
-    }
+  if (!trainingColumnKeys?.length || !reason) {
+    throw new ApiError(
+      "trainingColumnKeys (array) and reason are required",
+      400,
+      "missing_field"
+    );
+  }
 
     const supabase = createServerClient();
 
@@ -64,16 +64,17 @@ export async function POST(req: NextRequest) {
           return nameSet.has(full);
         })
         .map((e) => e.id);
-    } else {
-      return Response.json(
-        { error: "Either division or employeeNames is required" },
-        { status: 400 }
-      );
-    }
+  } else {
+    throw new ApiError(
+      "Either division or employeeNames is required",
+      400,
+      "missing_field"
+    );
+  }
 
-    if (employeeIds.length === 0) {
-      return Response.json({ excused: 0, skipped: 0 });
-    }
+  if (employeeIds.length === 0) {
+    return { excused: 0, skipped: 0 };
+  }
 
     // 2. Resolve training_type_ids from column_keys
     const { data: trainingTypes, error: ttErr } = await supabase
@@ -90,9 +91,9 @@ export async function POST(req: NextRequest) {
       .map((k) => keyToId.get(k.toLowerCase()))
       .filter((id): id is number => id != null);
 
-    if (trainingTypeIds.length === 0) {
-      return Response.json({ excused: 0, skipped: 0, error: "No matching training types found" });
-    }
+  if (trainingTypeIds.length === 0) {
+    return { excused: 0, skipped: 0, error: "No matching training types found" };
+  }
 
     // 3. Build and upsert excusals
     const rows = [];
@@ -118,9 +119,5 @@ export async function POST(req: NextRequest) {
       excused += batch.length;
     }
 
-    return Response.json({ excused, skipped: 0 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
-  }
-}
+  return { excused, skipped: 0 };
+});
