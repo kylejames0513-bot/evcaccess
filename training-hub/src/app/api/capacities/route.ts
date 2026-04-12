@@ -1,2 +1,4 @@
-// Stub: returns empty capacities so /trainings page loads
-export async function GET() { return Response.json({ capacities: {} }); }
+// Stub: returns empty capacities so /trainings page loads.
+import { withApiHandler } from "@/lib/api-handler";
+
+export const GET = withApiHandler(async () => ({ capacities: {} }));

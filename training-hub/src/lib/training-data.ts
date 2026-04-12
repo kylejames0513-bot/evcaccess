@@ -64,15 +64,6 @@ export interface ComplianceIssue {
   division: string;
 }
 
-export interface DashboardStats {
-  totalEmployees: number;
-  fullyCompliant: number;
-  expiringSoon: number;
-  expired: number;
-  needed: number;
-  upcomingSessions: number;
-}
-
 /**
  * Read compliance data by querying employees, training_records, and excusals
  * separately (each well under 1000 rows) and computing compliance in TypeScript.
@@ -342,28 +333,8 @@ export async function getComplianceIssues(): Promise<ComplianceIssue[]> {
 /**
  * Dashboard summary stats.
  */
-export async function getDashboardStats(): Promise<DashboardStats> {
-  const data = await getTrainingData();
-  const issues = await getComplianceIssues();
-  const scheduled = await getScheduledSessions();
-
-  let fullyCompliant = 0;
-  for (const emp of data) {
-    const hasIssue = Object.values(emp.trainings).some(
-      (t) => t.status === "expired" || t.status === "expiring_soon" || t.status === "needed"
-    );
-    if (!hasIssue) fullyCompliant++;
-  }
-
-  return {
-    totalEmployees: data.length,
-    fullyCompliant,
-    expiringSoon: issues.filter((i) => i.status === "expiring_soon").length,
-    expired: issues.filter((i) => i.status === "expired").length,
-    needed: issues.filter((i) => i.status === "needed").length,
-    upcomingSessions: scheduled.filter((s) => s.status === "scheduled").length,
-  };
-}
+// removed: getDashboardStats — unused since /api/dashboard migrated to
+// lib/db/compliance.ts and the employee_compliance view.
 
 // --------------------------------------------------------
 // Scheduled sessions from Supabase
@@ -534,97 +505,9 @@ export async function setExcusal(
 /**
  * Get list of active employee names.
  */
-export async function getEmployeeList(): Promise<string[]> {
-  const supabase = createServerClient();
-
-  const { data, error } = await supabase
-    .from("employees")
-    .select("first_name, last_name")
-    .eq("is_active", true)
-    .order("last_name")
-    .limit(10000);
-
-  if (error) throw new Error(`Failed to load employees: ${error.message}`);
-
-  return (data || []).map((e) => {
-    return e.first_name ? `${e.last_name}, ${e.first_name}` : e.last_name;
-  }).filter(Boolean);
-}
-
-/**
- * Get employees who need a specific training.
- */
-export async function getEmployeesNeedingTraining(
-  trainingName: string
-): Promise<Array<{ name: string; status: ComplianceStatus; daysExpired: number; daysUntilExpiry: number; division: string }>> {
-  const data = await getTrainingData();
-  const def = TRAINING_DEFINITIONS.find(
-    (d) => d.name.toLowerCase() === trainingName.toLowerCase() ||
-      d.aliases?.some((a) => a.toLowerCase() === trainingName.toLowerCase())
-  );
-  if (!def) return [];
-
-  const now = new Date();
-  const lookAheadDate = def.lookAheadDays && def.renewalYears > 0
-    ? new Date(now.getTime() + def.lookAheadDays * 24 * 60 * 60 * 1000) : null;
-  const graceDate = def.postExpGraceDays && def.renewalYears > 0
-    ? new Date(now.getTime() - def.postExpGraceDays * 24 * 60 * 60 * 1000) : null;
-
-  const results: Array<{ name: string; status: ComplianceStatus; daysExpired: number; daysUntilExpiry: number; division: string }> = [];
-  for (const emp of data) {
-    const t = emp.trainings[def.columnKey];
-    if (!t) continue;
-
-    if (def.onlyExpired && t.status === "needed") continue;
-    if (def.onlyNeeded && (t.status === "expired" || t.status === "expiring_soon") && t.date) continue;
-
-    let includeLookAhead = false;
-    if (lookAheadDate && t.status === "current" && t.date && def.renewalYears > 0) {
-      const expiry = new Date(t.date);
-      expiry.setFullYear(expiry.getFullYear() + def.renewalYears);
-      if (expiry <= lookAheadDate) includeLookAhead = true;
-    }
-
-    if (def.postExpGraceDays && t.status === "expired" && t.date && def.renewalYears > 0) {
-      const expiry = new Date(t.date);
-      expiry.setFullYear(expiry.getFullYear() + def.renewalYears);
-      if (expiry < (graceDate || now)) continue;
-    }
-
-    if (t.status === "expired" || t.status === "expiring_soon" || t.status === "needed" || includeLookAhead) {
-      let daysExpired = 0;
-      let daysUntilExpiry = 0;
-
-      if (t.date && def.renewalYears > 0) {
-        const expiry = new Date(t.date);
-        expiry.setFullYear(expiry.getFullYear() + def.renewalYears);
-        const diffMs = now.getTime() - expiry.getTime();
-        const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-        if (diffMs > 0) {
-          daysExpired = Math.max(diffDays, 0);
-        } else {
-          daysUntilExpiry = Math.max(-diffDays, 0);
-        }
-      } else if (t.status === "needed" || (t.status === "expired" && !t.date)) {
-        daysExpired = 9999;
-      }
-
-      const effectiveStatus = includeLookAhead && t.status === "current" ? "expiring_soon" as ComplianceStatus : t.status;
-      results.push({ name: emp.name, status: effectiveStatus, daysExpired, daysUntilExpiry, division: emp.position });
-    }
-  }
-
-  const priority: Record<string, number> = { expired: 0, expiring_soon: 1, needed: 2 };
-  results.sort((a, b) => {
-    const pa = priority[a.status] ?? 3;
-    const pb = priority[b.status] ?? 3;
-    if (pa !== pb) return pa - pb;
-    if (a.status === "expired") return b.daysExpired - a.daysExpired;
-    if (a.status === "expiring_soon") return a.daysUntilExpiry - b.daysUntilExpiry;
-    return a.name.localeCompare(b.name);
-  });
-  return results;
-}
+// removed: getEmployeeList, getEmployeesNeedingTraining — unused since
+// the /new-hires and /needs-training routes migrated to lib/db/ and the
+// compliance view.
 
 const toFirstLast = toFirstLastUtil;
 
@@ -820,88 +703,10 @@ export async function archiveSession(
   return { success: true, message: `Archived ${session.training_name} on ${session.session_date}` };
 }
 
-/**
- * Read archived sessions.
- */
-export async function getArchivedSessions(): Promise<
-  Array<{
-    training: string;
-    date: string;
-    time: string;
-    location: string;
-    enrolled: string[];
-    noShows: string[];
-    archivedOn: string;
-  }>
-> {
-  const supabase = createServerClient();
-
-  const { data: sessions, error } = await supabase
-    .from("training_sessions")
-    .select(`
-      id, session_date, start_time, location, updated_at,
-      training_types ( name ),
-      enrollments ( status, employees ( first_name, last_name ) )
-    `)
-    .eq("status", "completed")
-    .order("updated_at", { ascending: false });
-
-  if (error || !sessions) return [];
-
-  return sessions.map((s: any) => {
-    const enrolled: string[] = [];
-    const noShows: string[] = [];
-    for (const e of s.enrollments || []) {
-      const name = `${e.employees?.first_name} ${e.employees?.last_name}`.trim();
-      if (e.status === "no_show") noShows.push(name);
-      else if (e.status !== "cancelled") enrolled.push(name);
-    }
-
-    return {
-      training: s.training_types?.name || "Unknown",
-      date: s.session_date,
-      time: s.start_time || "",
-      location: s.location || "",
-      enrolled,
-      noShows,
-      archivedOn: s.updated_at ? new Date(s.updated_at).toLocaleDateString() : "",
-    };
-  });
-}
-
-/**
- * Record no-shows for a session.
- */
-export async function recordNoShows(
-  sessionId: string,
-  noShowNames: string[]
-): Promise<{ success: boolean; message: string }> {
-  if (noShowNames.length === 0) return { success: false, message: "No names provided" };
-
-  const supabase = createServerClient();
-  const session = await fetchSessionById(supabase, sessionId);
-  if (!session) return { success: false, message: "Session not found" };
-
-  for (const name of noShowNames) {
-    const employee = await findEmployee(supabase, name);
-    if (!employee) continue;
-
-    await supabase.from("enrollments")
-      .update({ status: "no_show" as const })
-      .eq("session_id", session.id)
-      .eq("employee_id", employee.id);
-  }
-
-  // Record no-show flags in hub settings
-  const { addNoShow } = await import("@/lib/hub-settings");
-  const training = session.training_name;
-  const date = session.session_date;
-  for (const name of noShowNames) {
-    await addNoShow(name, training, date);
-  }
-
-  return { success: true, message: `Recorded ${noShowNames.length} no-show(s) for session` };
-}
+// removed: getArchivedSessions, recordNoShows — unused. The archived
+// sessions UI was dropped in favor of filtering training_sessions by
+// status='completed' directly; no-show recording happens inside the
+// attendance flow.
 
 // --------------------------------------------------------
 // Helper: find employee by name (fuzzy matching)

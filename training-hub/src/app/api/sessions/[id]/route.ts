@@ -1,4 +1,5 @@
 import { createServerClient } from "@/lib/supabase";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 import type { NextRequest } from "next/server";
 
 /**
@@ -8,10 +9,10 @@ import type { NextRequest } from "next/server";
  * employee info and enrollment status, and any matching sign-in
  * records (training_records with source='signin' for that date+training).
  */
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await ctx.params;
-    const db = createServerClient();
+export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
+  const params = await ctx!.params;
+  const id = params.id;
+  const db = createServerClient();
 
     // Fetch session
     const { data: session, error: sErr } = await db
@@ -19,8 +20,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       .select("*")
       .eq("id", id)
       .maybeSingle();
-    if (sErr) throw sErr;
-    if (!session) return Response.json({ error: "Session not found" }, { status: 404 });
+  if (sErr) throw sErr;
+  if (!session) throw new ApiError("Session not found", 404, "not_found");
 
     // Training name
     const { data: tt } = await db
@@ -103,21 +104,17 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
       .order("session_date", { ascending: true })
       .limit(3);
 
-    return Response.json({
-      session: {
-        ...session,
-        training_name: tt?.name ?? "Unknown",
-        training_type: tt,
-      },
-      enrollees: enrolleeList,
-      walk_ins: walkIns,
-      next_sessions: nextSessions ?? [],
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
-  }
-}
+  return {
+    session: {
+      ...session,
+      training_name: tt?.name ?? "Unknown",
+      training_type: tt,
+    },
+    enrollees: enrolleeList,
+    walk_ins: walkIns,
+    next_sessions: nextSessions ?? [],
+  };
+});
 
 /**
  * POST /api/sessions/[id]
@@ -138,11 +135,11 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
  *   { action: "add_to_session", employee_id, target_session_id }
  *     - Enrolls a no-show into the next available session
  */
-export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  try {
-    const { id } = await ctx.params;
-    const body = await req.json();
-    const db = createServerClient();
+export const POST = withApiHandler(async (req: NextRequest, ctx) => {
+  const params = await ctx!.params;
+  const id = params.id;
+  const body = await req.json();
+  const db = createServerClient();
 
     if (body.action === "review") {
       const attendees = body.attendees as Array<{
@@ -159,7 +156,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         .select("training_type_id, session_date")
         .eq("id", id)
         .maybeSingle();
-      if (!session) return Response.json({ error: "Session not found" }, { status: 404 });
+      if (!session) throw new ApiError("Session not found", 404, "not_found");
 
       for (const att of attendees) {
         // Update enrollment status
@@ -206,36 +203,32 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         }
       }
 
-      return Response.json({ ok: true, reviewed: attendees.length });
-    }
-
-    if (body.action === "archive") {
-      await db.from("training_sessions")
-        .update({ status: "completed" as const })
-        .eq("id", id);
-      return Response.json({ ok: true, status: "completed" });
-    }
-
-    if (body.action === "reopen") {
-      await db.from("training_sessions")
-        .update({ status: "scheduled" as const })
-        .eq("id", id);
-      return Response.json({ ok: true, status: "scheduled" });
-    }
-
-    if (body.action === "add_to_session") {
-      const { employee_id, target_session_id } = body;
-      await db.from("enrollments").insert({
-        session_id: target_session_id,
-        employee_id,
-        status: "enrolled" as const,
-      });
-      return Response.json({ ok: true });
-    }
-
-    return Response.json({ error: "Unknown action" }, { status: 400 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
+      return { ok: true, reviewed: attendees.length };
   }
-}
+
+  if (body.action === "archive") {
+    await db.from("training_sessions")
+      .update({ status: "completed" as const })
+      .eq("id", id);
+    return { ok: true, status: "completed" };
+  }
+
+  if (body.action === "reopen") {
+    await db.from("training_sessions")
+      .update({ status: "scheduled" as const })
+      .eq("id", id);
+    return { ok: true, status: "scheduled" };
+  }
+
+  if (body.action === "add_to_session") {
+    const { employee_id, target_session_id } = body;
+    await db.from("enrollments").insert({
+      session_id: target_session_id,
+      employee_id,
+      status: "enrolled" as const,
+    });
+    return { ok: true };
+  }
+
+  throw new ApiError(`Unknown action: ${body.action}`, 400, "invalid_field");
+});

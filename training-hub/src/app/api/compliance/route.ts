@@ -1,6 +1,6 @@
 import { listCompliance, getComplianceSummary, fixSharedColumnKeyCompliance } from "@/lib/db/compliance";
 import { classifyTier } from "@/lib/notifications/tiers";
-import type { NextRequest } from "next/server";
+import { withApiHandler } from "@/lib/api-handler";
 
 /**
  * GET /api/compliance
@@ -17,38 +17,33 @@ import type { NextRequest } from "next/server";
  * Reads from the employee_compliance view (active employees only) so
  * the dashboard always sees the live join into required_trainings.
  */
-export async function GET(req: NextRequest) {
-  try {
-    const params = req.nextUrl.searchParams;
-    const filters = {
-      department: params.get("department") ?? undefined,
-      position: params.get("position") ?? undefined,
-      status: (params.get("status") as never) ?? undefined,
-      trainingTypeId: params.get("training_type_id")
-        ? parseInt(params.get("training_type_id") ?? "", 10) || undefined
-        : undefined,
-      employeeId: params.get("employee_id") ?? undefined,
-    };
+export const GET = withApiHandler(async (req) => {
+  const params = req.nextUrl.searchParams;
+  const filters = {
+    department: params.get("department") ?? undefined,
+    position: params.get("position") ?? undefined,
+    status: (params.get("status") as never) ?? undefined,
+    trainingTypeId: params.get("training_type_id")
+      ? parseInt(params.get("training_type_id") ?? "", 10) || undefined
+      : undefined,
+    employeeId: params.get("employee_id") ?? undefined,
+  };
 
-    const [rawRows, summary] = await Promise.all([
-      listCompliance(filters),
-      getComplianceSummary(),
-    ]);
+  const [rawRows, summary] = await Promise.all([
+    listCompliance(filters),
+    getComplianceSummary(),
+  ]);
 
-    // Fix shared column_key types (e.g. Initial Med vs Med Recert)
-    const rows = await fixSharedColumnKeyCompliance(rawRows);
+  // Fix shared column_key types (e.g. Initial Med vs Med Recert)
+  const rows = await fixSharedColumnKeyCompliance(rawRows);
 
-    // Decorate with the JS tier function so the UI gets the same overdue
-    // counter the SQL view exposes plus the friendly tier label.
-    const today = new Date();
-    const decorated = rows.map((row) => ({
-      ...row,
-      tier: classifyTier(row.expiration_date, today),
-    }));
+  // Decorate with the JS tier function so the UI gets the same overdue
+  // counter the SQL view exposes plus the friendly tier label.
+  const today = new Date();
+  const decorated = rows.map((row) => ({
+    ...row,
+    tier: classifyTier(row.expiration_date, today),
+  }));
 
-    return Response.json({ rows: decorated, summary });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
-  }
-}
+  return { rows: decorated, summary };
+});

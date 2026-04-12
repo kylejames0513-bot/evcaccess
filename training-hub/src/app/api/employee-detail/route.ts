@@ -3,9 +3,9 @@ import { getHistoryForEmployee } from "@/lib/db/history";
 import { getMasterCompletionsForEmployee } from "@/lib/db/completions";
 import { listExcusalsForEmployee } from "@/lib/db/excusals";
 import { listCompliance, fixSharedColumnKeyCompliance } from "@/lib/db/compliance";
-import { listTrainingTypes, getTrainingTypeById } from "@/lib/db/trainings";
+import { listTrainingTypes } from "@/lib/db/trainings";
 import { createServerClient } from "@/lib/supabase";
-import type { NextRequest } from "next/server";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 
 /**
  * GET /api/employee-detail?id=<uuid> OR ?name=<full name>
@@ -19,30 +19,29 @@ import type { NextRequest } from "next/server";
  * When using id, returns the new shape:
  *   { employee, history, master_completions, excusals, compliance }
  */
-export async function GET(req: NextRequest) {
-  try {
-    const id = req.nextUrl.searchParams.get("id");
-    const name = req.nextUrl.searchParams.get("name");
+export const GET = withApiHandler(async (req) => {
+  const id = req.nextUrl.searchParams.get("id");
+  const name = req.nextUrl.searchParams.get("name");
 
-    if (!id && !name) {
-      return Response.json({ error: "Missing query param: id or name" }, { status: 400 });
-    }
+  if (!id && !name) {
+    throw new ApiError("Missing query param: id or name", 400, "missing_field");
+  }
 
-    // New id-based path
-    if (id) {
-      const employee = await getEmployeeById(id);
-      if (!employee) {
-        return Response.json({ error: `Employee ${id} not found` }, { status: 404 });
-      }
-      const [history, master, excusals, rawCompliance] = await Promise.all([
-        getHistoryForEmployee(id),
-        getMasterCompletionsForEmployee(id),
-        listExcusalsForEmployee(id),
-        employee.is_active ? listCompliance({ employeeId: id }) : Promise.resolve([]),
-      ]);
-      const compliance = await fixSharedColumnKeyCompliance(rawCompliance);
-      return Response.json({ employee, history, master_completions: master, excusals, compliance });
+  // New id-based path
+  if (id) {
+    const employee = await getEmployeeById(id);
+    if (!employee) {
+      throw new ApiError(`Employee ${id} not found`, 404, "not_found");
     }
+    const [history, master, excusals, rawCompliance] = await Promise.all([
+      getHistoryForEmployee(id),
+      getMasterCompletionsForEmployee(id),
+      listExcusalsForEmployee(id),
+      employee.is_active ? listCompliance({ employeeId: id }) : Promise.resolve([]),
+    ]);
+    const compliance = await fixSharedColumnKeyCompliance(rawCompliance);
+    return { employee, history, master_completions: master, excusals, compliance };
+  }
 
     // Legacy name-based path for the EmployeeDetailModal
     // Try "First Last" and "Last, First" formats
@@ -74,9 +73,9 @@ export async function GET(req: NextRequest) {
       if (candidates.length === 1) employee = candidates[0];
     }
 
-    if (!employee) {
-      return Response.json({ error: `Employee "${name}" not found` }, { status: 404 });
-    }
+  if (!employee) {
+    throw new ApiError(`Employee "${name}" not found`, 404, "not_found");
+  }
 
     // Build the old shape the modal expects, but ONLY for required trainings
     const db = createServerClient();
@@ -141,13 +140,9 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return Response.json({
-      name: `${employee.first_name} ${employee.last_name}`,
-      noShowCount: 0,
-      trainings,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
-  }
-}
+  return {
+    name: `${employee.first_name} ${employee.last_name}`,
+    noShowCount: 0,
+    trainings,
+  };
+});

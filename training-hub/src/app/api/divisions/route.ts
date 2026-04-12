@@ -1,27 +1,22 @@
 import { createServerClient } from "@/lib/supabase";
+import { withApiHandler } from "@/lib/api-handler";
 
-export async function GET() {
-  try {
-    const supabase = createServerClient();
+export const GET = withApiHandler(async () => {
+  const supabase = createServerClient();
 
-    const { data: employees, error } = await supabase
-      .from("employees")
-      .select("department")
-      .eq("is_active", true)
-      .limit(10000);
+  const { data: employees, error } = await supabase
+    .from("employees")
+    .select("department")
+    .eq("is_active", true)
+    .limit(10000);
 
-    if (error) throw new Error(`Failed to load employees: ${error.message}`);
+  if (error) throw new Error(`Failed to load employees: ${error.message}`);
 
-    const divisions = new Set<string>();
-    for (const emp of employees || []) {
-      const div = (emp.department || "").trim();
-      if (div) divisions.add(div);
-    }
-
-    const sorted = Array.from(divisions).sort();
-    return Response.json({ divisions: sorted });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
+  const divisions = new Set<string>();
+  for (const emp of employees || []) {
+    const div = (emp.department || "").trim();
+    if (div) divisions.add(div);
   }
-}
+
+  return { divisions: Array.from(divisions).sort() };
+});

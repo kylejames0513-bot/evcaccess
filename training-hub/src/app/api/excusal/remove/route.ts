@@ -1,4 +1,5 @@
 import { createServerClient } from "@/lib/supabase";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 
 /**
  * POST /api/excusal/remove
@@ -6,29 +7,25 @@ import { createServerClient } from "@/lib/supabase";
  *
  * Deletes the excusal for a specific employee + training.
  */
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
-    const { employee_id, training_type_id } = body;
+export const POST = withApiHandler(async (request) => {
+  const body = await request.json();
+  const { employee_id, training_type_id } = body;
 
-    if (!employee_id || !training_type_id) {
-      return Response.json(
-        { error: "employee_id and training_type_id are required" },
-        { status: 400 }
-      );
-    }
-
-    const supabase = createServerClient();
-    const { error } = await supabase
-      .from("excusals")
-      .delete()
-      .eq("employee_id", employee_id)
-      .eq("training_type_id", training_type_id);
-
-    if (error) throw error;
-    return Response.json({ ok: true });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
+  if (!employee_id || !training_type_id) {
+    throw new ApiError(
+      "employee_id and training_type_id are required",
+      400,
+      "missing_field"
+    );
   }
-}
+
+  const supabase = createServerClient();
+  const { error } = await supabase
+    .from("excusals")
+    .delete()
+    .eq("employee_id", employee_id)
+    .eq("training_type_id", training_type_id);
+
+  if (error) throw error;
+  return { ok: true };
+});

@@ -2,6 +2,7 @@ import { getScheduledSessions } from "@/lib/training-data";
 import { createServerClient } from "@/lib/supabase";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import { endOfNextCalendarQuarter } from "@/lib/quarter";
+import { withApiHandler } from "@/lib/api-handler";
 
 /**
  * Auto-prune enrolled people who no longer need the training.
@@ -127,15 +128,10 @@ async function pruneCurrentEnrollees() {
   return toRemove.length;
 }
 
-export async function GET() {
-  try {
-    // Prune people who completed their training before loading
-    await pruneCurrentEnrollees();
+export const GET = withApiHandler(async () => {
+  // Prune people who completed their training before loading
+  await pruneCurrentEnrollees();
 
-    const sessions = await getScheduledSessions();
-    return Response.json({ sessions });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return Response.json({ error: message }, { status: 500 });
-  }
-}
+  const sessions = await getScheduledSessions();
+  return { sessions };
+});

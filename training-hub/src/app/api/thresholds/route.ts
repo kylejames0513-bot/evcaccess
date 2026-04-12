@@ -1,3 +1,5 @@
-// Stub: returns default thresholds so /settings page loads
-export async function GET() { return Response.json({ critical: 30, warning: 60, notice: 90 }); }
-export async function POST() { return Response.json({ ok: true }); }
+// Stub: returns default thresholds so /settings page loads.
+import { withApiHandler } from "@/lib/api-handler";
+
+export const GET = withApiHandler(async () => ({ critical: 30, warning: 60, notice: 90 }));
+export const POST = withApiHandler(async () => ({ ok: true }));
