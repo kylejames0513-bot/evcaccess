@@ -756,10 +756,18 @@ function EnrollModal({
     setSaving(true);
     setError("");
     try {
+      // Pass force=true when the override toggle is on so the backend
+      // skips the "already in another session for this training" guard
+      // and the active-only employee lookup. Without this flag the
+      // operator's override picks were getting silently dropped.
       const res = await fetch("/api/enroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: session.id, names: Array.from(selected) }),
+        body: JSON.stringify({
+          sessionId: session.id,
+          names: Array.from(selected),
+          force: override,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);

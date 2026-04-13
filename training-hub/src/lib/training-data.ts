@@ -636,50 +636,129 @@ export async function createSession(
 
 /**
  * Add enrollees to an existing session.
+ *
+ * When `force` is true, the double-enrollment guard (same training
+ * type, scheduled/in_progress session) is skipped and the lookup also
+ * considers inactive employees. This is the path used by the enroll
+ * modal's override toggle — HR is telling us "I know what I'm doing,
+ * enroll this person anyway." Without the flag, the guard still
+ * protects the default autofill flow from accidentally double-booking
+ * a person into two classes for the same cert.
+ *
+ * The return message reports per-name outcomes so HR can tell why a
+ * selection was silently dropped (previously all failures collapsed to
+ * a single misleading "already enrolled" error).
  */
 export async function addEnrollees(
   sessionId: string,
-  newNames: string[]
+  newNames: string[],
+  options: { force?: boolean } = {}
 ): Promise<{ success: boolean; message: string }> {
   const supabase = createServerClient();
+  const force = options.force === true;
 
   const session = await fetchSessionById(supabase, sessionId);
   if (!session) return { success: false, message: "Session not found" };
 
-  // Check all sessions of same training type to prevent double-enrollment
-  const { data: otherEnrollments } = await supabase
-    .from("enrollments")
-    .select("employee_id, training_sessions!inner(training_type_id, status)")
-    .eq("training_sessions.training_type_id", session.training_type_id)
-    .in("training_sessions.status", ["scheduled", "in_progress"])
-    .neq("status", "cancelled");
+  // Default flow: block double-enrollment in another scheduled or
+  // in-progress session of the same training type. Force mode trusts
+  // the operator and skips this guard entirely.
+  let blockedIds = new Set<string>();
+  if (!force) {
+    const { data: otherEnrollments } = await supabase
+      .from("enrollments")
+      .select("employee_id, training_sessions!inner(training_type_id, status)")
+      .eq("training_sessions.training_type_id", session.training_type_id)
+      .in("training_sessions.status", ["scheduled", "in_progress"])
+      .neq("status", "cancelled");
 
-  const allEnrolledIds = new Set(
-    (otherEnrollments ?? []).map((e: { employee_id: string }) => e.employee_id)
+    blockedIds = new Set(
+      (otherEnrollments ?? []).map((e: { employee_id: string }) => e.employee_id)
+    );
+  }
+
+  // People already in THIS session — always skip, UNIQUE constraint
+  // would reject the insert and we want a clean "already enrolled" hit
+  // rather than a generic DB error.
+  const { data: thisSessionEnrollments } = await supabase
+    .from("enrollments")
+    .select("employee_id")
+    .eq("session_id", session.id);
+  const thisSessionIds = new Set(
+    (thisSessionEnrollments ?? []).map((e: { employee_id: string }) => e.employee_id)
   );
 
-  let added = 0;
   const addedNames: string[] = [];
+  const notFound: string[] = [];
+  const alreadyInOther: string[] = [];
+  const alreadyInThis: string[] = [];
+  const insertFailed: string[] = [];
+
   for (const name of newNames) {
-    const employee = await findEmployee(supabase, name);
-    if (!employee || allEnrolledIds.has(employee.id)) continue;
+    const employee = await findEmployee(supabase, name, { includeInactive: force });
+    if (!employee) {
+      notFound.push(name);
+      continue;
+    }
+    if (thisSessionIds.has(employee.id)) {
+      alreadyInThis.push(toFirstLast(name));
+      continue;
+    }
+    if (blockedIds.has(employee.id)) {
+      alreadyInOther.push(toFirstLast(name));
+      continue;
+    }
 
     const { error } = await supabase.from("enrollments").insert({
       session_id: session.id,
       employee_id: employee.id,
     });
 
-    if (!error) {
-      added++;
-      addedNames.push(toFirstLast(name));
+    if (error) {
+      // Log so we can debug mystery failures in production instead of
+      // silently dropping people. The user still sees the per-name
+      // failure in the message below.
+      console.error(`Enrollment insert failed for ${name}:`, error);
+      insertFailed.push(`${toFirstLast(name)} (${error.message})`);
+      continue;
     }
+
+    addedNames.push(toFirstLast(name));
   }
+
+  const added = addedNames.length;
 
   if (added === 0) {
-    return { success: false, message: "All selected employees are already enrolled in a session for this training" };
+    // Build the most useful message we can from whatever went wrong.
+    const parts: string[] = [];
+    if (notFound.length) parts.push(`Not found: ${notFound.join(", ")}`);
+    if (alreadyInThis.length) parts.push(`Already in this session: ${alreadyInThis.join(", ")}`);
+    if (alreadyInOther.length) {
+      parts.push(
+        `Already in another scheduled session for this training: ${alreadyInOther.join(", ")} (flip the override toggle to enroll anyway)`
+      );
+    }
+    if (insertFailed.length) parts.push(`Insert failed: ${insertFailed.join(", ")}`);
+    return {
+      success: false,
+      message: parts.length
+        ? parts.join(" · ")
+        : "No enrollees were added",
+    };
   }
 
-  return { success: true, message: `Added ${added} enrollee(s): ${addedNames.join(", ")}` };
+  // Partial success — include skipped reasons so HR sees what happened
+  // to the rest without needing to open the DB.
+  const tail: string[] = [];
+  if (notFound.length) tail.push(`skipped (not found): ${notFound.join(", ")}`);
+  if (alreadyInThis.length) tail.push(`skipped (already in this session): ${alreadyInThis.join(", ")}`);
+  if (alreadyInOther.length) tail.push(`skipped (in another session): ${alreadyInOther.join(", ")}`);
+  if (insertFailed.length) tail.push(`skipped (insert failed): ${insertFailed.join(", ")}`);
+  const suffix = tail.length ? ` · ${tail.join(" · ")}` : "";
+  return {
+    success: true,
+    message: `Added ${added} enrollee(s): ${addedNames.join(", ")}${suffix}`,
+  };
 }
 
 /**
@@ -808,13 +887,17 @@ export async function archiveSession(
 
 async function findEmployee(
   supabase: ReturnType<typeof createServerClient>,
-  nameInput: string
+  nameInput: string,
+  options: { includeInactive?: boolean } = {}
 ): Promise<{ id: string; first_name: string; last_name: string } | null> {
-  const { data: employees } = await supabase
+  let query = supabase
     .from("employees")
     .select("id, first_name, last_name")
-    .eq("is_active", true)
     .limit(10000);
+  if (!options.includeInactive) {
+    query = query.eq("is_active", true);
+  }
+  const { data: employees } = await query;
 
   if (!employees) return null;
 

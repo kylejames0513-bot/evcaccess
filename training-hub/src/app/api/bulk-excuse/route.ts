@@ -5,6 +5,7 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
  * POST /api/bulk-excuse
  * Body: {
  *   division?: string,           // excuse all active employees in this division
+ *   position?: string,           // optional — narrow a division excuse to a single position
  *   employeeNames?: string[],    // OR excuse these specific employees by "First Last" name
  *   trainingColumnKeys: string[], // column_key values to excuse (e.g. ["CPR", "MED_TRAIN"])
  *   reason: string,              // excusal reason code (e.g. "NA", "DIR", "RN")
@@ -19,11 +20,13 @@ export const POST = withApiHandler(async (req) => {
   const body = await req.json();
     const {
       division,
+      position,
       employeeNames,
       trainingColumnKeys,
       reason,
     } = body as {
       division?: string;
+      position?: string;
       employeeNames?: string[];
       trainingColumnKeys: string[];
       reason: string;
@@ -45,11 +48,16 @@ export const POST = withApiHandler(async (req) => {
     if (division) {
       const { data, error } = await supabase
         .from("employees")
-        .select("id, department")
+        .select("id, department, position")
         .eq("is_active", true);
       if (error) throw error;
+      const divLower = division.toLowerCase();
+      const posLower = position?.trim().toLowerCase() ?? "";
       employeeIds = (data ?? [])
-        .filter((e) => (e.department ?? "").toLowerCase() === division.toLowerCase())
+        .filter((e) => (e.department ?? "").toLowerCase() === divLower)
+        .filter((e) =>
+          posLower ? (e.position ?? "").toLowerCase() === posLower : true
+        )
         .map((e) => e.id);
     } else if (employeeNames?.length) {
       const { data, error } = await supabase
