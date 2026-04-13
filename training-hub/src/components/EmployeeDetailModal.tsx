@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { UserPlus, X, Loader2, Check, Clock, XCircle, AlertTriangle, CheckCircle, CalendarPlus, ShieldOff, ShieldCheck, Ban, PenLine, MessageSquare } from "lucide-react";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { EXCUSAL_REASONS } from "@/config/excusal-reasons";
 import StatusBadge from "@/components/ui/StatusBadge";
 
 interface EmployeeDetail {
@@ -27,28 +28,6 @@ interface EmployeeDetail {
     }>;
   }>;
 }
-
-const EXCUSAL_REASONS = [
-  { code: "N/A", label: "N/A (General)" },
-  { code: "NO_LONGER_EMPLOYEE", label: "No Longer Employee" },
-  { code: "Facilities", label: "Facilities" },
-  { code: "MAINT", label: "Maintenance" },
-  { code: "HR", label: "HR" },
-  { code: "ADMIN", label: "Admin" },
-  { code: "FINANCE", label: "Finance" },
-  { code: "IT", label: "IT" },
-  { code: "NURSE", label: "Nurse" },
-  { code: "LPN", label: "LPN" },
-  { code: "RN", label: "RN" },
-  { code: "DIR", label: "Director" },
-  { code: "MGR", label: "Manager" },
-  { code: "SUPERVISOR", label: "Supervisor" },
-  { code: "TRAINER", label: "Trainer" },
-  { code: "BH", label: "Behavioral Health" },
-  { code: "ELC", label: "ELC" },
-  { code: "EI", label: "EI" },
-  { code: "BOARD", label: "Board of Directors" },
-];
 
 const TRAINING_NAMES: Record<string, string> = Object.fromEntries(
   TRAINING_DEFINITIONS.reduce((map, d) => {

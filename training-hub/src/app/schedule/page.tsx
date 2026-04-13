@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap, Archive, RefreshCw, Pencil, Copy } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
@@ -8,27 +8,7 @@ import { useFetch } from "@/lib/use-fetch";
 import { PRIMARY_TRAININGS } from "@/config/primary-trainings";
 import { namesMatch, normalizeNameForCompare } from "@/lib/name-utils";
 import { trainingMatchesAny } from "@/lib/training-match";
-
-const EXCUSAL_REASONS = [
-  { code: "N/A", label: "N/A (General)" },
-  { code: "Facilities", label: "Facilities" },
-  { code: "MAINT", label: "Maintenance" },
-  { code: "HR", label: "HR" },
-  { code: "ADMIN", label: "Admin" },
-  { code: "FINANCE", label: "Finance" },
-  { code: "IT", label: "IT" },
-  { code: "NURSE", label: "Nurse" },
-  { code: "LPN", label: "LPN" },
-  { code: "RN", label: "RN" },
-  { code: "DIR", label: "Director" },
-  { code: "MGR", label: "Manager" },
-  { code: "SUPERVISOR", label: "Supervisor" },
-  { code: "TRAINER", label: "Trainer" },
-  { code: "BH", label: "Behavioral Health" },
-  { code: "ELC", label: "ELC" },
-  { code: "EI", label: "EI" },
-  { code: "BOARD", label: "Board of Directors" },
-];
+import { EXCUSAL_REASONS } from "@/config/excusal-reasons";
 
 interface SessionData {
   id: string;
@@ -958,11 +938,76 @@ function EnrolledChip({
   sessionId: string;
   onRemoved: () => void;
 }) {
+  const chipRef = useRef<HTMLSpanElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
   const [showOptions, setShowOptions] = useState(false);
+  const [popupPos, setPopupPos] = useState<{ top: number; left: number } | null>(null);
   const [removing, setRemoving] = useState(false);
   const [showDateInput, setShowDateInput] = useState(false);
   const [prevDate, setPrevDate] = useState("");
   const [showExcuseInput, setShowExcuseInput] = useState(false);
+
+  function closeOptions() {
+    setShowOptions(false);
+    setShowDateInput(false);
+    setShowExcuseInput(false);
+    setPopupPos(null);
+  }
+
+  function openOptions() {
+    const rect = chipRef.current?.getBoundingClientRect();
+    if (!rect) {
+      setShowOptions(true);
+      return;
+    }
+    // Popup width is ~200px; anchor to the chip's left edge but keep
+    // it fully on screen.
+    const POPUP_WIDTH = 200;
+    const POPUP_HEIGHT_ESTIMATE = 240;
+    const margin = 8;
+    let left = rect.left;
+    if (left + POPUP_WIDTH + margin > window.innerWidth) {
+      left = Math.max(margin, window.innerWidth - POPUP_WIDTH - margin);
+    }
+    // Prefer opening below the chip; flip above when there isn't
+    // enough room (e.g. the mealtime row at the bottom of the page
+    // just above the archive section).
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const top = spaceBelow >= POPUP_HEIGHT_ESTIMATE || spaceBelow >= spaceAbove
+      ? rect.bottom + 4
+      : Math.max(margin, rect.top - POPUP_HEIGHT_ESTIMATE - 4);
+    setPopupPos({ top, left });
+    setShowOptions(true);
+  }
+
+  // Close on outside click, Escape, scroll, or resize — any of
+  // these would otherwise leave the popup stranded over stale content.
+  useEffect(() => {
+    if (!showOptions) return;
+    function onDocClick(e: MouseEvent) {
+      const target = e.target as Node;
+      if (popupRef.current?.contains(target)) return;
+      if (chipRef.current?.contains(target)) return;
+      closeOptions();
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") closeOptions();
+    }
+    function onScrollOrResize() {
+      closeOptions();
+    }
+    document.addEventListener("mousedown", onDocClick);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [showOptions]);
 
   // Find the training column key
   const def = PRIMARY_TRAININGS.find(
@@ -1039,18 +1084,25 @@ function EnrolledChip({
   }
 
   return (
-    <span className="relative inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-700 text-xs font-medium rounded-full">
+    <span
+      ref={chipRef}
+      className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-700 text-xs font-medium rounded-full"
+    >
       {name}
       <button
-        onClick={() => setShowOptions(!showOptions)}
+        onClick={() => (showOptions ? closeOptions() : openOptions())}
         className="hover:text-red-600 transition-colors"
         title={`Remove ${name}`}
       >
         <X className="h-3 w-3" />
       </button>
 
-      {showOptions && (
-        <div className="absolute top-full left-0 mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg p-1 min-w-[180px]">
+      {showOptions && popupPos && (
+        <div
+          ref={popupRef}
+          style={{ position: "fixed", top: popupPos.top, left: popupPos.left, width: 200 }}
+          className="z-50 bg-white border border-slate-200 rounded-lg shadow-xl p-1 max-h-[70vh] overflow-y-auto"
+        >
           <p className="px-2 py-1 text-[10px] text-slate-400 uppercase font-semibold">Remove {name}</p>
           <button
             onClick={handleFailed}
@@ -1094,22 +1146,21 @@ function EnrolledChip({
               Excused — log reason
             </button>
           ) : (
-            <div className="px-2 py-1.5">
-              <select
-                autoFocus
-                defaultValue=""
-                onChange={(e) => { if (e.target.value) handleExcuse(e.target.value); }}
-                className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
-              >
-                <option value="" disabled>Reason...</option>
-                {EXCUSAL_REASONS.map((r) => (
-                  <option key={r.code} value={r.code}>{r.label}</option>
-                ))}
-              </select>
+            <div className="border-t border-slate-100 mt-1 pt-1">
+              <p className="px-2 py-1 text-[10px] text-slate-400 uppercase font-semibold">Excuse reason</p>
+              {EXCUSAL_REASONS.map((r) => (
+                <button
+                  key={r.code}
+                  onClick={() => handleExcuse(r.code)}
+                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-amber-50 text-amber-700 rounded"
+                >
+                  {r.label}
+                </button>
+              ))}
             </div>
           )}
           <button
-            onClick={() => { setShowOptions(false); setShowDateInput(false); setShowExcuseInput(false); }}
+            onClick={closeOptions}
             className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-400 rounded"
           >
             Cancel
