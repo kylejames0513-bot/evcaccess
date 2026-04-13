@@ -210,28 +210,35 @@ export default function RequiredTrainingsPage() {
   }, [rules]);
 
   // Training types that cannot be excused because a Required rule
-  // already covers the scope being excused. Used to grey out the
-  // corresponding checkboxes when draft.kind === "excused".
+  // already covers the scope being excused, OR because every employee
+  // in the selected department already has an excusal for that
+  // training. Used to grey out the corresponding checkboxes when
+  // draft.kind === "excused".
   //
   //   - Universal required rules lock a training for ALL department
   //     excusals (e.g. CPR is required for everyone, so HR can't
   //     create a dept-level excusal for CPR at all).
   //   - Department-scoped required rules lock the training for
   //     excusals that target that same department.
+  //   - If an excusal already exists for every selected department on
+  //     that training, lock it too — re-running the bulk-excuse would
+  //     be a no-op and clutters the form.
   //
-  // The excused form only opens for department / position scope, so
-  // this only runs when a department is selected.
-  const lockedTrainingIds = useMemo(() => {
-    if (draft.kind !== "excused") return new Set<number>();
-    const locked = new Set<number>();
+  // Carries a per-id reason so the UI can show why each row is
+  // disabled. Precedence: "required" reasons win over "already excused"
+  // reasons since they're stronger statements.
+  const lockedTrainingInfo = useMemo(() => {
+    const info = new Map<number, string>();
+    if (draft.kind !== "excused") return info;
+
     // Universal required rules always lock.
     for (const r of rules) {
-      if (r.is_universal && r.is_required) locked.add(r.training_type_id);
+      if (r.is_universal && r.is_required) {
+        info.set(r.training_type_id, "Required universally — can't be excused");
+      }
     }
     // Department-scoped required rules lock only if the excusal is
-    // being created for that same department. If no department is
-    // picked yet, we don't know the scope, so fall back to the
-    // universal set only.
+    // being created for that same department.
     if (draft.departments.size > 0) {
       const deptsLower = new Set(
         Array.from(draft.departments).map((d) => d.toLowerCase())
@@ -240,22 +247,56 @@ export default function RequiredTrainingsPage() {
         if (!r.is_required || r.is_universal) continue;
         if (!r.department) continue;
         if (deptsLower.has(r.department.toLowerCase())) {
-          locked.add(r.training_type_id);
+          if (!info.has(r.training_type_id)) {
+            info.set(
+              r.training_type_id,
+              "Already required for the selected department"
+            );
+          }
+        }
+      }
+
+      // Existing excusals for this (training, dept) pair → lock.
+      // We consider a training "already excused" if at least one
+      // active-employee excusal covers each selected department for
+      // that training. For multi-dept selection, all picked depts
+      // must already be covered.
+      const trainingDeptsCovered = new Map<number, Set<string>>();
+      for (const ex of excusals) {
+        if (ex.employee_is_active === false) continue;
+        const dept = (ex.employee_department ?? "").toLowerCase();
+        if (!deptsLower.has(dept)) continue;
+        if (!trainingDeptsCovered.has(ex.training_type_id)) {
+          trainingDeptsCovered.set(ex.training_type_id, new Set());
+        }
+        trainingDeptsCovered.get(ex.training_type_id)!.add(dept);
+      }
+      for (const [ttId, coveredDepts] of trainingDeptsCovered.entries()) {
+        if (info.has(ttId)) continue;
+        let allCovered = true;
+        for (const d of deptsLower) {
+          if (!coveredDepts.has(d)) {
+            allCovered = false;
+            break;
+          }
+        }
+        if (allCovered) {
+          info.set(ttId, "Already excused for the selected department");
         }
       }
     }
-    return locked;
-  }, [draft.kind, draft.departments, rules]);
+    return info;
+  }, [draft.kind, draft.departments, rules, excusals]);
+
+  const lockedTrainingIds = useMemo(
+    () => new Set(lockedTrainingInfo.keys()),
+    [lockedTrainingInfo]
+  );
 
   // Reason string shown as a tooltip + subtle label on locked rows
   // so HR understands why they can't pick the training.
   function lockReason(id: number): string | null {
-    if (!lockedTrainingIds.has(id)) return null;
-    const isUniversal = rules.some(
-      (r) => r.training_type_id === id && r.is_universal && r.is_required
-    );
-    if (isUniversal) return "Required universally — can't be excused";
-    return "Already required for the selected department";
+    return lockedTrainingInfo.get(id) ?? null;
   }
 
   function toggleTraining(id: number) {
