@@ -13,6 +13,7 @@
 
 import { createServerClient, type DbClient } from "@/lib/supabase";
 import type { EmployeeCompliance, ComplianceStatus } from "@/types/database";
+import { TRAINING_DEFINITIONS } from "@/config/trainings";
 
 function db(): DbClient {
   return createServerClient();
@@ -80,10 +81,30 @@ export async function fixSharedColumnKeyCompliance(
     for (const t of g.types) siblingMap.set(t.id, g);
   }
 
-  // Find rows that might need fixing: status=needed for a shared-key type
-  const needsFix = rows.filter(
-    (r) => r.status === "needed" && r.training_type_id != null && siblingMap.has(r.training_type_id)
-  );
+  // Helper: if `row` is the renewal_years=0 ("initial") side of a paired
+  // group with a recert sibling, return the recert sibling's renewal years
+  // and the column key. Otherwise null.
+  function getInitialHalfRecert(row: EmployeeCompliance): { renewalYears: number; columnKey: string } | null {
+    if (row.training_type_id == null) return null;
+    const g = siblingMap.get(row.training_type_id);
+    if (!g) return null;
+    const me = g.types.find((t) => t.id === row.training_type_id);
+    if (!me || me.renewalYears !== 0) return null;
+    const recert = g.types.find((t) => t.renewalYears > 0);
+    if (!recert) return null;
+    return { renewalYears: recert.renewalYears, columnKey: g.columnKey };
+  }
+
+  // Find rows that might need fixing:
+  //   - status=needed shared-key rows (existing behavior: backfill from siblings)
+  //   - initial-half rows that already have a completion (so we can check if
+  //     the paired recert window — including its post-expiration grace — has
+  //     elapsed and the employee should retake the initial class)
+  const needsFix = rows.filter((r) => {
+    if (r.status === "needed" && r.training_type_id != null && siblingMap.has(r.training_type_id)) return true;
+    if (getInitialHalfRecert(r)) return true;
+    return false;
+  });
   if (needsFix.length === 0) return rows;
 
   // Batch-fetch completions for these employees across sibling types
@@ -117,9 +138,49 @@ export async function fixSharedColumnKeyCompliance(
     }
   }
 
+  // Returns true if `completionDate` is so old that the recert window plus
+  // its post-expiration grace has fully elapsed — meaning the employee should
+  // be treated as needing the initial class again, not just a recert.
+  function pastRecertGrace(completionDate: string, columnKey: string, recertRenewalYears: number, todayStr: string): boolean {
+    const recertDef = TRAINING_DEFINITIONS.find(
+      (d) => d.columnKey === columnKey && (d.renewalYears ?? 0) > 0
+    );
+    const graceDays = recertDef?.postExpGraceDays ?? 0;
+    const expDate = new Date(completionDate);
+    expDate.setFullYear(expDate.getFullYear() + recertRenewalYears);
+    expDate.setDate(expDate.getDate() + graceDays);
+    return expDate.toISOString().slice(0, 10) < todayStr;
+  }
+
   // Now fix the rows
   const today = new Date().toISOString().slice(0, 10);
   return rows.map((row) => {
+    const initialHalf = getInitialHalfRecert(row);
+
+    // ──────────────────────────────────────────────────────────
+    // Initial-half row that already has its own completion (status came
+    // from the view as current / expiring_soon / expired). If the paired
+    // recert window plus its grace has elapsed, flip back to "needed" so
+    // the employee shows up needing the initial class again.
+    // ──────────────────────────────────────────────────────────
+    if (initialHalf && row.status !== "needed" && row.training_type_id != null) {
+      const group = siblingMap.get(row.training_type_id)!;
+      const key = `${row.employee_id}|${group.columnKey}`;
+      const sibLatest = latestByEmpKey.get(key);
+      // Use whichever completion date is most recent — the row's own or any
+      // sibling completion (e.g. a Med Recert record under the recert type).
+      const candidates = [row.completion_date, sibLatest?.completion_date].filter(
+        (d): d is string => typeof d === "string" && d.length > 0
+      );
+      if (candidates.length > 0) {
+        const latestDate = candidates.sort()[candidates.length - 1];
+        if (pastRecertGrace(latestDate, initialHalf.columnKey, initialHalf.renewalYears, today)) {
+          return { ...row, status: "needed" as ComplianceStatus };
+        }
+      }
+      return row;
+    }
+
     if (row.status !== "needed" || row.training_type_id == null || !siblingMap.has(row.training_type_id)) return row;
 
     const group = siblingMap.get(row.training_type_id)!;
@@ -157,6 +218,15 @@ export async function fixSharedColumnKeyCompliance(
         } else {
           newStatus = "current";
         }
+      }
+    } else {
+      // Initial-half row that was "needed" in the view (no own completion)
+      // but a sibling recert completion exists. Backfill the completion as
+      // before, but if the recert window + grace has elapsed, leave status
+      // as "needed" so the employee retakes the initial class.
+      const recert = group.types.find((t) => t.renewalYears > 0);
+      if (recert && pastRecertGrace(latest.completion_date, group.columnKey, recert.renewalYears, today)) {
+        newStatus = "needed" as ComplianceStatus;
       }
     }
 
