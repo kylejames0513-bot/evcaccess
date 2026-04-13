@@ -890,26 +890,38 @@ async function findEmployee(
   nameInput: string,
   options: { includeInactive?: boolean } = {}
 ): Promise<{ id: string; first_name: string; last_name: string } | null> {
-  let query = supabase
-    .from("employees")
-    .select("id, first_name, last_name")
-    .limit(10000);
-  if (!options.includeInactive) {
-    query = query.eq("is_active", true);
-  }
-  const { data: employees } = await query;
-
-  if (!employees) return null;
-
-  for (const emp of employees) {
-    const combined = `${emp.last_name}, ${emp.first_name}`;
-    const firstLast = `${emp.first_name} ${emp.last_name}`;
-    if (namesMatch(combined, nameInput) || namesMatch(firstLast, nameInput)) {
-      return emp;
+  // Supabase caps an unranged select at 1000 rows regardless of any
+  // `.limit(N > 1000)` hint, so naive "grab everyone and scan" lookups
+  // silently dropped anyone past the alphabetical first 1000 once EVC
+  // crossed that headcount. Paginate through the table so the scan
+  // actually sees every row.
+  const PAGE_SIZE = 1000;
+  let offset = 0;
+  for (;;) {
+    let query = supabase
+      .from("employees")
+      .select("id, first_name, last_name")
+      .order("last_name")
+      .order("first_name")
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (!options.includeInactive) {
+      query = query.eq("is_active", true);
     }
-  }
+    const { data: employees, error } = await query;
+    if (error) return null;
+    if (!employees || employees.length === 0) return null;
 
-  return null;
+    for (const emp of employees) {
+      const combined = `${emp.last_name}, ${emp.first_name}`;
+      const firstLast = `${emp.first_name} ${emp.last_name}`;
+      if (namesMatch(combined, nameInput) || namesMatch(firstLast, nameInput)) {
+        return emp;
+      }
+    }
+
+    if (employees.length < PAGE_SIZE) return null;
+    offset += PAGE_SIZE;
+  }
 }
 
 // --------------------------------------------------------

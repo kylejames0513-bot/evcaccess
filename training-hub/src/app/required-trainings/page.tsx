@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, Save, ShieldCheck } from "lucide-react";
+import { Plus, Trash2, Save, ShieldCheck, Loader2 } from "lucide-react";
+import { formatDivision } from "@/lib/format-utils";
 
 interface RequiredTraining {
   id: number;
@@ -26,24 +27,28 @@ type Scope = "universal" | "department" | "position";
 type RuleKind = "required" | "excused";
 
 interface NewRuleDraft {
-  training_type_id: number | "";
+  training_type_ids: Set<number>;
   kind: RuleKind;
   scope: Scope;
-  department: string;
-  position: string;
+  // For department scope: multi-select. For position scope: restricted
+  // to a single entry (because positions are dept-dependent).
+  departments: Set<string>;
+  positions: Set<string>;
   reason: string;
   notes: string;
 }
 
-const EMPTY_DRAFT: NewRuleDraft = {
-  training_type_id: "",
-  kind: "required",
-  scope: "universal",
-  department: "",
-  position: "",
-  reason: "",
-  notes: "",
-};
+function freshDraft(): NewRuleDraft {
+  return {
+    training_type_ids: new Set<number>(),
+    kind: "required",
+    scope: "universal",
+    departments: new Set<string>(),
+    positions: new Set<string>(),
+    reason: "",
+    notes: "",
+  };
+}
 
 // Reason codes for excusals — keep in sync with the bulk-excuse helpers
 // elsewhere. First entry is the general catch-all that HR picks most
@@ -76,13 +81,21 @@ const EXCUSAL_REASONS: { code: string; label: string }[] = [
  * the rules that drive the compliance dashboard without editing source
  * code. Supports three scopes: universal, department, department+position.
  * Position-scoped rules override department rules, which override universal.
+ *
+ * The Add Rule form is mass-select: pick any number of trainings and any
+ * number of departments (or one dept + any number of positions) and we
+ * loop over the cartesian product on submit. Excused rules use the same
+ * form and land in the excusals table via /api/bulk-excuse.
  */
 export default function RequiredTrainingsPage() {
   const [rules, setRules] = useState<RequiredTraining[]>([]);
   const [trainingTypes, setTrainingTypes] = useState<TrainingTypeOption[]>([]);
+  const [divisions, setDivisions] = useState<string[]>([]);
+  const [positionsForDept, setPositionsForDept] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingPositions, setLoadingPositions] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState<NewRuleDraft>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<NewRuleDraft>(freshDraft);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<Scope>("universal");
 
@@ -90,12 +103,14 @@ export default function RequiredTrainingsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [rRules, rTypes] = await Promise.all([
+      const [rRules, rTypes, rDivs] = await Promise.all([
         fetch("/api/required-trainings").then((r) => r.json()),
         fetch("/api/training-types").then((r) => r.json()),
+        fetch("/api/divisions").then((r) => r.json()),
       ]);
       if (rRules.error) throw new Error(rRules.error);
       if (rTypes.error) throw new Error(rTypes.error);
+      if (rDivs.error) throw new Error(rDivs.error);
       setRules(rRules.required_trainings ?? []);
       setTrainingTypes(
         (rTypes.training_types ?? [])
@@ -104,6 +119,7 @@ export default function RequiredTrainingsPage() {
             a.name.localeCompare(b.name)
           )
       );
+      setDivisions(rDivs.divisions ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -114,6 +130,41 @@ export default function RequiredTrainingsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // When scope is "position", positions are dept-scoped, so we keep the
+  // department selection to a single entry and reload the position list
+  // whenever that department changes.
+  const positionDept =
+    draft.scope === "position" && draft.departments.size === 1
+      ? Array.from(draft.departments)[0]
+      : "";
+
+  useEffect(() => {
+    if (!positionDept) {
+      void Promise.resolve().then(() => {
+        setPositionsForDept([]);
+      });
+      return;
+    }
+    let cancelled = false;
+    setLoadingPositions(true);
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/positions?department=${encodeURIComponent(positionDept)}`
+        );
+        const d = await res.json();
+        if (!cancelled) setPositionsForDept(d.positions ?? []);
+      } catch {
+        if (!cancelled) setPositionsForDept([]);
+      } finally {
+        if (!cancelled) setLoadingPositions(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [positionDept]);
 
   const ttById = useMemo(() => {
     const m = new Map<number, TrainingTypeOption>();
@@ -135,80 +186,176 @@ export default function RequiredTrainingsPage() {
     return out;
   }, [rules]);
 
-  async function addRule() {
-    if (!draft.training_type_id) {
-      setError("Pick a training");
+  function toggleTraining(id: number) {
+    setDraft((d) => {
+      const next = new Set(d.training_type_ids);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return { ...d, training_type_ids: next };
+    });
+  }
+
+  function toggleDepartment(dept: string) {
+    setDraft((d) => {
+      const next = new Set(d.departments);
+      if (next.has(dept)) {
+        next.delete(dept);
+      } else if (d.scope === "position") {
+        // Position scope — positions are dept-specific, so only one dept
+        // at a time. Replace whatever was selected, and clear the
+        // position checks so they don't leak across depts.
+        next.clear();
+        next.add(dept);
+        return {
+          ...d,
+          departments: next,
+          positions: new Set<string>(),
+        };
+      } else {
+        next.add(dept);
+      }
+      return { ...d, departments: next };
+    });
+  }
+
+  function togglePosition(pos: string) {
+    setDraft((d) => {
+      const next = new Set(d.positions);
+      if (next.has(pos)) next.delete(pos);
+      else next.add(pos);
+      return { ...d, positions: next };
+    });
+  }
+
+  function setScope(scope: Scope) {
+    setDraft((d) => ({
+      ...d,
+      scope,
+      // Drop positions when leaving position scope, and collapse multi-
+      // dept selection to one when entering it so the /api/positions
+      // query has a single target.
+      departments:
+        scope === "position" && d.departments.size > 1
+          ? new Set<string>([Array.from(d.departments)[0]])
+          : d.departments,
+      positions: scope === "position" ? d.positions : new Set<string>(),
+    }));
+  }
+
+  function setKind(kind: RuleKind) {
+    setDraft((d) => ({
+      ...d,
+      kind,
+      // Excusing EVERYONE from a training is never the intent, so bounce
+      // the universal scope off when the operator picks Excused.
+      scope: kind === "excused" && d.scope === "universal" ? "department" : d.scope,
+    }));
+  }
+
+  async function submitDraft() {
+    setError(null);
+
+    if (draft.training_type_ids.size === 0) {
+      setError("Pick at least one training");
       return;
     }
-    setSaving(true);
-    setError(null);
-    try {
-      if (draft.kind === "excused") {
-        // Excused path: create excusals for every active employee in
-        // the target department (optionally narrowed to a position).
-        // Universal-scope excusals don't make sense — you'd excuse
-        // everyone from a training — so require at least a department.
-        if (draft.scope === "universal") {
-          throw new Error("Excusals require a department (or department + position)");
-        }
-        if (!draft.department.trim()) {
-          throw new Error("Department is required to excuse");
-        }
-        if (draft.scope === "position" && !draft.position.trim()) {
-          throw new Error("Position is required for this scope");
-        }
-        if (!draft.reason.trim()) {
-          throw new Error("Pick an excusal reason");
-        }
-        const tt = trainingTypes.find((t) => t.id === draft.training_type_id);
-        if (!tt) throw new Error("Unknown training type");
 
-        const body: Record<string, unknown> = {
-          division: draft.department.trim(),
-          trainingColumnKeys: [tt.column_key],
-          reason: draft.reason.trim(),
-        };
-        if (draft.scope === "position") {
-          body.position = draft.position.trim();
-        }
-        const res = await fetch("/api/bulk-excuse", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        const j = await res.json();
-        if (!res.ok) throw new Error(j.error ?? "Excuse failed");
-        setDraft(EMPTY_DRAFT);
-        // Excusals live in the excusals table, not required_trainings,
-        // so there's nothing new to show in the rules table. Re-load
-        // anyway in case an HR user had a stale view open.
-        await load();
+    if (draft.scope !== "universal" && draft.departments.size === 0) {
+      setError("Pick at least one department");
+      return;
+    }
+
+    if (draft.scope === "position" && draft.positions.size === 0) {
+      setError("Pick at least one position");
+      return;
+    }
+
+    if (draft.kind === "excused") {
+      if (draft.scope === "universal") {
+        setError("Excused rules require a department");
         return;
       }
+      if (!draft.reason.trim()) {
+        setError("Pick an excusal reason");
+        return;
+      }
+    }
 
-      // Required path — writes to required_trainings as before.
-      const body: Record<string, unknown> = {
-        training_type_id: draft.training_type_id,
-        is_universal: draft.scope === "universal",
-        is_required: true,
-        notes: draft.notes || null,
-      };
-      if (draft.scope === "department" || draft.scope === "position") {
-        if (!draft.department.trim()) throw new Error("Department is required for this scope");
-        body.department = draft.department.trim();
+    setSaving(true);
+    try {
+      const trainingIds = Array.from(draft.training_type_ids);
+      const depts =
+        draft.scope === "universal" ? [""] : Array.from(draft.departments);
+      const positions =
+        draft.scope === "position" ? Array.from(draft.positions) : [""];
+
+      const errors: string[] = [];
+
+      for (const ttId of trainingIds) {
+        for (const dept of depts) {
+          for (const pos of positions) {
+            if (draft.kind === "excused") {
+              const tt = trainingTypes.find((t) => t.id === ttId);
+              if (!tt) {
+                errors.push(`Unknown training #${ttId}`);
+                continue;
+              }
+              const body: Record<string, unknown> = {
+                division: dept,
+                trainingColumnKeys: [tt.column_key],
+                reason: draft.reason.trim(),
+              };
+              if (pos) body.position = pos;
+              const res = await fetch("/api/bulk-excuse", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+              });
+              if (!res.ok) {
+                const j = await res.json().catch(() => ({}));
+                errors.push(
+                  `${tt.name} — ${dept}${pos ? ` / ${pos}` : ""}: ${j.error ?? "failed"}`
+                );
+              }
+            } else {
+              const body: Record<string, unknown> = {
+                training_type_id: ttId,
+                is_universal: draft.scope === "universal",
+                is_required: true,
+                notes: draft.notes || null,
+              };
+              if (dept) body.department = dept;
+              if (pos) body.position = pos;
+              const res = await fetch("/api/required-trainings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+              });
+              if (!res.ok) {
+                const j = await res.json().catch(() => ({}));
+                const ttName = ttById.get(ttId)?.name ?? `#${ttId}`;
+                errors.push(
+                  `${ttName}${dept ? ` — ${dept}` : ""}${pos ? ` / ${pos}` : ""}: ${j.error ?? "failed"}`
+                );
+              }
+            }
+          }
+        }
       }
-      if (draft.scope === "position") {
-        if (!draft.position.trim()) throw new Error("Position is required for this scope");
-        body.position = draft.position.trim();
+
+      if (errors.length > 0) {
+        setError(
+          `${errors.length} rule(s) failed: ${errors.slice(0, 3).join(" · ")}${errors.length > 3 ? "…" : ""}`
+        );
       }
-      const res = await fetch("/api/required-trainings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error ?? "Save failed");
-      setDraft(EMPTY_DRAFT);
+
+      // After a successful add, jump the rules table to the tab the
+      // new rules landed in so HR can see their work.
+      if (draft.kind === "required") {
+        setTab(draft.scope);
+      }
+
+      setDraft(freshDraft());
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
@@ -248,6 +395,12 @@ export default function RequiredTrainingsPage() {
     }
   }
 
+  const submitLabel = saving
+    ? "Saving…"
+    : draft.kind === "excused"
+      ? `Excuse (${previewCount(draft)})`
+      : `Add (${previewCount(draft)})`;
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <div>
@@ -262,7 +415,8 @@ export default function RequiredTrainingsPage() {
           to waive it (e.g. Finance is excused from Ukeru). Scopes:{" "}
           universal (all employees), department (everyone in a division), and
           department + position (single role). More-specific rules override
-          less-specific ones.
+          less-specific ones. You can mass-select trainings and departments to
+          create many rules at once.
         </p>
       </div>
 
@@ -278,8 +432,7 @@ export default function RequiredTrainingsPage() {
           <Plus className="h-4 w-4" /> Add rule
         </h2>
 
-        {/* Required vs Excused — picking Excused auto-bumps scope off
-            "universal" because excusing everyone would make no sense. */}
+        {/* Required vs Excused */}
         <div className="flex gap-2 mb-4">
           {(["required", "excused"] as const).map((k) => {
             const active = draft.kind === k;
@@ -287,13 +440,7 @@ export default function RequiredTrainingsPage() {
               <button
                 key={k}
                 type="button"
-                onClick={() =>
-                  setDraft((d) => ({
-                    ...d,
-                    kind: k,
-                    scope: k === "excused" && d.scope === "universal" ? "department" : d.scope,
-                  }))
-                }
+                onClick={() => setKind(k)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
                   active
                     ? k === "excused"
@@ -308,90 +455,258 @@ export default function RequiredTrainingsPage() {
           })}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-6 gap-3 items-end">
-          <label className="sm:col-span-2 block">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1 block">
-              Training
-            </span>
-            <select
-              value={draft.training_type_id}
-              onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  training_type_id: e.target.value ? Number(e.target.value) : "",
-                })
-              }
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Pick training…</option>
-              {trainingTypes.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1 block">
-              Scope
-            </span>
-            <select
-              value={draft.scope}
-              onChange={(e) => setDraft({ ...draft, scope: e.target.value as Scope })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50"
-            >
-              {/* Universal excused makes no sense — hide it when kind=excused */}
-              {draft.kind !== "excused" && (
-                <option value="universal">Universal</option>
-              )}
-              <option value="department">Department</option>
-              <option value="position">Dept + position</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1 block">
-              Department
-            </span>
-            <input
-              type="text"
-              disabled={draft.scope === "universal"}
-              value={draft.department}
-              onChange={(e) => setDraft({ ...draft, department: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white disabled:bg-slate-50 disabled:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g. Residential"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1 block">
-              Position
-            </span>
-            <input
-              type="text"
-              disabled={draft.scope !== "position"}
-              value={draft.position}
-              onChange={(e) => setDraft({ ...draft, position: e.target.value })}
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white disabled:bg-slate-50 disabled:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g. DSP"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={addRule}
-            disabled={saving}
-            className={`flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 ${
-              draft.kind === "excused"
-                ? "bg-amber-600 hover:bg-amber-700"
-                : "bg-blue-600 hover:bg-blue-700"
-            }`}
-          >
-            <Save className="h-4 w-4" />
-            {saving ? "Saving…" : draft.kind === "excused" ? "Excuse" : "Add"}
-          </button>
+        {/* Scope picker */}
+        <div className="mb-4">
+          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5 block">
+            Scope
+          </span>
+          <div className="flex gap-2 flex-wrap">
+            {(["universal", "department", "position"] as const)
+              .filter((s) => !(draft.kind === "excused" && s === "universal"))
+              .map((s) => {
+                const active = draft.scope === s;
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setScope(s)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                      active
+                        ? "bg-slate-900 border-slate-900 text-white"
+                        : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50"
+                    }`}
+                  >
+                    {s === "universal"
+                      ? "Universal"
+                      : s === "department"
+                        ? "Department"
+                        : "Dept + position"}
+                  </button>
+                );
+              })}
+          </div>
         </div>
 
-        {/* Reason picker is only meaningful for excusals. */}
-        {draft.kind === "excused" && (
-          <label className="block mt-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {/* Trainings multi-select */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                Trainings
+                <span className="text-slate-400 font-normal ml-1">
+                  ({draft.training_type_ids.size} selected)
+                </span>
+              </span>
+              <div className="flex gap-2 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraft((d) => ({
+                      ...d,
+                      training_type_ids: new Set(trainingTypes.map((t) => t.id)),
+                    }))
+                  }
+                  className="text-blue-600 hover:underline"
+                >
+                  Select all
+                </button>
+                <span className="text-slate-300">·</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraft((d) => ({ ...d, training_type_ids: new Set() }))
+                  }
+                  className="text-slate-500 hover:underline"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div className="border border-slate-200 rounded-lg max-h-60 overflow-y-auto bg-white">
+              {trainingTypes.length === 0 && (
+                <p className="px-3 py-4 text-xs text-slate-400">
+                  No trainings available.
+                </p>
+              )}
+              {trainingTypes.map((tt) => {
+                const checked = draft.training_type_ids.has(tt.id);
+                return (
+                  <label
+                    key={tt.id}
+                    className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50 border-b border-slate-50 last:border-0"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleTraining(tt.id)}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span
+                      className={
+                        checked ? "text-slate-900 font-medium" : "text-slate-600"
+                      }
+                    >
+                      {tt.name}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Departments multi-select (hidden for universal scope) */}
+          {draft.scope !== "universal" && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                  Departments
+                  <span className="text-slate-400 font-normal ml-1">
+                    ({draft.departments.size} selected
+                    {draft.scope === "position" ? ", pick 1" : ""})
+                  </span>
+                </span>
+                {draft.scope === "department" && (
+                  <div className="flex gap-2 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDraft((d) => ({
+                          ...d,
+                          departments: new Set(divisions),
+                        }))
+                      }
+                      className="text-blue-600 hover:underline"
+                    >
+                      Select all
+                    </button>
+                    <span className="text-slate-300">·</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDraft((d) => ({ ...d, departments: new Set() }))
+                      }
+                      className="text-slate-500 hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="border border-slate-200 rounded-lg max-h-60 overflow-y-auto bg-white">
+                {divisions.length === 0 && (
+                  <p className="px-3 py-4 text-xs text-slate-400">
+                    No departments loaded.
+                  </p>
+                )}
+                {divisions.map((dept) => {
+                  const checked = draft.departments.has(dept);
+                  return (
+                    <label
+                      key={dept}
+                      className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50 border-b border-slate-50 last:border-0"
+                    >
+                      <input
+                        type={draft.scope === "position" ? "radio" : "checkbox"}
+                        name="rt-dept"
+                        checked={checked}
+                        onChange={() => toggleDepartment(dept)}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span
+                        className={
+                          checked
+                            ? "text-slate-900 font-medium"
+                            : "text-slate-600"
+                        }
+                      >
+                        {formatDivision(dept)}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Positions multi-select — only when position scope + dept picked */}
+        {draft.scope === "position" && positionDept && (
+          <div className="mt-5">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                Positions in {formatDivision(positionDept)}
+                <span className="text-slate-400 font-normal ml-1">
+                  ({draft.positions.size} selected)
+                </span>
+              </span>
+              <div className="flex gap-2 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraft((d) => ({
+                      ...d,
+                      positions: new Set(positionsForDept),
+                    }))
+                  }
+                  className="text-blue-600 hover:underline"
+                >
+                  Select all
+                </button>
+                <span className="text-slate-300">·</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraft((d) => ({ ...d, positions: new Set() }))
+                  }
+                  className="text-slate-500 hover:underline"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div className="border border-slate-200 rounded-lg max-h-48 overflow-y-auto bg-white">
+              {loadingPositions ? (
+                <div className="px-3 py-4 text-center">
+                  <Loader2 className="h-4 w-4 animate-spin text-slate-400 mx-auto" />
+                </div>
+              ) : positionsForDept.length === 0 ? (
+                <p className="px-3 py-4 text-xs text-slate-400">
+                  No positions found for this department.
+                </p>
+              ) : (
+                positionsForDept.map((pos) => {
+                  const checked = draft.positions.has(pos);
+                  return (
+                    <label
+                      key={pos}
+                      className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50 border-b border-slate-50 last:border-0"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => togglePosition(pos)}
+                        className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span
+                        className={
+                          checked
+                            ? "text-slate-900 font-medium"
+                            : "text-slate-600"
+                        }
+                      >
+                        {pos}
+                      </span>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Reason or Notes — differs by kind */}
+        {draft.kind === "excused" ? (
+          <label className="block mt-5">
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1 block">
               Excusal reason
             </span>
@@ -408,10 +723,8 @@ export default function RequiredTrainingsPage() {
               ))}
             </select>
           </label>
-        )}
-
-        {draft.kind === "required" && (
-          <label className="block mt-3">
+        ) : (
+          <label className="block mt-5">
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1 block">
               Notes (optional)
             </span>
@@ -425,11 +738,30 @@ export default function RequiredTrainingsPage() {
           </label>
         )}
 
-        <p className="text-[11px] text-slate-400 mt-3">
-          {draft.kind === "excused"
-            ? "Excused writes an excusal row for every active employee in the selected scope. Run it again any time new hires land in that department — re-running is safe."
-            : "Required writes to the required_trainings table. Use the rules table below to toggle Required/Waived or delete rules."}
-        </p>
+        <div className="flex items-center gap-3 mt-5">
+          <button
+            type="button"
+            onClick={submitDraft}
+            disabled={saving}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 ${
+              draft.kind === "excused"
+                ? "bg-amber-600 hover:bg-amber-700"
+                : "bg-blue-600 hover:bg-blue-700"
+            }`}
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            {submitLabel}
+          </button>
+          <p className="text-[11px] text-slate-400">
+            {draft.kind === "excused"
+              ? "Excused writes an excusal row for every active employee in the selected scope. Re-running is safe."
+              : "Required writes to the required_trainings table. Toggle Required/Waived or delete rules below."}
+          </p>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -471,7 +803,9 @@ export default function RequiredTrainingsPage() {
                     `(unknown #${rule.training_type_id})`}
                 </td>
                 {tab !== "universal" && (
-                  <td className="px-5 py-3 text-slate-700">{rule.department}</td>
+                  <td className="px-5 py-3 text-slate-700">
+                    {formatDivision(rule.department ?? "")}
+                  </td>
                 )}
                 {tab === "position" && (
                   <td className="px-5 py-3 text-slate-700">{rule.position}</td>
@@ -519,4 +853,13 @@ export default function RequiredTrainingsPage() {
       </div>
     </div>
   );
+}
+
+/** Pretty "N rule(s)" count for the submit button. */
+function previewCount(draft: NewRuleDraft): string {
+  const trainings = draft.training_type_ids.size;
+  const depts = draft.scope === "universal" ? 1 : draft.departments.size;
+  const positions = draft.scope === "position" ? draft.positions.size : 1;
+  const total = trainings * depts * positions;
+  return `${total} rule${total === 1 ? "" : "s"}`;
 }
