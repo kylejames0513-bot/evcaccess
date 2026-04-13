@@ -40,7 +40,7 @@ interface ExcusalRow {
 }
 
 type Scope = "universal" | "department" | "position";
-type RulesTab = Scope | "excusals";
+type RulesTab = "by_training" | Scope | "excusals";
 type RuleKind = "required" | "excused";
 
 interface NewRuleDraft {
@@ -115,9 +115,12 @@ export default function RequiredTrainingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<NewRuleDraft>(freshDraft);
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState<RulesTab>("universal");
+  const [tab, setTab] = useState<RulesTab>("by_training");
   const [deletingExcusalId, setDeletingExcusalId] = useState<string | null>(null);
   const [excusalFilter, setExcusalFilter] = useState("");
+  // Add Rule form is collapsed by default so the rules list gets the
+  // real estate. HR reads this page way more often than they edit it.
+  const [showAddRule, setShowAddRule] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -208,6 +211,43 @@ export default function RequiredTrainingsPage() {
     }
     return out;
   }, [rules]);
+
+  // "By Training" summary: one entry per training_type that has any
+  // rule, with its rules grouped by scope so the UI can render
+  // "CPR: universal" or "Ukeru: Residential / 4 positions" at a
+  // glance. Uses training_type_id order from trainingTypes so the
+  // display order is stable.
+  const byTraining = useMemo(() => {
+    const byId = new Map<
+      number,
+      {
+        training: TrainingTypeOption;
+        universal: RequiredTraining[];
+        department: RequiredTraining[];
+        position: RequiredTraining[];
+      }
+    >();
+    for (const rule of rules) {
+      const tt = ttById.get(rule.training_type_id);
+      if (!tt) continue;
+      let entry = byId.get(rule.training_type_id);
+      if (!entry) {
+        entry = {
+          training: tt,
+          universal: [],
+          department: [],
+          position: [],
+        };
+        byId.set(rule.training_type_id, entry);
+      }
+      if (rule.is_universal) entry.universal.push(rule);
+      else if (rule.position) entry.position.push(rule);
+      else if (rule.department) entry.department.push(rule);
+    }
+    return Array.from(byId.values()).sort((a, b) =>
+      a.training.name.localeCompare(b.training.name)
+    );
+  }, [rules, ttById]);
 
   // Training types that cannot be excused because a Required rule
   // already covers the scope being excused, OR because every employee
@@ -484,17 +524,19 @@ export default function RequiredTrainingsPage() {
         );
       }
 
-      // After a successful add, jump the rules table to the tab the
-      // new rules landed in so HR can see their work. Excused rules
-      // land in the excusals table, not required_trainings, so surface
-      // them on the Excusals tab.
+      // After a successful add, jump the rules table to the view
+      // that actually shows the new rules. Required rules land in
+      // the By Training summary (default, easiest to scan); excused
+      // rules land on the Excusals tab.
       if (draft.kind === "required") {
-        setTab(draft.scope);
+        setTab("by_training");
       } else {
         setTab("excusals");
       }
 
       setDraft(freshDraft());
+      // Collapse the form so the list is front-and-center again.
+      setShowAddRule(false);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
@@ -598,14 +640,13 @@ export default function RequiredTrainingsPage() {
           <h1 className="text-2xl font-bold text-slate-900">Required Trainings</h1>
         </div>
         <p className="text-sm text-slate-500 mt-1">
-          These rules drive the compliance dashboard. Pick{" "}
-          <span className="font-semibold">Required</span> to add a training
-          a group must complete, or <span className="font-semibold">Excused</span>{" "}
-          to waive it (e.g. Finance is excused from Ukeru). Scopes:{" "}
-          universal (all employees), department (everyone in a division), and
-          department + position (single role). More-specific rules override
-          less-specific ones. You can mass-select trainings and departments to
-          create many rules at once.
+          These rules drive the compliance dashboard. The{" "}
+          <span className="font-semibold">By Training</span> view shows
+          what each training applies to at a glance. Use{" "}
+          <span className="font-semibold">Add rule</span> to create a
+          Required or Excused rule — scopes are universal (all staff,
+          excludes Board), department, or department+position.
+          More-specific rules override less-specific ones.
         </p>
       </div>
 
@@ -615,11 +656,33 @@ export default function RequiredTrainingsPage() {
         </div>
       )}
 
-      {/* Add rule */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5">
-        <h2 className="text-sm font-semibold text-slate-900 mb-4 flex items-center gap-2">
+      {/* Add rule — collapsed by default; open with a click */}
+      {!showAddRule ? (
+        <button
+          type="button"
+          onClick={() => setShowAddRule(true)}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-dashed border-slate-300 bg-white text-sm font-semibold text-slate-600 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 w-full justify-center"
+        >
           <Plus className="h-4 w-4" /> Add rule
-        </h2>
+        </button>
+      ) : (
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+            <Plus className="h-4 w-4" /> Add rule
+          </h2>
+          <button
+            type="button"
+            onClick={() => {
+              setShowAddRule(false);
+              setDraft(freshDraft());
+              setError(null);
+            }}
+            className="text-xs text-slate-500 hover:text-slate-900 hover:underline"
+          >
+            Cancel
+          </button>
+        </div>
 
         {/* Required vs Excused */}
         <div className="flex gap-2 mb-4">
@@ -974,32 +1037,158 @@ export default function RequiredTrainingsPage() {
           </p>
         </div>
       </div>
+      )}
 
       {/* Tabs */}
-      <div className="border-b border-slate-200 flex gap-0">
-        {(["universal", "department", "position", "excusals"] as const).map((s) => (
+      <div className="border-b border-slate-200 flex gap-0 flex-wrap">
+        {(
+          ["by_training", "universal", "department", "position", "excusals"] as const
+        ).map((s) => {
+          const count =
+            s === "by_training"
+              ? byTraining.length
+              : s === "excusals"
+                ? excusals.length
+                : grouped[s].length;
+          const label =
+            s === "by_training"
+              ? "By Training"
+              : s === "position"
+                ? "Dept + Position"
+                : s === "excusals"
+                  ? "Excusals"
+                  : s === "universal"
+                    ? "Universal"
+                    : "Department";
+          return (
           <button
             key={s}
             type="button"
             onClick={() => setTab(s)}
-            className={`px-4 py-2 text-sm font-medium capitalize ${
+            className={`px-4 py-2 text-sm font-medium ${
               tab === s
                 ? "border-b-2 border-blue-600 text-blue-600"
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            {s === "position"
-              ? "Dept + position"
-              : s === "excusals"
-                ? "Excusals"
-                : s}{" "}
-            ({s === "excusals" ? excusals.length : grouped[s].length})
+            {label} ({count})
           </button>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Rules table — required_trainings view */}
-      {tab !== "excusals" && (
+      {/* By Training summary: one row per training_type with
+          per-scope chips so HR can see at a glance what applies to
+          whom. This is the default view because most questions are
+          of the form "who needs CPR?" not "what's in our universal
+          tab?". */}
+      {tab === "by_training" && (
+        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                <th className="px-5 py-3">Training</th>
+                <th className="px-5 py-3">Applies to</th>
+                <th className="px-5 py-3 text-right">Rules</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {byTraining.map((row) => {
+                const chips: React.ReactNode[] = [];
+                if (row.universal.length > 0) {
+                  chips.push(
+                    <span
+                      key="u"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200"
+                    >
+                      Universal
+                    </span>
+                  );
+                }
+                // Department-only rules → one chip per department.
+                const deptNames = Array.from(
+                  new Set(
+                    row.department
+                      .map((r) => r.department ?? "")
+                      .filter(Boolean)
+                  )
+                ).sort();
+                for (const d of deptNames) {
+                  chips.push(
+                    <span
+                      key={`d-${d}`}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200"
+                    >
+                      {formatDivision(d)}
+                    </span>
+                  );
+                }
+                // Position rules → group by department, list positions.
+                const posByDept = new Map<string, string[]>();
+                for (const r of row.position) {
+                  const d = r.department ?? "";
+                  if (!posByDept.has(d)) posByDept.set(d, []);
+                  if (r.position) posByDept.get(d)!.push(r.position);
+                }
+                for (const [dept, positions] of Array.from(
+                  posByDept.entries()
+                ).sort((a, b) => a[0].localeCompare(b[0]))) {
+                  chips.push(
+                    <span
+                      key={`p-${dept}`}
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-sky-50 text-sky-700 border border-sky-200"
+                      title={positions.join(", ")}
+                    >
+                      {formatDivision(dept)}: {positions.length} position
+                      {positions.length === 1 ? "" : "s"}
+                    </span>
+                  );
+                }
+                const ruleCount =
+                  row.universal.length +
+                  row.department.length +
+                  row.position.length;
+                return (
+                  <tr key={row.training.id} className="hover:bg-slate-50">
+                    <td className="px-5 py-3 font-medium text-slate-900 align-top">
+                      {row.training.name}
+                    </td>
+                    <td className="px-5 py-3 align-top">
+                      <div className="flex flex-wrap gap-1.5">
+                        {chips.length > 0 ? (
+                          chips
+                        ) : (
+                          <span className="text-xs text-slate-400">
+                            No rules
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-right text-xs text-slate-500 align-top">
+                      {ruleCount}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!loading && byTraining.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={3}
+                    className="px-5 py-8 text-center text-sm text-slate-400"
+                  >
+                    No required trainings defined yet. Click{" "}
+                    <span className="font-semibold">Add rule</span> above to
+                    create one.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Rules table — required_trainings view for the scope tabs */}
+      {tab !== "excusals" && tab !== "by_training" && (
         <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead>
