@@ -14,6 +14,7 @@ export interface TrainingDef {
   onlyExpired?: boolean;
   onlyNeeded?: boolean;
   lookAheadDays?: number;     // include people expiring within this many days
+  lookAheadNextQuarterEnd?: boolean; // quarterly training: look ahead to the end of the next calendar quarter (overrides lookAheadDays)
   postExpGraceDays?: number;  // also include people expired within this many days
   autoEnrollNext?: string;    // after completion, auto-enroll in this training's next session
   prerequisite?: string; // column_key of prerequisite
@@ -72,8 +73,9 @@ export const TRAINING_DEFINITIONS: TrainingDef[] = [
     renewalYears: 3,
     isRequired: false,
     onlyExpired: true,
-    lookAheadDays: 90,      // show people expiring within 90 days
-    postExpGraceDays: 30,   // also show people expired up to 30 days ago
+    lookAheadDays: 90,              // fallback if quarterly flag is unset
+    lookAheadNextQuarterEnd: true,  // Med Recert runs quarterly: enroll anyone whose cert expires before end of next calendar quarter
+    postExpGraceDays: 30,           // also show people expired up to 30 days ago
     classCapacity: 8,
     aliases: ["med cert", "med test out"],
   },

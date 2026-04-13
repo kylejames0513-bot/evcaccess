@@ -1,6 +1,7 @@
 import { createServerClient } from "@/lib/supabase";
 import { listCompliance, fixSharedColumnKeyCompliance } from "@/lib/db/compliance";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { endOfNextCalendarQuarter } from "@/lib/quarter";
 
 /**
  * GET /api/needs-training?training=<name>
@@ -80,8 +81,16 @@ export async function GET(request: Request) {
 
     // 3. Filter to people who actually need the training
     const today = new Date();
-    const lookAheadDate = new Date(today);
-    lookAheadDate.setDate(lookAheadDate.getDate() + lookAheadDays);
+    // Quarterly trainings (e.g. Med Recert) look ahead through the end of the
+    // next calendar quarter instead of a fixed day window, so the current
+    // quarter's class catches everyone whose cert expires before the next one.
+    const lookAheadDate = def?.lookAheadNextQuarterEnd
+      ? endOfNextCalendarQuarter(today)
+      : (() => {
+          const d = new Date(today);
+          d.setDate(d.getDate() + lookAheadDays);
+          return d;
+        })();
     const graceDate = new Date(today);
     graceDate.setDate(graceDate.getDate() - postExpGraceDays);
 

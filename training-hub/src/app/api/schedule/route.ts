@@ -1,6 +1,7 @@
 import { getScheduledSessions } from "@/lib/training-data";
 import { createServerClient } from "@/lib/supabase";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { endOfNextCalendarQuarter } from "@/lib/quarter";
 
 /**
  * Auto-prune enrolled people who no longer need the training.
@@ -100,10 +101,17 @@ async function pruneCurrentEnrollees() {
     expiration.setFullYear(expiration.getFullYear() + trainingType.renewal_years);
 
     // Session date + look-ahead buffer: if their expiration is AFTER this,
-    // they don't need this class (their cert will still be valid)
+    // they don't need this class (their cert will still be valid).
+    // Quarterly trainings (Med Recert) use "end of next calendar quarter"
+    // as the buffer so anyone expiring before the next quarter's class stays.
     const sessionDate = new Date(session.session_date);
-    const bufferEnd = new Date(sessionDate);
-    bufferEnd.setDate(bufferEnd.getDate() + lookAheadDays);
+    const bufferEnd = def?.lookAheadNextQuarterEnd
+      ? endOfNextCalendarQuarter(sessionDate)
+      : (() => {
+          const d = new Date(sessionDate);
+          d.setDate(d.getDate() + lookAheadDays);
+          return d;
+        })();
 
     if (expiration > bufferEnd) {
       // Their cert is valid well past the class → remove
