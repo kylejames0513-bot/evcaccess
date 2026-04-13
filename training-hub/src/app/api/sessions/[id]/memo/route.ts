@@ -157,13 +157,15 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
   memoLines.push(`scheduled to attend the training listed above. Please make`);
   memoLines.push(`arrangements for coverage and confirm attendance.`);
   memoLines.push("");
-  memoLines.push("─".repeat(60));
+  memoLines.push("-".repeat(60));
   memoLines.push(`ATTENDEES (${attendees.length})`);
-  memoLines.push("─".repeat(60));
+  memoLines.push("-".repeat(60));
   memoLines.push("");
 
-  // Flat, alphabetized roster — no department headers. HR asked for a
-  // single combined list because the memo goes straight to everyone.
+  // Flat, alphabetized roster -- no department headers. HR asked for
+  // a single combined list because the memo goes straight to
+  // everyone. Only ASCII characters — phone clients (Paylocity in
+  // particular) choked on box-drawing chars and em-dashes.
   const sortedDepts = Array.from(byDepartment.keys()).sort();
   const flatAttendees = sortedDepts.flatMap((d) => byDepartment.get(d) ?? []);
   flatAttendees.sort((a, b) => {
@@ -174,7 +176,7 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
   });
   for (const emp of flatAttendees) {
     const name = `${emp.first_name ?? ""} ${emp.last_name ?? ""}`.trim();
-    memoLines.push(`  • ${name}`);
+    memoLines.push(`  - ${name}`);
   }
 
   // Managers are still resolved (for the "Open in email" recipient
@@ -219,7 +221,7 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
   calendarLines.push(`Attendees (${attendees.length}):`);
   for (const emp of flatAttendees) {
     const name = `${emp.first_name ?? ""} ${emp.last_name ?? ""}`.trim();
-    calendarLines.push(`  • ${name}`);
+    calendarLines.push(`  - ${name}`);
   }
   const calendarText = calendarLines.join("\n");
 
@@ -259,7 +261,7 @@ function formatTimeRange(start: string | null, end: string | null): string {
   if (!start && !end) return "TBD";
   const s = start ? formatTime(start) : "";
   const e = end ? formatTime(end) : "";
-  if (s && e) return `${s} – ${e}`;
+  if (s && e) return `${s} - ${e}`;
   return s || e;
 }
 
