@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap, Archive, RefreshCw, Pencil, Copy } from "lucide-react";
+import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap, Archive, RefreshCw, Pencil, Copy, CalendarDays } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -24,16 +24,21 @@ interface SessionData {
   status: "scheduled" | "completed";
 }
 
-async function fetchServerMemo(sessionId: string): Promise<string> {
+async function fetchMemoPayload(
+  sessionId: string
+): Promise<{ memo_text: string; calendar_text: string }> {
   const res = await fetch(`/api/sessions/${sessionId}/memo`);
   if (!res.ok) {
     throw new Error(`Memo request failed (${res.status})`);
   }
-  const payload = (await res.json()) as { memo_text?: string };
-  if (!payload.memo_text) {
-    throw new Error("Memo response missing memo_text");
+  const payload = (await res.json()) as {
+    memo_text?: string;
+    calendar_text?: string;
+  };
+  if (!payload.memo_text || !payload.calendar_text) {
+    throw new Error("Memo response missing text fields");
   }
-  return payload.memo_text;
+  return { memo_text: payload.memo_text, calendar_text: payload.calendar_text };
 }
 
 interface ScheduleData {
@@ -62,11 +67,31 @@ export default function SchedulePage() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [copiedMemoIds, setCopiedMemoIds] = useState<Set<string>>(new Set());
+  const [copiedCalendarIds, setCopiedCalendarIds] = useState<Set<string>>(new Set());
+
+  async function handleCopyCalendar(session: SessionData) {
+    try {
+      const { calendar_text } = await fetchMemoPayload(session.id);
+      await navigator.clipboard.writeText(calendar_text);
+      setCopiedCalendarIds((prev) => {
+        const next = new Set(prev);
+        next.add(session.id);
+        return next;
+      });
+      setTimeout(() => {
+        setCopiedCalendarIds((prev) => {
+          const next = new Set(prev);
+          next.delete(session.id);
+          return next;
+        });
+      }, 2000);
+    } catch {}
+  }
 
   async function handleCopyMemo(session: SessionData) {
     try {
-      const memoText = await fetchServerMemo(session.id);
-      await navigator.clipboard.writeText(memoText);
+      const { memo_text } = await fetchMemoPayload(session.id);
+      await navigator.clipboard.writeText(memo_text);
       setCopiedMemoIds((prev) => {
         const next = new Set(prev);
         next.add(session.id);
@@ -329,6 +354,23 @@ export default function SchedulePage() {
                           <>
                             <Copy className="h-3 w-3" />
                             Copy Memo
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleCopyCalendar(session)}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-colors bg-sky-50 text-sky-700 hover:bg-sky-100"
+                        title="Copy a Paylocity calendar block to the clipboard"
+                      >
+                        {copiedCalendarIds.has(session.id) ? (
+                          <>
+                            <Check className="h-3 w-3" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <CalendarDays className="h-3 w-3" />
+                            Paylocity
                           </>
                         )}
                       </button>

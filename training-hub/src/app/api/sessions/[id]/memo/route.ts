@@ -205,6 +205,24 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
 
   const memoText = memoLines.join("\n");
 
+  // Build a compact Paylocity-calendar block: training name + date /
+  // time / location header followed by the flat attendee roster. HR
+  // pastes this into the description of a calendar entry.
+  const calendarLines: string[] = [];
+  calendarLines.push(trainingName);
+  calendarLines.push(`Date: ${formatDate(typedSession.session_date)}`);
+  calendarLines.push(
+    `Time: ${formatTimeRange(typedSession.start_time, typedSession.end_time)}`
+  );
+  calendarLines.push(`Location: ${typedSession.location ?? "TBD"}`);
+  calendarLines.push("");
+  calendarLines.push(`Attendees (${attendees.length}):`);
+  for (const emp of flatAttendees) {
+    const name = `${emp.first_name ?? ""} ${emp.last_name ?? ""}`.trim();
+    calendarLines.push(`  • ${name}`);
+  }
+  const calendarText = calendarLines.join("\n");
+
   return {
     session: {
       id: typedSession.id,
@@ -221,6 +239,7 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
     attendee_count: attendees.length,
     manager_count: allManagers.length,
     memo_text: memoText,
+    calendar_text: calendarText,
   };
 });
 
