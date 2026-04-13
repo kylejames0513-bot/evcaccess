@@ -134,8 +134,7 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
 
   // 5. Build the formatted memo text
   const memoLines: string[] = [];
-  memoLines.push(`CLASS MEMO — ${trainingName}`);
-  memoLines.push("=".repeat(60));
+  memoLines.push("Hey there,");
   memoLines.push("");
   memoLines.push(
     `This is a reminder that you have an upcoming training for ${trainingName}. Please see details below:`
