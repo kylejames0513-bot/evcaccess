@@ -10,7 +10,38 @@ import {
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 import QuickRecord from "@/components/QuickRecord";
+import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import type { ComplianceStatus } from "@/types/database";
+
+const EXCUSAL_REASONS = [
+  { code: "N/A", label: "N/A (General)" },
+  { code: "Facilities", label: "Facilities" },
+  { code: "MAINT", label: "Maintenance" },
+  { code: "HR", label: "HR" },
+  { code: "ADMIN", label: "Admin" },
+  { code: "FINANCE", label: "Finance" },
+  { code: "IT", label: "IT" },
+  { code: "NURSE", label: "Nurse" },
+  { code: "LPN", label: "LPN" },
+  { code: "RN", label: "RN" },
+  { code: "DIR", label: "Director" },
+  { code: "MGR", label: "Manager" },
+  { code: "SUPERVISOR", label: "Supervisor" },
+  { code: "TRAINER", label: "Trainer" },
+  { code: "BH", label: "Behavioral Health" },
+  { code: "ELC", label: "ELC" },
+  { code: "EI", label: "EI" },
+  { code: "BOARD", label: "Board of Directors" },
+];
+
+function trainingColumnKey(name: string): string {
+  const def = TRAINING_DEFINITIONS.find(
+    (d) =>
+      d.name.toLowerCase() === name.toLowerCase() ||
+      d.aliases?.some((a) => a.toLowerCase() === name.toLowerCase())
+  );
+  return def?.columnKey ?? name;
+}
 
 interface DashboardData {
   stats: {
@@ -192,26 +223,12 @@ export default function DashboardPage() {
             ) : (
               <div className="divide-y divide-slate-100">
                 {urgentIssues.slice(0, 6).map((issue, i) => (
-                  <div key={i} className="px-5 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors group">
-                    <StatusIcon status={issue.status} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-900 truncate">{issue.employee}</p>
-                      <p className="text-xs text-slate-500 truncate">{issue.training}</p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {issue.expirationDate && (
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${statusColor(issue.status)}`}>
-                          {formatExpiry(issue.expirationDate)}
-                        </span>
-                      )}
-                      <button
-                        onClick={() => openQuickRecord(issue.employee, issue.training)}
-                        className="opacity-0 group-hover:opacity-100 px-2.5 py-1 text-[11px] font-medium rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all"
-                      >
-                        Record
-                      </button>
-                    </div>
-                  </div>
+                  <UrgentIssueRow
+                    key={i}
+                    issue={issue}
+                    onRecord={() => openQuickRecord(issue.employee, issue.training)}
+                    onExcused={() => setRefreshKey((k) => k + 1)}
+                  />
                 ))}
               </div>
             )}
@@ -307,6 +324,95 @@ export default function DashboardPage() {
         defaultTraining={quickRecordTraining}
       />
     </>
+  );
+}
+
+function UrgentIssueRow({
+  issue,
+  onRecord,
+  onExcused,
+}: {
+  issue: DashboardData["urgentIssues"][number];
+  onRecord: () => void;
+  onExcused: () => void;
+}) {
+  const [excusing, setExcusing] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  async function handleExcuse(reason: string) {
+    setPickerOpen(false);
+    setExcusing(true);
+    try {
+      await fetch("/api/excusal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeName: issue.employee,
+          trainingColumnKey: trainingColumnKey(issue.training),
+          excused: true,
+          reason,
+        }),
+      });
+      onExcused();
+    } catch {
+      setExcusing(false);
+    }
+  }
+
+  return (
+    <div className="px-5 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors group">
+      <StatusIcon status={issue.status} />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-slate-900 truncate">{issue.employee}</p>
+        <p className="text-xs text-slate-500 truncate">{issue.training}</p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {issue.expirationDate && !pickerOpen && (
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-md ${statusColor(issue.status)}`}>
+            {formatExpiry(issue.expirationDate)}
+          </span>
+        )}
+        {pickerOpen ? (
+          <>
+            <select
+              autoFocus
+              defaultValue=""
+              disabled={excusing}
+              onChange={(e) => { if (e.target.value) handleExcuse(e.target.value); }}
+              className="px-2 py-1 border border-slate-200 rounded-md text-[11px] bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+            >
+              <option value="" disabled>Reason...</option>
+              {EXCUSAL_REASONS.map((r) => (
+                <option key={r.code} value={r.code}>{r.label}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => setPickerOpen(false)}
+              className="text-[11px] text-slate-400 hover:text-slate-600"
+            >
+              cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => setPickerOpen(true)}
+              disabled={excusing}
+              className="opacity-0 group-hover:opacity-100 px-2.5 py-1 text-[11px] font-medium rounded-md bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 transition-all disabled:opacity-50"
+            >
+              {excusing ? "..." : "Excuse"}
+            </button>
+            <button
+              onClick={onRecord}
+              disabled={excusing}
+              className="opacity-0 group-hover:opacity-100 px-2.5 py-1 text-[11px] font-medium rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-all disabled:opacity-50"
+            >
+              Record
+            </button>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
