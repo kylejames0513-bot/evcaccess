@@ -346,6 +346,7 @@ export interface ScheduledSession {
   date: string;
   sortDateMs: number;
   time: string;
+  endTime: string;
   location: string;
   enrolled: string[];
   noShows: string[];
@@ -362,7 +363,7 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
   const { data: sessions, error } = await supabase
     .from("training_sessions")
     .select(`
-      id, session_date, start_time, location, capacity, status,
+      id, session_date, start_time, end_time, location, capacity, status,
       training_types ( name ),
       enrollments ( status, employees ( first_name, last_name ) )
     `)
@@ -394,6 +395,7 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
       date: formatDateMDY(sessionDate),
       sortDateMs: sessionDate.getTime(),
       time: s.start_time || "",
+      endTime: s.end_time || "",
       location: s.location || "",
       enrolled: enrolledNames,
       noShows: noShowNames,

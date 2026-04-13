@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap, Archive, RefreshCw, Pencil } from "lucide-react";
+import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap, Archive, RefreshCw, Pencil, Copy } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -15,11 +15,33 @@ interface SessionData {
   date: string;
   sortDateMs: number;
   time: string;
+  endTime: string;
   location: string;
   enrolled: string[];
   noShows: string[];
   capacity: number;
   status: "scheduled" | "completed";
+}
+
+function buildMemo(s: SessionData): string {
+  const weekday = new Date(s.sortDateMs).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+  const timeRange = s.time && s.endTime ? `${s.time} – ${s.endTime}` : s.time || "TBD";
+  const attendees = s.enrolled.length
+    ? s.enrolled.map((n) => `  - ${n}`).join("\n")
+    : "  (none enrolled yet)";
+  return [
+    `Training: ${s.training}`,
+    `Date: ${weekday}`,
+    `Time: ${timeRange}`,
+    `Location: ${s.location || "TBD"}`,
+    `Attendees (${s.enrolled.length}):`,
+    attendees,
+  ].join("\n");
 }
 
 interface ScheduleData {
@@ -47,6 +69,25 @@ export default function SchedulePage() {
   const [autoFilling, setAutoFilling] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [copiedMemoIds, setCopiedMemoIds] = useState<Set<string>>(new Set());
+
+  async function handleCopyMemo(session: SessionData) {
+    try {
+      await navigator.clipboard.writeText(buildMemo(session));
+      setCopiedMemoIds((prev) => {
+        const next = new Set(prev);
+        next.add(session.id);
+        return next;
+      });
+      setTimeout(() => {
+        setCopiedMemoIds((prev) => {
+          const next = new Set(prev);
+          next.delete(session.id);
+          return next;
+        });
+      }, 2000);
+    } catch {}
+  }
 
   // Force re-fetch after changes
   const { data: freshData } = useFetch<ScheduleData>(`/api/schedule?r=${refreshKey}`);
@@ -268,6 +309,23 @@ export default function SchedulePage() {
                         <ClipboardCheck className="h-3 w-3" />
                         Attendance
                       </a>
+                      <button
+                        onClick={() => handleCopyMemo(session)}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-colors bg-violet-50 text-violet-700 hover:bg-violet-100"
+                        title="Copy a class announcement memo to the clipboard"
+                      >
+                        {copiedMemoIds.has(session.id) ? (
+                          <>
+                            <Check className="h-3 w-3" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3 w-3" />
+                            Copy Memo
+                          </>
+                        )}
+                      </button>
                       <button
                         onClick={() => setFinalizingSession(session.id)}
                         className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-colors bg-amber-50 text-amber-700 hover:bg-amber-100"
