@@ -24,25 +24,16 @@ interface SessionData {
   status: "scheduled" | "completed";
 }
 
-function buildMemo(s: SessionData): string {
-  const weekday = new Date(s.sortDateMs).toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-  const timeRange = s.time && s.endTime ? `${s.time} – ${s.endTime}` : s.time || "TBD";
-  const attendees = s.enrolled.length
-    ? s.enrolled.map((n) => `  - ${n}`).join("\n")
-    : "  (none enrolled yet)";
-  return [
-    `Training: ${s.training}`,
-    `Date: ${weekday}`,
-    `Time: ${timeRange}`,
-    `Location: ${s.location || "TBD"}`,
-    `Attendees (${s.enrolled.length}):`,
-    attendees,
-  ].join("\n");
+async function fetchServerMemo(sessionId: string): Promise<string> {
+  const res = await fetch(`/api/sessions/${sessionId}/memo`);
+  if (!res.ok) {
+    throw new Error(`Memo request failed (${res.status})`);
+  }
+  const payload = (await res.json()) as { memo_text?: string };
+  if (!payload.memo_text) {
+    throw new Error("Memo response missing memo_text");
+  }
+  return payload.memo_text;
 }
 
 interface ScheduleData {
@@ -74,7 +65,8 @@ export default function SchedulePage() {
 
   async function handleCopyMemo(session: SessionData) {
     try {
-      await navigator.clipboard.writeText(buildMemo(session));
+      const memoText = await fetchServerMemo(session.id);
+      await navigator.clipboard.writeText(memoText);
       setCopiedMemoIds((prev) => {
         const next = new Set(prev);
         next.add(session.id);
