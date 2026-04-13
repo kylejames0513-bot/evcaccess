@@ -6,7 +6,7 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 import { PRIMARY_TRAININGS } from "@/config/primary-trainings";
-import { namesMatch } from "@/lib/name-utils";
+import { namesMatch, normalizeNameForCompare } from "@/lib/name-utils";
 import { trainingMatchesAny } from "@/lib/training-match";
 
 const EXCUSAL_REASONS = [
@@ -672,29 +672,51 @@ function EnrollModal({
     load();
   }, [session.training, alreadyEnrolled]);
 
-  // Lazy-load the full active-employee roster the first time the operator
-  // flips the override toggle. We merge the needs list in front so the
-  // priority candidates stay at the top of the list.
+  // Lazy-load the full employee roster the first time the operator
+  // flips the override toggle. Override is the operator's escape hatch, so
+  // we deliberately cast a wide net:
+  //   - `active=all` so terminated/inactive employees are searchable too
+  //   - no fuzzy namesMatch filter against already-enrolled (it false-
+  //     positives on initial-only entries like "J Smith"); we trust the
+  //     operator to pick the right person
+  //   - dedupe needsList vs everyone via normalizeNameForCompare so casing
+  //     and token-order differences don't cause drops.
   useEffect(() => {
     if (!override || allList !== null || loadingAll) return;
     setLoadingAll(true);
     (async () => {
       try {
-        const res = await fetch("/api/employees");
+        const res = await fetch("/api/employees?active=all");
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
-        type EmployeeRow = { name: string; department?: string; position?: string };
-        const needsByName = new Map(needsList.map((n) => [n.name.toLowerCase(), n]));
-        const everyone: NeedEmployee[] = (data.employees as EmployeeRow[])
-          .filter((e) => e.name && !alreadyEnrolled.some((enrolled) => namesMatch(enrolled, e.name)))
-          .filter((e) => !needsByName.has(e.name.toLowerCase()))
-          .map((e) => ({
-            name: e.name,
-            status: "current",
-            daysExpired: 0,
-            daysUntilExpiry: 0,
-            division: e.department ?? e.position ?? "",
-          }));
+        type EmployeeRow = {
+          name: string;
+          department?: string;
+          position?: string;
+          is_active?: boolean;
+        };
+        const needsKeys = new Set(
+          needsList.map((n) => normalizeNameForCompare(n.name))
+        );
+        // Include inactive employees too — override is the operator's
+        // escape hatch, and inactive rows sometimes represent staff on
+        // leave or waiting for rehire reactivation. Active first so the
+        // common case is at the top of the list. We keep the raw name so
+        // the enroll POST still matches the employees table.
+        const rows = (data.employees as EmployeeRow[])
+          .filter((e) => e.name)
+          .filter((e) => !needsKeys.has(normalizeNameForCompare(e.name)));
+        const toNeed = (e: EmployeeRow): NeedEmployee => ({
+          name: e.name,
+          status: "current",
+          daysExpired: 0,
+          daysUntilExpiry: 0,
+          division: e.department ?? e.position ?? "",
+        });
+        const everyone: NeedEmployee[] = [
+          ...rows.filter((e) => e.is_active !== false).map(toNeed),
+          ...rows.filter((e) => e.is_active === false).map(toNeed),
+        ];
         setAllList([...needsList, ...everyone]);
       } catch {
         setError("Failed to load full employee list");
@@ -703,7 +725,7 @@ function EnrollModal({
         setLoadingAll(false);
       }
     })();
-  }, [override, allList, loadingAll, needsList, alreadyEnrolled]);
+  }, [override, allList, loadingAll, needsList]);
 
   function toggleSelect(name: string) {
     const next = new Set(selected);
