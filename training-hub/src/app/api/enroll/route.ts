@@ -4,11 +4,12 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 
 export const POST = withApiHandler(async (request) => {
   const body = await request.json();
-  const { sessionId, names, action, force } = body as {
+  const { sessionId, names, action, force, allowExcused } = body as {
     sessionId?: string;
     names?: string[];
     action?: string;
     force?: boolean;
+    allowExcused?: boolean;
   };
 
   if (!sessionId) {
@@ -30,7 +31,25 @@ export const POST = withApiHandler(async (request) => {
     throw new ApiError("Missing required fields: names (array)", 400, "missing_field");
   }
 
-  const result = await addEnrollees(sessionId, names, { force: force === true });
+  const result = await addEnrollees(sessionId, names, {
+    force: force === true,
+    allowExcused: allowExcused === true,
+  });
+
+  // Excusal preflight hit — return a 409 with the blocked names so
+  // the client can prompt "These people are excused, enroll anyway?"
+  // and retry with allowExcused:true.
+  if (!result.success && result.excusedBlocked && result.excusedBlocked.length > 0) {
+    return Response.json(
+      {
+        error: result.message,
+        code: "excused_block",
+        excusedBlocked: result.excusedBlocked,
+      },
+      { status: 409 }
+    );
+  }
+
   if (!result.success) {
     throw new ApiError(result.message, 400, "bad_request");
   }

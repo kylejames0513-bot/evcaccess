@@ -197,6 +197,59 @@ export async function removeExcusal(
 }
 
 /**
+ * Drop enrollments for (employee, training_type) pairs that were just
+ * excused. Scoped to sessions whose status is "scheduled" or
+ * "in_progress" — we don't want to rewrite history by deleting
+ * enrollments from already-completed sessions.
+ *
+ * The table has no direct training_type_id column, so we first look up
+ * all matching session ids via training_sessions, then delete
+ * enrollments by (session_id, employee_id).
+ *
+ * Returns the number of enrollment rows removed.
+ */
+export async function dropEnrollmentsForExcusedPairs(
+  pairs: { employee_id: string; training_type_id: number }[]
+): Promise<number> {
+  if (pairs.length === 0) return 0;
+  const client = db();
+
+  // Group employee_ids by training_type_id so we can hit the sessions
+  // table once per training type instead of once per pair.
+  const byTraining = new Map<number, Set<string>>();
+  for (const p of pairs) {
+    if (!byTraining.has(p.training_type_id)) {
+      byTraining.set(p.training_type_id, new Set());
+    }
+    byTraining.get(p.training_type_id)!.add(p.employee_id);
+  }
+
+  let removed = 0;
+  for (const [trainingTypeId, empIds] of byTraining.entries()) {
+    // Find open sessions for this training type.
+    const { data: sessions, error: sessErr } = await client
+      .from("training_sessions")
+      .select("id")
+      .eq("training_type_id", trainingTypeId)
+      .in("status", ["scheduled", "in_progress"]);
+    if (sessErr) throw sessErr;
+    const sessionIds = (sessions ?? []).map((s) => s.id);
+    if (sessionIds.length === 0) continue;
+
+    const empIdList = Array.from(empIds);
+    // Delete enrollments for those sessions + employees in one shot.
+    const { error: delErr, count } = await client
+      .from("enrollments")
+      .delete({ count: "exact" })
+      .in("session_id", sessionIds)
+      .in("employee_id", empIdList);
+    if (delErr) throw delErr;
+    removed += count ?? 0;
+  }
+  return removed;
+}
+
+/**
  * Bulk-delete every excusal whose source matches the given value.
  * Used by the cutover Stage 2 cleanup to wipe the 11,407 noisy
  * merged_sheet rows. Caller MUST confirm with Kyle before calling

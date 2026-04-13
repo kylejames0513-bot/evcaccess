@@ -760,16 +760,42 @@ function EnrollModal({
       // skips the "already in another session for this training" guard
       // and the active-only employee lookup. Without this flag the
       // operator's override picks were getting silently dropped.
-      const res = await fetch("/api/enroll", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sessionId: session.id,
-          names: Array.from(selected),
-          force: override,
-        }),
-      });
-      const data = await res.json();
+      const names = Array.from(selected);
+      const postEnroll = async (allowExcused: boolean) =>
+        fetch("/api/enroll", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId: session.id,
+            names,
+            force: override,
+            allowExcused,
+          }),
+        });
+
+      let res = await postEnroll(false);
+      let data = await res.json();
+
+      // 409 + excused_block means the server refused because some
+      // picks are excused for this training. Ask the operator and
+      // retry with allowExcused:true on confirm.
+      if (res.status === 409 && data?.code === "excused_block") {
+        const blocked: string[] = Array.isArray(data.excusedBlocked)
+          ? data.excusedBlocked
+          : [];
+        const msg =
+          `${blocked.length === 1 ? "This person is" : "These people are"} ` +
+          `excused from ${session.training}:\n\n` +
+          `  • ${blocked.join("\n  • ")}\n\n` +
+          `Enroll anyway?`;
+        if (!window.confirm(msg)) {
+          setSaving(false);
+          return;
+        }
+        res = await postEnroll(true);
+        data = await res.json();
+      }
+
       if (!res.ok) throw new Error(data.error);
       onEnrolled();
     } catch (err) {

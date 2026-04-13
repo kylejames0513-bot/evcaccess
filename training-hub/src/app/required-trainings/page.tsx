@@ -209,7 +209,60 @@ export default function RequiredTrainingsPage() {
     return out;
   }, [rules]);
 
+  // Training types that cannot be excused because a Required rule
+  // already covers the scope being excused. Used to grey out the
+  // corresponding checkboxes when draft.kind === "excused".
+  //
+  //   - Universal required rules lock a training for ALL department
+  //     excusals (e.g. CPR is required for everyone, so HR can't
+  //     create a dept-level excusal for CPR at all).
+  //   - Department-scoped required rules lock the training for
+  //     excusals that target that same department.
+  //
+  // The excused form only opens for department / position scope, so
+  // this only runs when a department is selected.
+  const lockedTrainingIds = useMemo(() => {
+    if (draft.kind !== "excused") return new Set<number>();
+    const locked = new Set<number>();
+    // Universal required rules always lock.
+    for (const r of rules) {
+      if (r.is_universal && r.is_required) locked.add(r.training_type_id);
+    }
+    // Department-scoped required rules lock only if the excusal is
+    // being created for that same department. If no department is
+    // picked yet, we don't know the scope, so fall back to the
+    // universal set only.
+    if (draft.departments.size > 0) {
+      const deptsLower = new Set(
+        Array.from(draft.departments).map((d) => d.toLowerCase())
+      );
+      for (const r of rules) {
+        if (!r.is_required || r.is_universal) continue;
+        if (!r.department) continue;
+        if (deptsLower.has(r.department.toLowerCase())) {
+          locked.add(r.training_type_id);
+        }
+      }
+    }
+    return locked;
+  }, [draft.kind, draft.departments, rules]);
+
+  // Reason string shown as a tooltip + subtle label on locked rows
+  // so HR understands why they can't pick the training.
+  function lockReason(id: number): string | null {
+    if (!lockedTrainingIds.has(id)) return null;
+    const isUniversal = rules.some(
+      (r) => r.training_type_id === id && r.is_universal && r.is_required
+    );
+    if (isUniversal) return "Required universally — can't be excused";
+    return "Already required for the selected department";
+  }
+
   function toggleTraining(id: number) {
+    // Silently ignore clicks on locked rows — UI also shows them as
+    // disabled but this is a belt-and-suspenders guard for keyboard
+    // activation.
+    if (lockedTrainingIds.has(id)) return;
     setDraft((d) => {
       const next = new Set(d.training_type_ids);
       if (next.has(id)) next.delete(id);
@@ -286,6 +339,24 @@ export default function RequiredTrainingsPage() {
     if (draft.scope !== "universal" && draft.departments.size === 0) {
       setError("Pick at least one department");
       return;
+    }
+
+    // Belt-and-suspenders: if any locked IDs snuck into the selection
+    // (e.g. user toggled kind/department after checking), reject the
+    // save. The UI already disables those checkboxes.
+    if (draft.kind === "excused") {
+      const stillLocked = Array.from(draft.training_type_ids).filter((id) =>
+        lockedTrainingIds.has(id)
+      );
+      if (stillLocked.length > 0) {
+        const names = stillLocked
+          .map((id) => ttById.get(id)?.name ?? `#${id}`)
+          .join(", ");
+        setError(
+          `Can't excuse training already required for this scope: ${names}`
+        );
+        return;
+      }
     }
 
     if (draft.scope === "position" && draft.positions.size === 0) {
@@ -580,7 +651,11 @@ export default function RequiredTrainingsPage() {
                   onClick={() =>
                     setDraft((d) => ({
                       ...d,
-                      training_type_ids: new Set(trainingTypes.map((t) => t.id)),
+                      training_type_ids: new Set(
+                        trainingTypes
+                          .filter((t) => !lockedTrainingIds.has(t.id))
+                          .map((t) => t.id)
+                      ),
                     }))
                   }
                   className="text-blue-600 hover:underline"
@@ -607,24 +682,42 @@ export default function RequiredTrainingsPage() {
               )}
               {trainingTypes.map((tt) => {
                 const checked = draft.training_type_ids.has(tt.id);
+                const locked = lockedTrainingIds.has(tt.id);
+                const reason = locked ? lockReason(tt.id) : null;
                 return (
                   <label
                     key={tt.id}
-                    className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50 border-b border-slate-50 last:border-0"
+                    title={reason ?? undefined}
+                    className={
+                      "flex items-center gap-2 px-3 py-2 text-sm border-b border-slate-50 last:border-0 " +
+                      (locked
+                        ? "cursor-not-allowed opacity-50 bg-slate-50"
+                        : "cursor-pointer hover:bg-slate-50")
+                    }
                   >
                     <input
                       type="checkbox"
-                      checked={checked}
+                      checked={checked && !locked}
+                      disabled={locked}
                       onChange={() => toggleTraining(tt.id)}
-                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
                     />
                     <span
                       className={
-                        checked ? "text-slate-900 font-medium" : "text-slate-600"
+                        locked
+                          ? "text-slate-500"
+                          : checked
+                          ? "text-slate-900 font-medium"
+                          : "text-slate-600"
                       }
                     >
                       {tt.name}
                     </span>
+                    {locked && reason && (
+                      <span className="ml-auto text-[10px] text-slate-400 italic">
+                        {reason}
+                      </span>
+                    )}
                   </label>
                 );
               })}

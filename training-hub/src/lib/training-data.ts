@@ -6,6 +6,7 @@ import { createServerClient } from "./supabase";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import { toFirstLast as toFirstLastUtil, namesMatch } from "@/lib/name-utils";
 import type { ComplianceStatus } from "@/types/database";
+import { dropEnrollmentsForExcusedPairs } from "@/lib/db/excusals";
 
 // ============================================================
 // Training Data Layer -- Supabase (PostgreSQL)
@@ -555,6 +556,12 @@ export async function setExcusal(
       }, { onConflict: "employee_id,training_type_id" });
 
     if (error) return { success: false, message: `Database error: ${error.message}` };
+
+    // Drop them from any scheduled sessions for this training — being
+    // excused and still being on the schedule is contradictory.
+    await dropEnrollmentsForExcusedPairs([
+      { employee_id: employee.id, training_type_id: trainingType.id },
+    ]);
   } else {
     const { error } = await supabase
       .from("excusals")
@@ -652,10 +659,15 @@ export async function createSession(
 export async function addEnrollees(
   sessionId: string,
   newNames: string[],
-  options: { force?: boolean } = {}
-): Promise<{ success: boolean; message: string }> {
+  options: { force?: boolean; allowExcused?: boolean } = {}
+): Promise<{
+  success: boolean;
+  message: string;
+  excusedBlocked?: string[];
+}> {
   const supabase = createServerClient();
   const force = options.force === true;
+  const allowExcused = options.allowExcused === true;
 
   const session = await fetchSessionById(supabase, sessionId);
   if (!session) return { success: false, message: "Session not found" };
@@ -675,6 +687,45 @@ export async function addEnrollees(
     blockedIds = new Set(
       (otherEnrollments ?? []).map((e: { employee_id: string }) => e.employee_id)
     );
+  }
+
+  // Excusal preflight: if any requested name maps to an employee who
+  // has an active excusal for this session's training type, block the
+  // whole batch and return the list so the UI can raise a confirm
+  // dialog. When the operator retries with allowExcused:true, we skip
+  // this check and let the inserts proceed.
+  if (!allowExcused) {
+    // Resolve the requested names to employee ids first so we can
+    // look up their excusals in one shot.
+    const resolvedIds: { name: string; id: string }[] = [];
+    for (const name of newNames) {
+      const emp = await findEmployee(supabase, name, { includeInactive: force });
+      if (emp) resolvedIds.push({ name, id: emp.id });
+    }
+    if (resolvedIds.length > 0) {
+      const { data: excusalRows, error: excErr } = await supabase
+        .from("excusals")
+        .select("employee_id")
+        .eq("training_type_id", session.training_type_id)
+        .in(
+          "employee_id",
+          resolvedIds.map((r) => r.id)
+        );
+      if (excErr) throw excErr;
+      const excusedSet = new Set(
+        (excusalRows ?? []).map((e: { employee_id: string }) => e.employee_id)
+      );
+      const excusedBlocked = resolvedIds
+        .filter((r) => excusedSet.has(r.id))
+        .map((r) => toFirstLast(r.name));
+      if (excusedBlocked.length > 0) {
+        return {
+          success: false,
+          message: `Excused: ${excusedBlocked.join(", ")}`,
+          excusedBlocked,
+        };
+      }
+    }
   }
 
   // People already in THIS session — always skip, UNIQUE constraint

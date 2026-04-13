@@ -1,5 +1,6 @@
 import { createServerClient } from "@/lib/supabase";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { dropEnrollmentsForExcusedPairs } from "@/lib/db/excusals";
 
 /**
  * POST /api/bulk-excuse
@@ -127,5 +128,15 @@ export const POST = withApiHandler(async (req) => {
       excused += batch.length;
     }
 
-  return { excused, skipped: 0 };
+    // Excusing someone should also pull them off any future sessions
+    // for that training. Otherwise HR marks them excused but the
+    // schedule still shows them enrolled, which is confusing.
+    const dropped = await dropEnrollmentsForExcusedPairs(
+      rows.map((r) => ({
+        employee_id: r.employee_id,
+        training_type_id: r.training_type_id,
+      }))
+    );
+
+  return { excused, skipped: 0, enrollmentsDropped: dropped };
 });
