@@ -372,7 +372,16 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
 
   return (sessions as unknown as SessionJoin[]).map((s) => {
     const trainingName = s.training_types?.name || "Unknown";
-    const sessionDate = new Date(s.session_date);
+    // session_date arrives from Postgres as a "YYYY-MM-DD" date-only string.
+    // `new Date("2026-04-17")` parses as UTC midnight, which renders as the
+    // previous day in any negative-offset timezone (e.g. US/Eastern), so
+    // weekday labels in the memo come out one day early. Parse the parts
+    // directly into a local Date so both the display date and the weekday
+    // match what the operator scheduled.
+    const [yy, mm, dd] = String(s.session_date).split("-").map(Number);
+    const sessionDate = Number.isFinite(yy) && Number.isFinite(mm) && Number.isFinite(dd)
+      ? new Date(yy, mm - 1, dd)
+      : new Date(s.session_date);
     const enrolledNames: string[] = [];
     const noShowNames: string[] = [];
 
