@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap, Archive, RefreshCw, Pencil, Copy } from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
@@ -71,7 +71,7 @@ interface ScheduleData {
 
 interface NeedEmployee {
   name: string;
-  status: "expired" | "expiring_soon" | "needed";
+  status: "expired" | "expiring_soon" | "needed" | "current";
   noShowCount?: number;
   daysExpired: number;
   daysUntilExpiry: number;
@@ -602,7 +602,10 @@ function EnrollModal({
   onEnrolled: () => void;
 }) {
   const [needsList, setNeedsList] = useState<NeedEmployee[]>([]);
+  const [allList, setAllList] = useState<NeedEmployee[] | null>(null);
   const [loadingNeeds, setLoadingNeeds] = useState(true);
+  const [loadingAll, setLoadingAll] = useState(false);
+  const [override, setOverride] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -610,22 +613,27 @@ function EnrollModal({
 
   const spotsLeft = session.capacity - session.enrolled.length;
 
+  // Names already enrolled in any scheduled session of the same training type.
+  // We exclude these from both the needs list and the override list so the
+  // operator can't double-enroll the same person for the same training.
+  const alreadyEnrolled = useMemo(() => {
+    const names: string[] = [];
+    for (const s of allSessions) {
+      if (s.status === "scheduled" && trainingMatchesAny(s.training, session.training)) {
+        for (const name of s.enrolled) {
+          names.push(name);
+        }
+      }
+    }
+    return names;
+  }, [allSessions, session.training]);
+
   useEffect(() => {
     async function load() {
       try {
         const res = await fetch(`/api/needs-training?training=${encodeURIComponent(session.training)}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
-
-        // Collect all names enrolled in ANY session of this training type
-        const alreadyEnrolled: string[] = [];
-        for (const s of allSessions) {
-          if (s.status === "scheduled" && trainingMatchesAny(s.training, session.training)) {
-            for (const name of s.enrolled) {
-              alreadyEnrolled.push(name);
-            }
-          }
-        }
 
         // Filter out anyone already enrolled in any matching session
         const filtered = (data.employees as NeedEmployee[]).filter(
@@ -639,7 +647,40 @@ function EnrollModal({
       }
     }
     load();
-  }, [session.training, session.enrolled, allSessions]);
+  }, [session.training, alreadyEnrolled]);
+
+  // Lazy-load the full active-employee roster the first time the operator
+  // flips the override toggle. We merge the needs list in front so the
+  // priority candidates stay at the top of the list.
+  useEffect(() => {
+    if (!override || allList !== null || loadingAll) return;
+    setLoadingAll(true);
+    (async () => {
+      try {
+        const res = await fetch("/api/employees");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        type EmployeeRow = { name: string; department?: string; position?: string };
+        const needsByName = new Map(needsList.map((n) => [n.name.toLowerCase(), n]));
+        const everyone: NeedEmployee[] = (data.employees as EmployeeRow[])
+          .filter((e) => e.name && !alreadyEnrolled.some((enrolled) => namesMatch(enrolled, e.name)))
+          .filter((e) => !needsByName.has(e.name.toLowerCase()))
+          .map((e) => ({
+            name: e.name,
+            status: "current",
+            daysExpired: 0,
+            daysUntilExpiry: 0,
+            division: e.department ?? e.position ?? "",
+          }));
+        setAllList([...needsList, ...everyone]);
+      } catch {
+        setError("Failed to load full employee list");
+        setOverride(false);
+      } finally {
+        setLoadingAll(false);
+      }
+    })();
+  }, [override, allList, loadingAll, needsList, alreadyEnrolled]);
 
   function toggleSelect(name: string) {
     const next = new Set(selected);
@@ -671,13 +712,15 @@ function EnrollModal({
     }
   }
 
-  const filtered = needsList.filter((e) =>
+  const activeList = override && allList ? allList : needsList;
+  const filtered = activeList.filter((e) =>
     e.name.toLowerCase().includes(search.toLowerCase())
   );
 
   const statusIcon = (status: string) => {
     if (status === "expired") return <XCircle className="h-3.5 w-3.5 text-red-500" />;
     if (status === "expiring_soon") return <Clock className="h-3.5 w-3.5 text-amber-500" />;
+    if (status === "current") return <Check className="h-3.5 w-3.5 text-emerald-500" />;
     return <AlertTriangle className="h-3.5 w-3.5 text-orange-500" />;
   };
 
@@ -698,7 +741,7 @@ function EnrollModal({
           </button>
         </div>
 
-        <div className="px-6 py-3 border-b border-slate-100">
+        <div className="px-6 py-3 border-b border-slate-100 space-y-2">
           <input
             type="text"
             placeholder="Search employees..."
@@ -706,14 +749,27 @@ function EnrollModal({
             onChange={(e) => setSearch(e.target.value)}
             className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+          <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={override}
+              onChange={(e) => setOverride(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+            />
+            <span>
+              Include anyone <span className="text-slate-400">(override — adds employees who don&apos;t currently need this training)</span>
+            </span>
+          </label>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {loadingNeeds ? (
-            <div className="py-8 text-center text-slate-500 text-sm">Loading employees who need this training...</div>
+          {loadingNeeds || (override && loadingAll) ? (
+            <div className="py-8 text-center text-slate-500 text-sm">
+              {override ? "Loading all employees..." : "Loading employees who need this training..."}
+            </div>
           ) : filtered.length === 0 ? (
             <div className="py-8 text-center text-slate-500 text-sm">
-              {search ? "No matches." : "No employees need this training."}
+              {search ? "No matches." : override ? "No employees available." : "No employees need this training."}
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
