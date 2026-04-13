@@ -30,6 +30,7 @@ interface EmployeeDetail {
 
 const EXCUSAL_REASONS = [
   { code: "N/A", label: "N/A (General)" },
+  { code: "NO_LONGER_EMPLOYEE", label: "No Longer Employee" },
   { code: "Facilities", label: "Facilities" },
   { code: "MAINT", label: "Maintenance" },
   { code: "HR", label: "HR" },

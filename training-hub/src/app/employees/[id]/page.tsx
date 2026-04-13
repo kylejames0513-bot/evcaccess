@@ -63,6 +63,8 @@ export default function EmployeeDetailPage({
   const [trainingTypes, setTrainingTypes] = useState<TrainingType[]>([]);
   const [excusing, setExcusing] = useState<number | null>(null);
   const [removing, setRemoving] = useState<number | null>(null);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,6 +121,33 @@ export default function EmployeeDetailPage({
     setExcusing(null);
   }
 
+  async function setActiveStatus(nextActive: boolean) {
+    if (!data) return;
+    if (!nextActive) {
+      const ok = window.confirm(
+        `Mark ${data.employee.first_name} ${data.employee.last_name} as no longer an employee?\n\nThis sets their status to inactive and stamps a termination date. You can reactivate them later.`
+      );
+      if (!ok) return;
+    }
+    setStatusSaving(true);
+    setStatusError(null);
+    try {
+      const res = await fetch(`/api/employees/${encodeURIComponent(data.employee.id)}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: nextActive }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload.error || `Request failed (${res.status})`);
+      }
+      await reload();
+    } catch (e) {
+      setStatusError(e instanceof Error ? e.message : "Update failed");
+    }
+    setStatusSaving(false);
+  }
+
   async function removeExcusal(trainingTypeId: number) {
     if (!data) return;
     setRemoving(trainingTypeId);
@@ -144,16 +173,46 @@ export default function EmployeeDetailPage({
   return (
     <div className="max-w-5xl mx-auto space-y-6 p-3 sm:p-6">
       <div className="bg-white rounded-xl border border-slate-200 p-4">
-        <div className="flex flex-wrap items-baseline gap-4">
-          <h1 className="text-2xl font-bold text-slate-900">
-            {e.last_name}, {e.first_name}
-          </h1>
-          {!e.is_active && (
-            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md border bg-slate-50 text-slate-500 border-slate-200">
-              Terminated{e.terminated_at ? ` ${e.terminated_at.slice(0, 10)}` : ""}
-            </span>
-          )}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-baseline gap-4">
+            <h1 className="text-2xl font-bold text-slate-900">
+              {e.last_name}, {e.first_name}
+            </h1>
+            {e.is_active ? (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md border bg-emerald-50 text-emerald-700 border-emerald-200">
+                Active
+              </span>
+            ) : (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md border bg-slate-50 text-slate-500 border-slate-200">
+                No longer employee{e.terminated_at ? ` \u00b7 ${e.terminated_at.slice(0, 10)}` : ""}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {e.is_active ? (
+              <button
+                onClick={() => setActiveStatus(false)}
+                disabled={statusSaving}
+                className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-red-50 hover:text-red-700 hover:border-red-200 disabled:opacity-50"
+                title="Mark as no longer an employee"
+              >
+                {statusSaving ? "Saving..." : "Mark as no longer employee"}
+              </button>
+            ) : (
+              <button
+                onClick={() => setActiveStatus(true)}
+                disabled={statusSaving}
+                className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 disabled:opacity-50"
+                title="Reactivate employee"
+              >
+                {statusSaving ? "Saving..." : "Reactivate"}
+              </button>
+            )}
+          </div>
         </div>
+        {statusError && (
+          <div className="mt-2 text-xs text-red-600">{statusError}</div>
+        )}
         <dl className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
           <div><dt className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Paylocity ID</dt><dd className="text-sm text-slate-900">{e.paylocity_id ?? ""}</dd></div>
           <div><dt className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Department</dt><dd className="text-sm text-slate-900">{e.department ?? ""}</dd></div>
