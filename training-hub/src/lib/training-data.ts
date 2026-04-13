@@ -359,6 +359,7 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
     id: string;
     session_date: string;
     start_time: string | null;
+    end_time: string | null;
     location: string | null;
     capacity: number;
     status: string;
