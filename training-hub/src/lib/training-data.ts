@@ -53,14 +53,14 @@ export interface ComplianceIssue {
 export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
   const supabase = createServerClient();
 
-  // Load excluded employees and department rules
-  const { getExcludedEmployees, getDeptRules } = await import("@/lib/hub-settings");
-  const [excluded, deptRules] = await Promise.all([getExcludedEmployees(), getDeptRules()]);
+  // Load excluded employees. Department/position scoping now lives
+  // entirely in the required_trainings table (read by the compliance
+  // view). Legacy dept_rules hub_settings rows have been retired —
+  // reports emit every tracked def and rely on excusals to hide any
+  // training that doesn't apply to an employee.
+  const { getExcludedEmployees } = await import("@/lib/hub-settings");
+  const excluded = await getExcludedEmployees();
   const excludedSet = new Set(excluded.map((n) => n.toLowerCase()));
-  const deptRequiredMap = new Map<string, Set<string>>();
-  for (const rule of deptRules) {
-    deptRequiredMap.set(rule.department.toLowerCase(), new Set(rule.required));
-  }
 
   // Fetch training types from Supabase
   const { data: trainingTypes } = await supabase
@@ -157,12 +157,7 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     if (excludedSet.has(name.toLowerCase())) continue;
 
     const position = emp.department || "";
-    const empRequired = position ? deptRequiredMap.get(position.toLowerCase()) : undefined;
-    const employeeDefs = empRequired
-      ? empRequired.has("ALL")
-        ? trackedDefs
-        : trackedDefs.filter((d) => empRequired.has(d.columnKey))
-      : trackedDefs;
+    const employeeDefs = trackedDefs;
 
     const empEntry: EmployeeTrainingRow = {
       name,

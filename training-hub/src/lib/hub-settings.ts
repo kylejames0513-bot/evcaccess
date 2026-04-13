@@ -250,49 +250,8 @@ export async function clearNoShows(employeeName: string): Promise<void> {
   }
 }
 
-// ────────────────────────────────────────────────────────────
-// Department training rules
-// ────────────────────────────────────────────────────────────
-
-export interface DeptRule {
-  department: string;
-  tracked: string[];
-  required: string[];
-}
-
-function parseDeptRuleValue(value: string): { tracked: string[]; required: string[] } {
-  if (value === "ALL") return { tracked: ["ALL"], required: ["ALL"] };
-  if (value.includes("|")) {
-    const [trackedStr, requiredStr] = value.split("|");
-    return {
-      tracked: trackedStr.split(",").map((t) => t.trim()).filter(Boolean),
-      required: requiredStr.split(",").map((t) => t.trim()).filter(Boolean),
-    };
-  }
-  const keys = value.split(",").map((t) => t.trim()).filter(Boolean);
-  return { tracked: keys, required: keys };
-}
-
-function encodeDeptRuleValue(tracked: string[], required: string[]): string {
-  if (tracked.includes("ALL") && required.includes("ALL")) return "ALL";
-  return tracked.join(", ") + "|" + required.join(", ");
-}
-
-export async function getDeptRules(): Promise<DeptRule[]> {
-  const settings = await readSettings("dept_rule");
-  return settings.map((s) => {
-    const parsed = parseDeptRuleValue(s.value);
-    return { department: s.key, ...parsed };
-  });
-}
-
-export async function setDeptRule(department: string, tracked: string[], required: string[]): Promise<DeptRule[]> {
-  const value = encodeDeptRuleValue(tracked, required);
-  await upsertSetting("dept_rule", department, value);
-  return getDeptRules();
-}
-
-export async function removeDeptRule(department: string): Promise<DeptRule[]> {
-  await deleteSetting("dept_rule", department);
-  return getDeptRules();
-}
+// Department training rules were migrated to the `required_trainings`
+// table — see /api/required-trainings and the compliance view. The
+// legacy helpers that used to live here (getDeptRules / setDeptRule /
+// removeDeptRule, backed by hub_settings type="dept_rule") have been
+// removed in favour of that single source of truth.
