@@ -81,13 +81,20 @@ export const GET = withApiHandler(async (req) => {
     const db = createServerClient();
     const { data: rules } = await db.from("required_trainings").select("*").eq("is_required", true);
 
-    // Determine which training_type_ids are required for this employee
+    // Determine which training_type_ids are required for this employee.
+    // Board members are excluded from universal rules (see compliance
+    // view migration 20260413130000) but still pick up any explicit
+    // Board-scoped department/position rules.
+    const empDivision = String(
+      (employee as Record<string, unknown>).division ?? ""
+    );
+    const isBoard = empDivision.toLowerCase() === "board";
     const requiredTypeIds = new Set<number>();
     for (const rule of rules ?? []) {
       if (rule.is_universal) {
-        requiredTypeIds.add(rule.training_type_id);
-      } else if (rule.department && (employee as Record<string, unknown>).division &&
-        rule.department.toLowerCase() === String((employee as Record<string, unknown>).division).toLowerCase()) {
+        if (!isBoard) requiredTypeIds.add(rule.training_type_id);
+      } else if (rule.department && empDivision &&
+        rule.department.toLowerCase() === empDivision.toLowerCase()) {
         if (rule.position == null) {
           requiredTypeIds.add(rule.training_type_id);
         } else if (employee.position && rule.position.toLowerCase() === employee.position.toLowerCase()) {

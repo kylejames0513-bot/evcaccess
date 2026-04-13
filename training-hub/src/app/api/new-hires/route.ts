@@ -79,11 +79,16 @@ export const GET = withApiHandler(async () => {
     // based on universal + division + position rules.
     // required_trainings.department stores the division name;
     // match it against employees.division (mirrors the compliance view).
+    // Board members are excluded from universal rules (see compliance
+    // view migration 20260413130000). They still pick up any explicit
+    // Board-scoped department/position rules below.
+    const empDeptLower = (emp.division ?? "").toLowerCase();
+    const isBoard = empDeptLower === "board";
     const requiredMap = new Map<number, boolean>();
     for (const rule of rules) {
       if (!rule.is_required) continue;
       if (rule.is_universal) {
-        requiredMap.set(rule.training_type_id, true);
+        if (!isBoard) requiredMap.set(rule.training_type_id, true);
       } else if (rule.department && emp.division &&
         rule.department.toLowerCase() === emp.division.toLowerCase()) {
         if (rule.position == null) {

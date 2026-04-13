@@ -77,13 +77,21 @@ export async function getRequiredTrainingsForEmployee(
   const client = db();
   const candidates: RequiredTraining[] = [];
 
-  // Universal rules always apply.
-  const { data: universal, error: uErr } = await client
-    .from("required_trainings")
-    .select("*")
-    .eq("is_universal", true);
-  if (uErr) throw uErr;
-  candidates.push(...(universal ?? []));
+  // Universal rules apply to every department except Board. Board
+  // members are in the employees table for roster/compliance display
+  // but are not subject to staff-wide training requirements. Board
+  // members still pick up any explicit department='Board' rules below.
+  const isBoard =
+    (employee.department ?? employee.division ?? "").trim().toLowerCase() ===
+    "board";
+  if (!isBoard) {
+    const { data: universal, error: uErr } = await client
+      .from("required_trainings")
+      .select("*")
+      .eq("is_universal", true);
+    if (uErr) throw uErr;
+    candidates.push(...(universal ?? []));
+  }
 
   // Division-scoped rules apply if employee.division matches.
   // required_trainings.department stores the division name.
