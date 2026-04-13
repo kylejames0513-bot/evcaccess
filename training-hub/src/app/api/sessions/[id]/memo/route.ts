@@ -174,11 +174,7 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
   });
   for (const emp of flatAttendees) {
     const name = `${emp.first_name ?? ""} ${emp.last_name ?? ""}`.trim();
-    const extras: string[] = [];
-    if (emp.job_title) extras.push(emp.job_title);
-    else if (emp.position) extras.push(emp.position);
-    const suffix = extras.length ? ` — ${extras.join(", ")}` : "";
-    memoLines.push(`  • ${name}${suffix}`);
+    memoLines.push(`  • ${name}`);
   }
 
   // Managers are still resolved (for the "Open in email" recipient
