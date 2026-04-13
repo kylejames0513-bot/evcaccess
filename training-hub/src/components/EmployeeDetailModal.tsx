@@ -57,32 +57,57 @@ const TRAINING_NAMES: Record<string, string> = Object.fromEntries(
   }, new Map<string, string>())
 );
 
-function ExcusalPicker({
+function ExcusalReasonDialog({
+  trainingName,
   onSelect,
   onCancel,
 }: {
+  trainingName: string;
   onSelect: (reason: string) => void;
   onCancel: () => void;
 }) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onCancel();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
   return (
-    <div className="flex items-center gap-1.5">
-      <select
-        autoFocus
-        defaultValue=""
-        onChange={(e) => { if (e.target.value) onSelect(e.target.value); }}
-        className="px-2 py-1 border border-slate-200 rounded-md text-[11px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-xs flex flex-col max-h-[80vh]"
+        onClick={(e) => e.stopPropagation()}
       >
-        <option value="" disabled>Reason...</option>
-        {EXCUSAL_REASONS.map((r) => (
-          <option key={r.code} value={r.code}>{r.label}</option>
-        ))}
-      </select>
-      <button
-        onClick={onCancel}
-        className="p-0.5 text-slate-400 hover:text-slate-600"
-      >
-        <X className="h-3 w-3" />
-      </button>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Excuse training</h3>
+            <p className="text-[11px] text-slate-400 mt-0.5 truncate">{trainingName}</p>
+          </div>
+          <button
+            onClick={onCancel}
+            className="p-1 hover:bg-slate-100 rounded-md text-slate-400"
+            aria-label="Cancel"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2">
+          {EXCUSAL_REASONS.map((r) => (
+            <button
+              key={r.code}
+              onClick={() => onSelect(r.code)}
+              className="w-full text-left px-3 py-2 rounded-md text-xs font-medium text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -327,11 +352,6 @@ export default function EmployeeDetailModal({ name, onClose, onEnrolled }: { nam
                           >
                             <ShieldOff className="h-3 w-3" /> Unexcuse
                           </button>
-                        ) : excusingTraining === t.columnKey ? (
-                          <ExcusalPicker
-                            onSelect={(reason) => handleExcuse(t.columnKey, reason)}
-                            onCancel={() => setExcusingTraining(null)}
-                          />
                         ) : (
                           <button
                             onClick={() => setExcusingTraining(t.columnKey)}
@@ -449,6 +469,13 @@ export default function EmployeeDetailModal({ name, onClose, onEnrolled }: { nam
           </button>
         </div>
       </div>
+      {excusingTraining && (
+        <ExcusalReasonDialog
+          trainingName={TRAINING_NAMES[excusingTraining] || excusingTraining}
+          onSelect={(reason) => handleExcuse(excusingTraining, reason)}
+          onCancel={() => setExcusingTraining(null)}
+        />
+      )}
     </div>
   );
 }
