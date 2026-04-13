@@ -21,6 +21,17 @@ interface MemoPayload {
   attendee_count: number;
   manager_count: number;
   memo_text: string;
+  attendees_by_department: Record<
+    string,
+    Array<{
+      id: string;
+      first_name: string | null;
+      last_name: string | null;
+      email: string | null;
+      position: string | null;
+      job_title: string | null;
+    }>
+  >;
   managers_by_department: Record<
     string,
     Array<{
@@ -112,8 +123,15 @@ export default function ClassMemoModal({
   function openInMail() {
     if (!memo) return;
     const subject = `Class Memo — ${memo.session.training_name} (${memo.session.session_date})`;
-    // Collect manager emails across all departments (dedup by email).
+    // Collect both attendee and manager emails (dedup by email) so the
+    // memo lands directly in the inboxes of everyone involved — HR
+    // doesn't need to forward it through managers.
     const emails = new Set<string>();
+    for (const list of Object.values(memo.attendees_by_department)) {
+      for (const a of list) {
+        if (a.email) emails.add(a.email);
+      }
+    }
     for (const list of Object.values(memo.managers_by_department)) {
       for (const m of list) {
         if (m.email) emails.add(m.email);

@@ -2,7 +2,6 @@ import { createServerClient } from "@/lib/supabase";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import {
   getManagersByDepartment,
-  formatManagerLine,
   type ManagerRow,
 } from "@/lib/db/managers";
 import { getCurrentHrUser } from "@/lib/auth/current-user";
@@ -162,42 +161,37 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
   memoLines.push("─".repeat(60));
   memoLines.push(`ATTENDEES (${attendees.length})`);
   memoLines.push("─".repeat(60));
+  memoLines.push("");
 
+  // Flat, alphabetized roster — no department headers. HR asked for a
+  // single combined list because the memo goes straight to everyone.
   const sortedDepts = Array.from(byDepartment.keys()).sort();
-  for (const dept of sortedDepts) {
-    const list = byDepartment.get(dept)!;
-    memoLines.push("");
-    memoLines.push(`${dept}  (${list.length})`);
-    for (const emp of list) {
-      const name = `${emp.first_name ?? ""} ${emp.last_name ?? ""}`.trim();
-      const extras: string[] = [];
-      if (emp.job_title) extras.push(emp.job_title);
-      else if (emp.position) extras.push(emp.position);
-      const suffix = extras.length ? ` — ${extras.join(", ")}` : "";
-      memoLines.push(`  • ${name}${suffix}`);
-    }
+  const flatAttendees = sortedDepts.flatMap((d) => byDepartment.get(d) ?? []);
+  flatAttendees.sort((a, b) => {
+    const la = (a.last_name ?? "").toLowerCase();
+    const lb = (b.last_name ?? "").toLowerCase();
+    if (la !== lb) return la.localeCompare(lb);
+    return (a.first_name ?? "").localeCompare(b.first_name ?? "");
+  });
+  for (const emp of flatAttendees) {
+    const name = `${emp.first_name ?? ""} ${emp.last_name ?? ""}`.trim();
+    const extras: string[] = [];
+    if (emp.job_title) extras.push(emp.job_title);
+    else if (emp.position) extras.push(emp.position);
+    const suffix = extras.length ? ` — ${extras.join(", ")}` : "";
+    memoLines.push(`  • ${name}${suffix}`);
   }
 
-  memoLines.push("");
-  memoLines.push("─".repeat(60));
-  memoLines.push("PLEASE FORWARD TO (derived from job titles)");
-  memoLines.push("─".repeat(60));
+  // Managers are still resolved (for the "Open in email" recipient
+  // list on the preview modal) but we no longer print a forward-to
+  // section in the memo body — this memo goes directly to employees
+  // and their managers, so a separate forward list isn't needed.
   const allManagers: ManagerRow[] = [];
   for (const dept of sortedDepts) {
     if (dept === NO_DEPT) continue;
     const mgrs = managersByDept.get(dept) ?? [];
-    if (mgrs.length === 0) continue;
-    memoLines.push("");
-    memoLines.push(`${dept}`);
-    for (const m of mgrs) {
-      memoLines.push(`  • ${formatManagerLine(m)}`);
-      allManagers.push(m);
-    }
+    for (const m of mgrs) allManagers.push(m);
   }
-  memoLines.push("");
-  memoLines.push(
-    `(${allManagers.length} manager(s) identified. Please review before sending.)`
-  );
 
   // Sign-off. Legacy (shared HR password) sessions sign as the
   // generic office; individual Supabase users sign with their name
