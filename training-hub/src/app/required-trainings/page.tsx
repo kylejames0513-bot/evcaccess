@@ -249,34 +249,40 @@ export default function RequiredTrainingsPage() {
     );
   }, [rules, ttById]);
 
-  // Training types that cannot be excused because a Required rule
-  // already covers the scope being excused, OR because every employee
-  // in the selected department already has an excusal for that
-  // training. Used to grey out the corresponding checkboxes when
-  // draft.kind === "excused".
+  // Training types that cannot be picked in the Add Rule form because
+  // a stronger rule already covers them. Applied to both Required and
+  // Excused drafts:
   //
-  //   - Universal required rules lock a training for ALL department
-  //     excusals (e.g. CPR is required for everyone, so HR can't
-  //     create a dept-level excusal for CPR at all).
-  //   - Department-scoped required rules lock the training for
-  //     excusals that target that same department.
-  //   - If an excusal already exists for every selected department on
-  //     that training, lock it too — re-running the bulk-excuse would
-  //     be a no-op and clutters the form.
+  //   - Universally-required trainings lock for ANY new rule: adding
+  //     another Required rule is redundant (CPR is already required
+  //     for everyone) and adding an Excused rule is impossible.
+  //   - Department-scoped required rules lock a training for Excused
+  //     rules targeting that same department (redundant excuse).
+  //   - If every selected department on that training is already
+  //     fully excused, lock it for Excused too.
   //
   // Carries a per-id reason so the UI can show why each row is
-  // disabled. Precedence: "required" reasons win over "already excused"
-  // reasons since they're stronger statements.
+  // disabled.
   const lockedTrainingInfo = useMemo(() => {
     const info = new Map<number, string>();
-    if (draft.kind !== "excused") return info;
 
-    // Universal required rules always lock.
+    // Universally-required trainings always lock — applies to both
+    // Required drafts (would duplicate the rule) and Excused drafts
+    // (you can't excuse something required for everyone).
     for (const r of rules) {
       if (r.is_universal && r.is_required) {
-        info.set(r.training_type_id, "Required universally — can't be excused");
+        info.set(
+          r.training_type_id,
+          draft.kind === "excused"
+            ? "Required universally — can't be excused"
+            : "Already required universally"
+        );
       }
     }
+
+    // The remaining locks only apply to Excused drafts.
+    if (draft.kind !== "excused") return info;
+
     // Department-scoped required rules lock only if the excusal is
     // being created for that same department.
     if (draft.departments.size > 0) {
