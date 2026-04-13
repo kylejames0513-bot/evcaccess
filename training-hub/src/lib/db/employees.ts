@@ -77,11 +77,26 @@ export async function listEmployees(
   query = query.order("last_name").order("first_name");
   if (opts.limit != null) {
     query = query.range(opts.offset ?? 0, (opts.offset ?? 0) + opts.limit - 1);
+    const { data, error } = await query;
+    if (error) throw error;
+    return data ?? [];
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return data ?? [];
+  // Supabase caps unranged selects at 1000 rows by default. Paginate so
+  // callers that want "every employee" (e.g. the scheduler's override mode)
+  // actually get every employee.
+  const allRows: Employee[] = [];
+  const PAGE_SIZE = 1000;
+  let offset = 0;
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    allRows.push(...data);
+    if (data.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+  return allRows;
 }
 
 /**
