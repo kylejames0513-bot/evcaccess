@@ -180,14 +180,27 @@ export default function SchedulePage() {
     setAutoFilling(null);
   }
 
-  async function handleDelete(id: string) {
+  async function handleArchiveScheduled(id: string) {
     setDeleteLoading(true);
     try {
-      // Archive via the new sessions API
       await fetch(`/api/sessions/${id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "archive" }),
+      });
+      refresh();
+    } catch {}
+    setDeleteLoading(false);
+    setDeletingSession(null);
+  }
+
+  async function handleHardDelete(id: string) {
+    setDeleteLoading(true);
+    try {
+      await fetch("/api/delete-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: id }),
       });
       refresh();
     } catch {}
@@ -382,15 +395,25 @@ export default function SchedulePage() {
                       {deletingSession === session.id ? (
                         <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => handleDelete(session.id)}
+                            onClick={() => handleArchiveScheduled(session.id)}
                             disabled={deleteLoading}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+                            title="Move to Past Sessions"
                           >
                             {deleteLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Archive"}
                           </button>
                           <button
+                            onClick={() => handleHardDelete(session.id)}
+                            disabled={deleteLoading}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                            title="Delete session entirely"
+                          >
+                            {deleteLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : "Delete"}
+                          </button>
+                          <button
                             onClick={() => setDeletingSession(null)}
-                            className="px-2 py-1.5 text-xs text-slate-500 hover:text-slate-700"
+                            disabled={deleteLoading}
+                            className="px-2 py-1.5 text-xs text-slate-500 hover:text-slate-700 disabled:opacity-50"
                           >
                             Cancel
                           </button>
@@ -399,7 +422,7 @@ export default function SchedulePage() {
                         <button
                           onClick={() => setDeletingSession(session.id)}
                           className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
-                          title="Archive session"
+                          title="Remove session"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
