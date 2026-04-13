@@ -5,6 +5,7 @@ import {
   formatManagerLine,
   type ManagerRow,
 } from "@/lib/db/managers";
+import { getCurrentHrUser } from "@/lib/auth/current-user";
 import type { NextRequest } from "next/server";
 
 // ============================================================
@@ -56,6 +57,10 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
   const sessionId = params.id;
 
   const db = createServerClient();
+
+  // Resolve the signed-in HR user so we can sign the memo with their
+  // name + title (or "Human Resources" for shared-password sessions).
+  const currentUser = await getCurrentHrUser();
 
   // 1. Load the session + training name
   const { data: session, error: sessErr } = await db
@@ -133,6 +138,10 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
   memoLines.push(`CLASS MEMO — ${trainingName}`);
   memoLines.push("=".repeat(60));
   memoLines.push("");
+  memoLines.push(
+    `This is a reminder that you have an upcoming training for ${trainingName}. Please see details below:`
+  );
+  memoLines.push("");
   memoLines.push(`Date:     ${formatDate(typedSession.session_date)}`);
   memoLines.push(`Time:     ${formatTimeRange(typedSession.start_time, typedSession.end_time)}`);
   memoLines.push(`Location: ${typedSession.location ?? "TBD"}`);
@@ -189,6 +198,21 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
   memoLines.push(
     `(${allManagers.length} manager(s) identified. Please review before sending.)`
   );
+
+  // Sign-off. Legacy (shared HR password) sessions sign as the
+  // generic office; individual Supabase users sign with their name
+  // and job title.
+  memoLines.push("");
+  memoLines.push("");
+  memoLines.push("Thank you,");
+  if (currentUser && !currentUser.isLegacy) {
+    memoLines.push(currentUser.name);
+    if (currentUser.title) {
+      memoLines.push(currentUser.title);
+    }
+  } else {
+    memoLines.push("Human Resources");
+  }
 
   const memoText = memoLines.join("\n");
 
