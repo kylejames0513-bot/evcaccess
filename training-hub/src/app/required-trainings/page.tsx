@@ -23,7 +23,24 @@ interface TrainingTypeOption {
   is_active: boolean;
 }
 
+interface ExcusalRow {
+  id: string;
+  employee_id: string;
+  training_type_id: number;
+  reason: string;
+  source: string;
+  created_at: string;
+  employee_first_name: string | null;
+  employee_last_name: string | null;
+  employee_department: string | null;
+  employee_position: string | null;
+  employee_is_active: boolean | null;
+  training_name: string | null;
+  training_column_key: string | null;
+}
+
 type Scope = "universal" | "department" | "position";
+type RulesTab = Scope | "excusals";
 type RuleKind = "required" | "excused";
 
 interface NewRuleDraft {
@@ -89,6 +106,7 @@ const EXCUSAL_REASONS: { code: string; label: string }[] = [
  */
 export default function RequiredTrainingsPage() {
   const [rules, setRules] = useState<RequiredTraining[]>([]);
+  const [excusals, setExcusals] = useState<ExcusalRow[]>([]);
   const [trainingTypes, setTrainingTypes] = useState<TrainingTypeOption[]>([]);
   const [divisions, setDivisions] = useState<string[]>([]);
   const [positionsForDept, setPositionsForDept] = useState<string[]>([]);
@@ -97,20 +115,24 @@ export default function RequiredTrainingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<NewRuleDraft>(freshDraft);
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState<Scope>("universal");
+  const [tab, setTab] = useState<RulesTab>("universal");
+  const [deletingExcusalId, setDeletingExcusalId] = useState<string | null>(null);
+  const [excusalFilter, setExcusalFilter] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [rRules, rTypes, rDivs] = await Promise.all([
+      const [rRules, rTypes, rDivs, rExcusals] = await Promise.all([
         fetch("/api/required-trainings").then((r) => r.json()),
         fetch("/api/training-types").then((r) => r.json()),
         fetch("/api/divisions").then((r) => r.json()),
+        fetch("/api/excusal").then((r) => r.json()),
       ]);
       if (rRules.error) throw new Error(rRules.error);
       if (rTypes.error) throw new Error(rTypes.error);
       if (rDivs.error) throw new Error(rDivs.error);
+      if (rExcusals.error) throw new Error(rExcusals.error);
       setRules(rRules.required_trainings ?? []);
       setTrainingTypes(
         (rTypes.training_types ?? [])
@@ -120,6 +142,7 @@ export default function RequiredTrainingsPage() {
           )
       );
       setDivisions(rDivs.divisions ?? []);
+      setExcusals(rExcusals.excusals ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -350,9 +373,13 @@ export default function RequiredTrainingsPage() {
       }
 
       // After a successful add, jump the rules table to the tab the
-      // new rules landed in so HR can see their work.
+      // new rules landed in so HR can see their work. Excused rules
+      // land in the excusals table, not required_trainings, so surface
+      // them on the Excusals tab.
       if (draft.kind === "required") {
         setTab(draft.scope);
+      } else {
+        setTab("excusals");
       }
 
       setDraft(freshDraft());
@@ -394,6 +421,56 @@ export default function RequiredTrainingsPage() {
       setError(e instanceof Error ? e.message : "Delete failed");
     }
   }
+
+  async function deleteExcusal(exc: ExcusalRow) {
+    const who =
+      exc.employee_last_name && exc.employee_first_name
+        ? `${exc.employee_first_name} ${exc.employee_last_name}`
+        : "this employee";
+    const what = exc.training_name ?? "this training";
+    if (!confirm(`Remove excusal for ${who} — ${what}?`)) return;
+    setDeletingExcusalId(exc.id);
+    setError(null);
+    try {
+      const res = await fetch("/api/excusal/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employee_id: exc.employee_id,
+          training_type_id: exc.training_type_id,
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Delete failed");
+      // Optimistically drop it from the table so HR sees the effect
+      // immediately; load() below reconciles.
+      setExcusals((list) => list.filter((e) => e.id !== exc.id));
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeletingExcusalId(null);
+    }
+  }
+
+  // Filtered view for the Excusals tab. Matches across employee name,
+  // department, training name, and reason code — the fields the
+  // operator actually searches on when hunting down a specific entry.
+  const filteredExcusals = useMemo(() => {
+    const q = excusalFilter.trim().toLowerCase();
+    if (!q) return excusals;
+    return excusals.filter((e) => {
+      const name = `${e.employee_first_name ?? ""} ${e.employee_last_name ?? ""}`.toLowerCase();
+      return (
+        name.includes(q) ||
+        (e.employee_department ?? "").toLowerCase().includes(q) ||
+        (e.employee_position ?? "").toLowerCase().includes(q) ||
+        (e.training_name ?? "").toLowerCase().includes(q) ||
+        (e.reason ?? "").toLowerCase().includes(q) ||
+        (e.source ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [excusals, excusalFilter]);
 
   const submitLabel = saving
     ? "Saving…"
@@ -766,7 +843,7 @@ export default function RequiredTrainingsPage() {
 
       {/* Tabs */}
       <div className="border-b border-slate-200 flex gap-0">
-        {(["universal", "department", "position"] as const).map((s) => (
+        {(["universal", "department", "position", "excusals"] as const).map((s) => (
           <button
             key={s}
             type="button"
@@ -777,80 +854,196 @@ export default function RequiredTrainingsPage() {
                 : "text-slate-500 hover:text-slate-700"
             }`}
           >
-            {s === "position" ? "Dept + position" : s} ({grouped[s].length})
+            {s === "position"
+              ? "Dept + position"
+              : s === "excusals"
+                ? "Excusals"
+                : s}{" "}
+            ({s === "excusals" ? excusals.length : grouped[s].length})
           </button>
         ))}
       </div>
 
-      {/* Rules table */}
-      <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
-              <th className="px-5 py-3">Training</th>
-              {tab !== "universal" && <th className="px-5 py-3">Department</th>}
-              {tab === "position" && <th className="px-5 py-3">Position</th>}
-              <th className="px-5 py-3">Required?</th>
-              <th className="px-5 py-3">Notes</th>
-              <th className="px-5 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {grouped[tab].map((rule) => (
-              <tr key={rule.id} className="hover:bg-slate-50">
-                <td className="px-5 py-3 font-medium text-slate-900">
-                  {ttById.get(rule.training_type_id)?.name ??
-                    `(unknown #${rule.training_type_id})`}
-                </td>
-                {tab !== "universal" && (
-                  <td className="px-5 py-3 text-slate-700">
-                    {formatDivision(rule.department ?? "")}
+      {/* Rules table — required_trainings view */}
+      {tab !== "excusals" && (
+        <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                <th className="px-5 py-3">Training</th>
+                {tab !== "universal" && <th className="px-5 py-3">Department</th>}
+                {tab === "position" && <th className="px-5 py-3">Position</th>}
+                <th className="px-5 py-3">Required?</th>
+                <th className="px-5 py-3">Notes</th>
+                <th className="px-5 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {grouped[tab].map((rule) => (
+                <tr key={rule.id} className="hover:bg-slate-50">
+                  <td className="px-5 py-3 font-medium text-slate-900">
+                    {ttById.get(rule.training_type_id)?.name ??
+                      `(unknown #${rule.training_type_id})`}
                   </td>
-                )}
-                {tab === "position" && (
-                  <td className="px-5 py-3 text-slate-700">{rule.position}</td>
-                )}
-                <td className="px-5 py-3">
-                  <button
-                    type="button"
-                    onClick={() => toggleRequired(rule)}
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                      rule.is_required
-                        ? "bg-emerald-50 text-emerald-700"
-                        : "bg-slate-100 text-slate-500"
-                    }`}
+                  {tab !== "universal" && (
+                    <td className="px-5 py-3 text-slate-700">
+                      {formatDivision(rule.department ?? "")}
+                    </td>
+                  )}
+                  {tab === "position" && (
+                    <td className="px-5 py-3 text-slate-700">{rule.position}</td>
+                  )}
+                  <td className="px-5 py-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleRequired(rule)}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                        rule.is_required
+                          ? "bg-emerald-50 text-emerald-700"
+                          : "bg-slate-100 text-slate-500"
+                      }`}
+                    >
+                      {rule.is_required ? "Required" : "Waived"}
+                    </button>
+                  </td>
+                  <td className="px-5 py-3 text-slate-500 max-w-sm truncate">
+                    {rule.notes}
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => deleteRule(rule)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                      title="Delete rule"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {!loading && grouped[tab].length === 0 && (
+                <tr>
+                  <td
+                    colSpan={tab === "position" ? 6 : tab === "department" ? 5 : 4}
+                    className="px-5 py-8 text-center text-sm text-slate-400"
                   >
-                    {rule.is_required ? "Required" : "Waived"}
-                  </button>
-                </td>
-                <td className="px-5 py-3 text-slate-500 max-w-sm truncate">
-                  {rule.notes}
-                </td>
-                <td className="px-5 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => deleteRule(rule)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                    title="Delete rule"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {!loading && grouped[tab].length === 0 && (
-              <tr>
-                <td
-                  colSpan={tab === "position" ? 6 : tab === "department" ? 5 : 4}
-                  className="px-5 py-8 text-center text-sm text-slate-400"
-                >
-                  No {tab} rules defined.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                    No {tab} rules defined.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Excusals table — one row per (employee, training) excusal */}
+      {tab === "excusals" && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              type="text"
+              value={excusalFilter}
+              onChange={(e) => setExcusalFilter(e.target.value)}
+              placeholder="Filter by employee, department, training, reason…"
+              className="flex-1 min-w-[240px] px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-slate-400">
+              Showing {filteredExcusals.length} of {excusals.length} excusal
+              {excusals.length === 1 ? "" : "s"}
+            </p>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                  <th className="px-5 py-3">Employee</th>
+                  <th className="px-5 py-3">Department</th>
+                  <th className="px-5 py-3">Training</th>
+                  <th className="px-5 py-3">Reason</th>
+                  <th className="px-5 py-3">Source</th>
+                  <th className="px-5 py-3">Created</th>
+                  <th className="px-5 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredExcusals.map((exc) => {
+                  const name =
+                    exc.employee_last_name || exc.employee_first_name
+                      ? `${exc.employee_last_name ?? ""}, ${exc.employee_first_name ?? ""}`
+                          .replace(/^, /, "")
+                          .replace(/, $/, "")
+                      : `(deleted #${exc.employee_id.slice(0, 8)})`;
+                  const isInactive = exc.employee_is_active === false;
+                  return (
+                    <tr key={exc.id} className="hover:bg-slate-50">
+                      <td className="px-5 py-3 font-medium text-slate-900">
+                        {name}
+                        {isInactive && (
+                          <span className="ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
+                            Inactive
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-slate-700">
+                        {formatDivision(exc.employee_department ?? "")}
+                        {exc.employee_position && (
+                          <span className="text-slate-400 text-xs block">
+                            {exc.employee_position}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3 text-slate-700">
+                        {exc.training_name ??
+                          `(unknown #${exc.training_type_id})`}
+                      </td>
+                      <td className="px-5 py-3">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                          {exc.reason}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-xs text-slate-500">
+                        {exc.source}
+                      </td>
+                      <td className="px-5 py-3 text-xs text-slate-500">
+                        {exc.created_at
+                          ? new Date(exc.created_at).toLocaleDateString()
+                          : ""}
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => deleteExcusal(exc)}
+                          disabled={deletingExcusalId === exc.id}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                          title="Remove excusal"
+                        >
+                          {deletingExcusalId === exc.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!loading && filteredExcusals.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="px-5 py-8 text-center text-sm text-slate-400"
+                    >
+                      {excusals.length === 0
+                        ? "No excusals yet. Use the Add Rule form above with the Excused kind."
+                        : "No excusals match the filter."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

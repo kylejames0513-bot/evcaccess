@@ -1,5 +1,18 @@
 import { setExcusal } from "@/lib/training-data";
+import { listAllExcusalsWithDetails } from "@/lib/db/excusals";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+
+/**
+ * GET /api/excusal
+ *
+ * Returns every excusal in the table joined to the employee + training
+ * fields needed to display it. Consumed by the Required Trainings page's
+ * "Excusals" tab so HR can actually see what they've created.
+ */
+export const GET = withApiHandler(async () => {
+  const excusals = await listAllExcusalsWithDetails();
+  return { excusals };
+});
 
 export const POST = withApiHandler(async (request) => {
   const body = await request.json();
