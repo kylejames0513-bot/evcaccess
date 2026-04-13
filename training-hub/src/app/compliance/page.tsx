@@ -278,7 +278,7 @@ function EmployeeRow({ emp, isOpen, onToggle }: { emp: EmployeeGroup; isOpen: bo
       {isOpen && emp.trainings.map((t, i) => (
         <tr key={`${emp.employee_id}-${t.training_type_id}-${i}`} className="bg-slate-50/60">
           <td className="px-4 py-2"></td>
-          <td className="px-4 py-2 pl-10 text-slate-700" colSpan={2}>
+          <td className="px-4 py-2 pl-10 text-slate-700" colSpan={3}>
             {t.training_type_id ? (
               <Link href={`/trainings/${t.training_type_id}`} className="text-blue-600 hover:underline text-xs">
                 {t.training_name}
@@ -286,15 +286,18 @@ function EmployeeRow({ emp, isOpen, onToggle }: { emp: EmployeeGroup; isOpen: bo
             ) : (
               <span className="text-xs">{t.training_name}</span>
             )}
+            <span className="ml-3 text-xs text-slate-500">
+              {t.completion_date ?? "—"}
+              {t.expiration_date && <span className="text-slate-400"> → {t.expiration_date}</span>}
+              {t.days_overdue != null && t.days_overdue > 0 && (
+                <span className="text-red-600 font-medium ml-1">({t.days_overdue}d overdue)</span>
+              )}
+              {t.status === "excused" && t.excusal_reason && (
+                <span className="text-slate-400 ml-1">· {t.excusal_reason}</span>
+              )}
+            </span>
           </td>
           <td className="px-4 py-2"><StatusBadge status={t.status} /></td>
-          <td className="px-4 py-2 text-xs text-slate-500">
-            {t.completion_date ?? "—"}
-            {t.expiration_date && <span className="text-slate-400"> → {t.expiration_date}</span>}
-            {t.days_overdue != null && t.days_overdue > 0 && (
-              <span className="text-red-600 font-medium ml-1">({t.days_overdue}d overdue)</span>
-            )}
-          </td>
           <td className="px-4 py-2 text-right text-xs text-slate-400">{t.completion_source ?? ""}</td>
         </tr>
       ))}

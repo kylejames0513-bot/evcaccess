@@ -61,17 +61,38 @@ export async function getCurrentHrUser(): Promise<CurrentHrUser | null> {
 
   // Resolve to the employees row so we can sign with their real
   // name and title instead of the raw email on the auth user.
-  const { data: emp } = await db
+  // First try the auth_id link; if that isn't set (legacy accounts),
+  // fall back to matching on email.
+  let emp: {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    job_title: string | null;
+    position: string | null;
+  } | null = null;
+
+  const byAuthId = await db
     .from("employees")
     .select("id, first_name, last_name, job_title, position")
     .eq("auth_id", userData.user.id)
     .maybeSingle();
+  emp = byAuthId.data ?? null;
+
+  const authEmail = userData.user.email ?? null;
+  if (!emp && authEmail) {
+    const byEmail = await db
+      .from("employees")
+      .select("id, first_name, last_name, job_title, position")
+      .ilike("email", authEmail)
+      .maybeSingle();
+    emp = byEmail.data ?? null;
+  }
 
   if (!emp) {
     // Authenticated Supabase user without a matching employee row.
     // Use whatever the auth user exposes, falling back to the email
     // local-part so the memo still has a human name on it.
-    const email = userData.user.email ?? "";
+    const email = authEmail ?? "";
     const fallbackName = email ? email.split("@")[0] : "Human Resources";
     return {
       isLegacy: false,

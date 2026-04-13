@@ -622,10 +622,16 @@ export async function addEnrollees(
 
 /**
  * Remove an enrollee from an existing session.
+ *
+ * When `terminate` is true, also flips the employee's is_active to
+ * false and stamps terminated_at — used by the schedule chip's
+ * "No Longer Employee" action so HR can drop someone from an
+ * upcoming class and deactivate their record in one click.
  */
 export async function removeEnrollee(
   sessionId: string,
-  nameToRemove: string
+  nameToRemove: string,
+  options: { terminate?: boolean } = {}
 ): Promise<{ success: boolean; message: string }> {
   const supabase = createServerClient();
 
@@ -640,6 +646,25 @@ export async function removeEnrollee(
 
   if (error || count === 0) {
     return { success: false, message: `"${nameToRemove}" not found in enrollment` };
+  }
+
+  // findEmployee already filters to is_active=true rows, so anyone we
+  // reach here is still active and safe to deactivate.
+  if (options.terminate) {
+    const { error: termErr } = await supabase
+      .from("employees")
+      .update({ is_active: false, terminated_at: new Date().toISOString() })
+      .eq("id", employee.id);
+    if (termErr) {
+      return {
+        success: true,
+        message: `Removed ${nameToRemove} from enrollment, but failed to deactivate: ${termErr.message}`,
+      };
+    }
+    return {
+      success: true,
+      message: `Removed ${nameToRemove} and marked them as no longer an employee`,
+    };
   }
 
   return { success: true, message: `Removed ${nameToRemove}` };

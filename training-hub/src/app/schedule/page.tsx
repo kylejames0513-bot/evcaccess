@@ -1008,16 +1008,25 @@ function EnrolledChip({
   );
   const columnKey = def?.columnKey || training;
 
-  async function doRemove() {
+  async function doRemove(options: { terminate?: boolean } = {}) {
     setRemoving(true);
     try {
       await fetch("/api/remove-enrollee", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, name }),
+        body: JSON.stringify({ sessionId, name, terminate: options.terminate === true }),
       });
       onRemoved();
     } catch {} finally { setRemoving(false); }
+  }
+
+  async function handleNoLongerEmployee() {
+    const ok = window.confirm(
+      `Mark ${name} as no longer an employee?\n\nThis removes them from this session AND sets their status to inactive in the employee file. You can reactivate them later.`
+    );
+    if (!ok) return;
+    closeOptions();
+    await doRemove({ terminate: true });
   }
 
   async function handleFailed() {
@@ -1151,6 +1160,14 @@ function EnrolledChip({
               ))}
             </div>
           )}
+          <div className="border-t border-slate-100 mt-1 pt-1">
+            <button
+              onClick={handleNoLongerEmployee}
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-red-50 text-red-700 rounded font-medium"
+            >
+              No Longer Employee — remove & deactivate
+            </button>
+          </div>
           <button
             onClick={closeOptions}
             className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-400 rounded"
