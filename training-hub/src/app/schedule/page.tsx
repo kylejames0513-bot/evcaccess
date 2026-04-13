@@ -9,6 +9,27 @@ import { PRIMARY_TRAININGS } from "@/config/primary-trainings";
 import { namesMatch } from "@/lib/name-utils";
 import { trainingMatchesAny } from "@/lib/training-match";
 
+const EXCUSAL_REASONS = [
+  { code: "N/A", label: "N/A (General)" },
+  { code: "Facilities", label: "Facilities" },
+  { code: "MAINT", label: "Maintenance" },
+  { code: "HR", label: "HR" },
+  { code: "ADMIN", label: "Admin" },
+  { code: "FINANCE", label: "Finance" },
+  { code: "IT", label: "IT" },
+  { code: "NURSE", label: "Nurse" },
+  { code: "LPN", label: "LPN" },
+  { code: "RN", label: "RN" },
+  { code: "DIR", label: "Director" },
+  { code: "MGR", label: "Manager" },
+  { code: "SUPERVISOR", label: "Supervisor" },
+  { code: "TRAINER", label: "Trainer" },
+  { code: "BH", label: "Behavioral Health" },
+  { code: "ELC", label: "ELC" },
+  { code: "EI", label: "EI" },
+  { code: "BOARD", label: "Board of Directors" },
+];
+
 interface SessionData {
   id: string;
   training: string;
@@ -840,6 +861,7 @@ function EnrolledChip({
   const [removing, setRemoving] = useState(false);
   const [showDateInput, setShowDateInput] = useState(false);
   const [prevDate, setPrevDate] = useState("");
+  const [showExcuseInput, setShowExcuseInput] = useState(false);
 
   // Find the training column key
   const def = PRIMARY_TRAININGS.find(
@@ -885,6 +907,23 @@ function EnrolledChip({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ employeeName: name, trainingColumnKey: columnKey, completionDate: prevDate.trim() }),
+      });
+      await doRemove();
+    } catch { setRemoving(false); }
+  }
+
+  async function handleExcuse(reason: string) {
+    setRemoving(true);
+    try {
+      await fetch("/api/excusal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeName: name,
+          trainingColumnKey: columnKey,
+          excused: true,
+          reason,
+        }),
       });
       await doRemove();
     } catch { setRemoving(false); }
@@ -946,8 +985,30 @@ function EnrolledChip({
               </button>
             </div>
           )}
+          {!showExcuseInput ? (
+            <button
+              onClick={() => setShowExcuseInput(true)}
+              className="w-full text-left px-3 py-1.5 text-xs hover:bg-amber-50 text-amber-700 rounded"
+            >
+              Excused — log reason
+            </button>
+          ) : (
+            <div className="px-2 py-1.5">
+              <select
+                autoFocus
+                defaultValue=""
+                onChange={(e) => { if (e.target.value) handleExcuse(e.target.value); }}
+                className="w-full px-2 py-1 border border-slate-200 rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-amber-500"
+              >
+                <option value="" disabled>Reason...</option>
+                {EXCUSAL_REASONS.map((r) => (
+                  <option key={r.code} value={r.code}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <button
-            onClick={() => { setShowOptions(false); setShowDateInput(false); }}
+            onClick={() => { setShowOptions(false); setShowDateInput(false); setShowExcuseInput(false); }}
             className="w-full text-left px-3 py-1.5 text-xs hover:bg-slate-50 text-slate-400 rounded"
           >
             Cancel
