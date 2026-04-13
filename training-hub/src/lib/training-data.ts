@@ -461,6 +461,73 @@ export async function recordCompletion(
 }
 
 /**
+ * Clear every completion record for (employee, column_key). This is
+ * the escape hatch HR uses when a prior session stamped a bogus
+ * completion on someone — e.g. a no-show that somehow got a date —
+ * so they can enroll them in an initial class fresh. Because an
+ * "Initial X / X Recert" pair shares a column_key, we wipe rows for
+ * both training_type rows in one shot. The supplied reason is
+ * written to the training_note hub_settings row so there's an audit
+ * trail the employee detail modal will surface.
+ */
+export async function clearCompletionByColumnKey(
+  employeeName: string,
+  trainingColumnKey: string,
+  reason: string
+): Promise<{ success: boolean; message: string; deleted: number }> {
+  const supabase = createServerClient();
+
+  const employee = await findEmployee(supabase, employeeName);
+  if (!employee) {
+    return { success: false, message: `Employee "${employeeName}" not found`, deleted: 0 };
+  }
+
+  const { data: trainingTypes, error: ttErr } = await supabase
+    .from("training_types")
+    .select("id, name, column_key")
+    .ilike("column_key", trainingColumnKey);
+  if (ttErr) {
+    return { success: false, message: `Database error: ${ttErr.message}`, deleted: 0 };
+  }
+  if (!trainingTypes || trainingTypes.length === 0) {
+    return {
+      success: false,
+      message: `Training "${trainingColumnKey}" not found`,
+      deleted: 0,
+    };
+  }
+
+  const ids = trainingTypes.map((t) => t.id);
+  const { error: delErr, count } = await supabase
+    .from("training_records")
+    .delete({ count: "exact" })
+    .eq("employee_id", employee.id)
+    .in("training_type_id", ids);
+  if (delErr) {
+    return { success: false, message: `Database error: ${delErr.message}`, deleted: 0 };
+  }
+
+  // Leave an audit breadcrumb via the existing training_note mechanism
+  // so HR can see, later, why this person's date was blown away.
+  const trimmedReason = reason.trim();
+  if (trimmedReason) {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const noteValue = `Cleared ${stamp}: ${trimmedReason}`;
+    const settingsKey = `${employeeName}|${trainingColumnKey}`;
+    await supabase.from("hub_settings").upsert(
+      { type: "training_note", key: settingsKey, value: noteValue },
+      { onConflict: "type,key" }
+    );
+  }
+
+  return {
+    success: true,
+    message: `Cleared ${count ?? 0} completion record(s) for ${employeeName} — ${trainingTypes[0].name}`,
+    deleted: count ?? 0,
+  };
+}
+
+/**
  * Set or clear an excusal for an employee's training.
  */
 export async function setExcusal(

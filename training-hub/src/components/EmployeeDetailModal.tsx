@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { UserPlus, X, Loader2, Check, Clock, XCircle, AlertTriangle, CheckCircle, CalendarPlus, ShieldOff, ShieldCheck, Ban, PenLine, MessageSquare } from "lucide-react";
+import { UserPlus, X, Loader2, Check, Clock, XCircle, AlertTriangle, CheckCircle, CalendarPlus, ShieldOff, ShieldCheck, Ban, PenLine, MessageSquare, Eraser } from "lucide-react";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import { EXCUSAL_REASONS } from "@/config/excusal-reasons";
 import StatusBadge from "@/components/ui/StatusBadge";
@@ -107,6 +107,9 @@ export default function EmployeeDetailModal({ name, onClose, onEnrolled }: { nam
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [noteText, setNoteText] = useState("");
   const [savingNote, setSavingNote] = useState(false);
+  const [clearingDate, setClearingDate] = useState<string | null>(null);
+  const [clearReason, setClearReason] = useState("");
+  const [savingClear, setSavingClear] = useState(false);
 
   useEffect(() => {
     setLoadingDetail(true);
@@ -209,6 +212,30 @@ export default function EmployeeDetailModal({ name, onClose, onEnrolled }: { nam
       setDetailRefresh((k) => k + 1);
     } catch {}
     setSavingDate(false);
+  }
+
+  async function handleClearDate(columnKey: string) {
+    const reason = clearReason.trim();
+    if (!reason) return;
+    setSavingClear(true);
+    try {
+      const res = await fetch("/api/clear-completion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeName: name,
+          trainingColumnKey: columnKey,
+          reason,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setClearingDate(null);
+      setClearReason("");
+      setDetailRefresh((k) => k + 1);
+      onEnrolled();
+    } catch {}
+    setSavingClear(false);
   }
 
   async function handleClearNoShows() {
@@ -350,6 +377,16 @@ export default function EmployeeDetailModal({ name, onClose, onEnrolled }: { nam
                             <PenLine className="h-3 w-3" /> Log Date
                           </button>
                         )}
+                        {/* Clear Date button — only when a completion exists */}
+                        {t.date && !t.isExcused && clearingDate !== t.columnKey && (
+                          <button
+                            onClick={() => { setClearingDate(t.columnKey); setClearReason(""); }}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-slate-50 text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                            title="Clear completion date (e.g. person was a no-show)"
+                          >
+                            <Eraser className="h-3 w-3" /> Clear Date
+                          </button>
+                        )}
                         {/* Add Note button */}
                         {!notes[t.columnKey] && editingNote !== t.columnKey && (
                           <button
@@ -388,6 +425,39 @@ export default function EmployeeDetailModal({ name, onClose, onEnrolled }: { nam
                         >
                           Cancel
                         </button>
+                      </div>
+                    )}
+
+                    {/* Inline "clear date" reason form */}
+                    {clearingDate === t.columnKey && (
+                      <div className="mt-2 ml-7">
+                        <p className="text-[11px] text-slate-500 mb-1">
+                          Reason for clearing the date (e.g. &quot;no-show on {t.date}&quot;):
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={clearReason}
+                            onChange={(e) => setClearReason(e.target.value)}
+                            placeholder="e.g., no-show, needs initial"
+                            autoFocus
+                            className="flex-1 min-w-0 px-2 py-1 border border-slate-200 rounded text-xs focus:outline-none focus:ring-2 focus:ring-red-500"
+                          />
+                          <button
+                            onClick={() => handleClearDate(t.columnKey)}
+                            disabled={savingClear || !clearReason.trim()}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                          >
+                            {savingClear ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eraser className="h-3 w-3" />}
+                            Clear
+                          </button>
+                          <button
+                            onClick={() => { setClearingDate(null); setClearReason(""); }}
+                            className="px-2 py-1 text-xs text-slate-400 hover:text-slate-600"
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
                     )}
 
