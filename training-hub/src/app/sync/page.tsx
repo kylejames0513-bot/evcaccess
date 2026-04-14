@@ -1,37 +1,42 @@
 "use client";
 
-import { useState } from "react";
-import {
-  RefreshCw,
-  ExternalLink,
-  Database,
-  Users,
-  Calendar,
-  ShieldCheck,
-  CheckCircle2,
-  AlertCircle,
-} from "lucide-react";
-import StatCard from "@/components/ui/StatCard";
+import { RefreshCw, ExternalLink, Activity, AlertTriangle } from "lucide-react";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
 
-interface SyncLogEntry {
-  timestamp: string;
-  source: string;
-  applied: number;
-  skipped: number;
-  errors: number;
-}
-
-interface SyncStatusResponse {
-  counts: {
+interface SyncSummaryData {
+  roster: {
     activeEmployees: number;
-    trainingRecords: number;
-    excusals: number;
+    inactiveEmployees: number;
+  };
+  records: {
+    totalTrainingRecords: number;
+    totalExcusals: number;
     upcomingSessions: number;
   };
-  lastSync: SyncLogEntry | null;
-  recentSyncs: SyncLogEntry[];
+  recentSyncs: Array<{
+    timestamp: string;
+    source: string;
+    applied: number;
+    skipped: number;
+    errors: number;
+  }>;
+  latestSync: {
+    timestamp: string;
+    source: string;
+    applied: number;
+    skipped: number;
+    errors: number;
+  } | null;
+  dataQuality: {
+    total: number;
+    missingDepartment: number;
+    missingHireDate: number;
+    badDates: number;
+    duplicates: number;
+    orphanRecords: number;
+    orphanExcusals: number;
+  };
 }
 
 function formatTimestamp(ts: string): string {
@@ -41,76 +46,33 @@ function formatTimestamp(ts: string): string {
 }
 
 export default function SyncPage() {
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [refreshing, setRefreshing] = useState(false);
-  const { data, loading, error } = useFetch<SyncStatusResponse>(
-    `/api/sync-status?r=${refreshKey}`
-  );
+  const { data, loading, error } = useFetch<SyncSummaryData>("/api/sync/summary");
 
-  async function refreshAll() {
-    setRefreshing(true);
-    try {
-      await fetch("/api/refresh", { method: "POST" });
-      setRefreshKey((k) => k + 1);
-    } catch {}
-    setRefreshing(false);
-  }
-
-  if (loading && !data) return <Loading message="Loading sync status..." />;
+  if (loading) return <Loading message="Loading sync dashboard..." />;
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
 
-  const { counts, lastSync, recentSyncs } = data;
-
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      {/* Header */}
+    <div className="space-y-6 max-w-6xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Sync</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Supabase is the source of truth. Sync new employee data and training
-          completions from Google Sheets, then refresh the app cache.
+        <h1 className="text-2xl font-bold text-slate-900">Google Sheets Sync</h1>
+        <p className="text-sm text-slate-500 mt-1">
+          Monitor sync health, compliance data freshness, and quality checks.
         </p>
       </div>
 
-      {/* Counts */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard
-          title="Active Employees"
-          value={counts.activeEmployees}
-          icon={Users}
-          color="blue"
-        />
-        <StatCard
-          title="Training Records"
-          value={counts.trainingRecords}
-          icon={Database}
-          color="green"
-        />
-        <StatCard
-          title="Excusals"
-          value={counts.excusals}
-          icon={ShieldCheck}
-          color="purple"
-        />
-        <StatCard
-          title="Upcoming Sessions"
-          value={counts.upcomingSessions}
-          icon={Calendar}
-          color="yellow"
-        />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard label="Active Employees" value={data.roster.activeEmployees} />
+        <StatCard label="Training Records" value={data.records.totalTrainingRecords} />
+        <StatCard label="Excusals" value={data.records.totalExcusals} />
+        <StatCard label="Upcoming Sessions" value={data.records.upcomingSessions} />
       </div>
 
-      {/* Actions */}
-      <div className="grid sm:grid-cols-2 gap-4">
+      <div className="grid lg:grid-cols-2 gap-4">
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <h2 className="text-base font-semibold text-slate-900">
-            Sync from Google Sheet
-          </h2>
+          <h2 className="text-base font-semibold text-slate-900">Run Sync</h2>
           <p className="text-xs text-slate-500 mt-1 mb-4">
-            Open the EVC training spreadsheet, then run{" "}
-            <strong>Supabase Sync → Build Merged Sheet → Push Merged → Supabase</strong>{" "}
-            from the menu.
+            Use your Apps Script menu: <strong>Supabase Sync → Build Merged Sheet → Push Merged → Supabase</strong>.
           </p>
           <a
             href="https://docs.google.com/spreadsheets"
@@ -119,102 +81,110 @@ export default function SyncPage() {
             className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
           >
             <ExternalLink className="h-4 w-4" />
-            Open Google Sheet
+            Open Google Sheets
           </a>
         </div>
 
         <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <h2 className="text-base font-semibold text-slate-900">Refresh App</h2>
-          <p className="text-xs text-slate-500 mt-1 mb-4">
-            Clear the app&apos;s in-memory caches to immediately reflect the
-            latest Supabase data.
-          </p>
-          <button
-            onClick={refreshAll}
-            disabled={refreshing}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
-            />
-            Refresh Now
-          </button>
+          <h2 className="text-base font-semibold text-slate-900">Latest Sync</h2>
+          {data.latestSync ? (
+            <div className="mt-2 space-y-1.5 text-sm">
+              <p className="text-slate-700">{formatTimestamp(data.latestSync.timestamp)}</p>
+              <p className="text-slate-500">Source: {data.latestSync.source}</p>
+              <p className="text-emerald-700">
+                {data.latestSync.applied} applied
+                <span className="text-slate-400"> · {data.latestSync.skipped} skipped</span>
+              </p>
+              {data.latestSync.errors > 0 && (
+                <p className="text-red-600">{data.latestSync.errors} errors</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500 mt-2">No sync log entries yet.</p>
+          )}
         </div>
       </div>
 
-      {/* Last sync */}
-      {lastSync && (
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
-          <h2 className="text-base font-semibold text-slate-900 mb-3">
-            Last Sync
-          </h2>
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <span className="text-slate-700">
-              {formatTimestamp(lastSync.timestamp)}
-            </span>
-            <span className="text-slate-400">·</span>
-            <span className="text-slate-500">{lastSync.source}</span>
-            <span className="text-slate-400">·</span>
-            <span className="text-emerald-700">
-              {lastSync.applied} applied
-            </span>
-            <span className="text-slate-400">·</span>
-            <span className="text-slate-500">{lastSync.skipped} skipped</span>
-            {lastSync.errors > 0 && (
-              <>
-                <span className="text-slate-400">·</span>
-                <span className="text-red-700">{lastSync.errors} errors</span>
-              </>
-            )}
-          </div>
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-slate-900">Data Quality Snapshot</h2>
+          <a
+            href="/data-health"
+            className="text-xs text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-1"
+          >
+            <Activity className="h-3.5 w-3.5" />
+            View full report
+          </a>
         </div>
-      )}
+        <div className="p-5 grid sm:grid-cols-3 gap-3">
+          <IssueCard label="Total Issues" value={data.dataQuality.total} tone={data.dataQuality.total > 0 ? "red" : "green"} />
+          <IssueCard label="Missing Department" value={data.dataQuality.missingDepartment} tone={data.dataQuality.missingDepartment > 0 ? "amber" : "green"} />
+          <IssueCard label="Missing Hire Date" value={data.dataQuality.missingHireDate} tone={data.dataQuality.missingHireDate > 0 ? "amber" : "green"} />
+          <IssueCard label="Bad Dates" value={data.dataQuality.badDates} tone={data.dataQuality.badDates > 0 ? "amber" : "green"} />
+          <IssueCard label="Duplicate Employees" value={data.dataQuality.duplicates} tone={data.dataQuality.duplicates > 0 ? "amber" : "green"} />
+          <IssueCard label="Orphans" value={data.dataQuality.orphanRecords + data.dataQuality.orphanExcusals} tone={data.dataQuality.orphanRecords + data.dataQuality.orphanExcusals > 0 ? "amber" : "green"} />
+        </div>
+      </div>
 
-      {/* Recent history */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="text-base font-semibold text-slate-900">
-            Recent Sync History
-          </h2>
+          <h2 className="text-base font-semibold text-slate-900">Recent Sync History</h2>
         </div>
-        {recentSyncs.length === 0 ? (
-          <div className="px-5 py-8 text-center text-sm text-slate-400">
-            No sync history yet.
-          </div>
+        {data.recentSyncs.length === 0 ? (
+          <div className="px-5 py-8 text-center text-sm text-slate-400">No sync history yet.</div>
         ) : (
           <div className="divide-y divide-slate-100">
-            {recentSyncs.map((entry) => (
-              <div
-                key={entry.timestamp}
-                className="px-5 py-3 flex items-center gap-3 text-sm hover:bg-slate-50"
-              >
+            {data.recentSyncs.map((entry) => (
+              <div key={entry.timestamp} className="px-5 py-3 flex items-center gap-3 text-sm hover:bg-slate-50">
                 {entry.errors > 0 ? (
-                  <AlertCircle className="h-4 w-4 text-red-500 shrink-0" />
+                  <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
                 ) : (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                  <RefreshCw className="h-4 w-4 text-emerald-500 shrink-0" />
                 )}
-                <span className="text-slate-700 font-medium">
-                  {formatTimestamp(entry.timestamp)}
-                </span>
+                <span className="text-slate-700 font-medium">{formatTimestamp(entry.timestamp)}</span>
                 <span className="text-slate-400">·</span>
                 <span className="text-xs text-slate-500">{entry.source}</span>
                 <span className="ml-auto text-xs text-slate-500">
-                  <span className="text-emerald-700 font-medium">
-                    {entry.applied}
-                  </span>{" "}
-                  applied · {entry.skipped} skipped
-                  {entry.errors > 0 && (
-                    <>
-                      {" "}
-                      · <span className="text-red-700">{entry.errors} err</span>
-                    </>
-                  )}
+                  <span className="text-emerald-700 font-medium">{entry.applied}</span>
+                  {" "}applied · {entry.skipped} skipped
+                  {entry.errors > 0 && <> · <span className="text-red-700">{entry.errors} err</span></>}
                 </span>
               </div>
             ))}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="text-2xl font-bold text-slate-900 mt-1">{value}</p>
+    </div>
+  );
+}
+
+function IssueCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "green" | "amber" | "red";
+}) {
+  const toneClass: Record<typeof tone, string> = {
+    green: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    amber: "bg-amber-50 text-amber-700 border-amber-200",
+    red: "bg-red-50 text-red-700 border-red-200",
+  };
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${toneClass[tone]}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-wide">{label}</p>
+      <p className="text-xl font-bold mt-0.5">{value}</p>
     </div>
   );
 }

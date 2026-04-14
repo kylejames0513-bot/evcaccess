@@ -10,7 +10,10 @@ export function Loading({ message = "Loading data..." }: { message?: string }) {
 }
 
 export function ErrorState({ message }: { message: string }) {
-  const isConnectionError = message.includes("GOOGLE_") || message.includes("env var");
+  const isConnectionError =
+    message.toLowerCase().includes("google") ||
+    message.includes("GOOGLE_") ||
+    message.includes("env var");
 
   return (
     <div className="flex flex-col items-center justify-center py-20">
@@ -26,8 +29,8 @@ export function ErrorState({ message }: { message: string }) {
         <p className="text-sm text-slate-500">{message}</p>
         {isConnectionError && (
           <p className="text-xs text-slate-400 mt-3">
-            Set up your .env.local file with Google service account credentials.
-            See .env.local.example for instructions.
+            Check your Google Sheets sync token/credentials and environment variables.
+            See .env.local.example for setup.
           </p>
         )}
       </div>
