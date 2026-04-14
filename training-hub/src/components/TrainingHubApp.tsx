@@ -944,59 +944,6 @@ export function TrainingHubApp() {
     }
   }
 
-  const reportNeedsRows = useMemo(() => {
-    if (!reportsApi.data?.employees) return [];
-    return reportsApi.data.employees
-      .map((row) => ({
-        employee: row.employee,
-        division: row.division,
-        missingCount: row.missing?.length ?? 0,
-        topItems: (row.missing ?? [])
-          .slice(0, 3)
-          .map((item) => `${item.training} (${item.status.replace("_", " ")})`),
-      }))
-      .sort((a, b) => b.missingCount - a.missingCount);
-  }, [reportsApi.data?.employees]);
-
-  function exportComplianceCsv(): void {
-    const header = [
-      "employee",
-      "division",
-      "training",
-      "status",
-      "completed",
-      "expires",
-      "tier",
-    ];
-    const rows = filteredComplianceRows.map((row) => [
-      `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim(),
-      row.division ?? row.department ?? "",
-      row.training_name ?? "",
-      row.status ?? "",
-      row.completion_date ?? "",
-      row.expiration_date ?? "",
-      row.tier ?? "",
-    ]);
-    const csvLines = [header, ...rows].map((line) =>
-      line
-        .map((value) => {
-          const normalized = String(value ?? "");
-          if (normalized.includes(",") || normalized.includes('"') || normalized.includes("\n")) {
-            return `"${normalized.replace(/"/g, '""')}"`;
-          }
-          return normalized;
-        })
-        .join(","),
-    );
-    const blob = new Blob([csvLines.join("\n")], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `compliance-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
   function renderMiniStats(stats: MiniStat[]): ReactElement {
     return (
       <section className={styles.miniStatsGrid}>
