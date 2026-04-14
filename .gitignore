@@ -1,2 +1,4 @@
 .claude/worktrees/
 *.xlsx
+__pycache__/
+*.pyc
