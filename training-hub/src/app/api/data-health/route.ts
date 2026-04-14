@@ -5,11 +5,16 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 // Data Quality scan — Supabase-native checks
 // ============================================================
 
-async function fetchAllPaged<T>(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  buildQuery: () => { range: (from: number, to: number) => any },
-  pageSize = 1000
-): Promise<T[]> {
+type PagedResponse<T> = {
+  data: T[] | null;
+  error: { message: string } | null;
+};
+
+type PagedQuery<T> = {
+  range: (from: number, to: number) => PromiseLike<PagedResponse<T>>;
+};
+
+async function fetchAllPaged<T>(buildQuery: () => PagedQuery<T>, pageSize = 1000): Promise<T[]> {
   const out: T[] = [];
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await buildQuery().range(offset, offset + pageSize - 1);
