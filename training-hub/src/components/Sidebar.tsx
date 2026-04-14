@@ -4,57 +4,38 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  CalendarPlus,
-  Users,
-  GraduationCap,
-  Settings,
   ClipboardCheck,
-  ShieldCheck,
   UserCheck,
-  Bell,
-  FileText,
-  HeartPulse,
   UserPlus,
-  BarChart3,
+  UserMinus,
   RefreshCw,
-  Zap,
-  Upload,
-  ListChecks,
+  CalendarPlus,
   PenLine,
+  ShieldCheck,
+  Users,
   LogOut,
 } from "lucide-react";
 
 const mainNav = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/", label: "Hub Overview", icon: LayoutDashboard },
   { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
-  { href: "/employees", label: "Employees", icon: Users },
   { href: "/schedule", label: "Schedule", icon: CalendarPlus },
   { href: "/attendance", label: "Attendance", icon: UserCheck },
-  { href: "/records", label: "Records", icon: FileText },
 ];
 
-const workflowNav = [
-  { href: "/imports", label: "Imports", icon: Upload },
-  { href: "/review", label: "Review Queue", icon: ListChecks },
+const trackerNav = [
   { href: "/new-hires", label: "New Hires", icon: UserPlus },
-  { href: "/reports", label: "Reports", icon: BarChart3 },
-  { href: "/notifications", label: "Notifications", icon: Bell },
+  { href: "/reports", label: "Separations", icon: UserMinus },
+  { href: "/employees", label: "Employees", icon: Users },
 ];
 
 const systemNav = [
-  { href: "/trainings", label: "Training Types", icon: GraduationCap },
-  { href: "/required-trainings", label: "Required Trainings", icon: ShieldCheck },
-  { href: "/data-health", label: "Data Quality", icon: HeartPulse },
-  { href: "/sync", label: "Sync", icon: RefreshCw },
+  { href: "/sync", label: "Google Sheets Sync", icon: RefreshCw },
+  { href: "/data-health", label: "Data Quality", icon: ShieldCheck },
   { href: "/signin", label: "Public Sign In", icon: PenLine },
-  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-interface SidebarProps {
-  onQuickRecord?: () => void;
-}
-
-export default function Sidebar({ onQuickRecord }: SidebarProps) {
+export default function Sidebar() {
   const pathname = usePathname();
 
   function navLink(item: { href: string; label: string; icon: React.ComponentType<{ className?: string }> }) {
@@ -81,25 +62,14 @@ export default function Sidebar({ onQuickRecord }: SidebarProps) {
       {/* Logo */}
       <div className="px-5 py-5 border-b border-slate-100">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
-            <GraduationCap className="h-[18px] w-[18px] text-white" />
+          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
+            HR
           </div>
           <div>
             <h1 className="text-[15px] font-bold text-slate-900 leading-tight">EVC Training</h1>
             <p className="text-[11px] text-slate-400 font-medium">Emory Valley Center</p>
           </div>
         </div>
-      </div>
-
-      {/* Quick Record button */}
-      <div className="px-4 py-3">
-        <button
-          onClick={onQuickRecord}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition-colors shadow-sm"
-        >
-          <Zap className="h-4 w-4 shrink-0" />
-          Record Training
-        </button>
       </div>
 
       {/* Navigation */}
@@ -115,10 +85,10 @@ export default function Sidebar({ onQuickRecord }: SidebarProps) {
 
         <div>
           <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Workflow
+            Trackers
           </p>
           <div className="space-y-0.5">
-            {workflowNav.map(navLink)}
+            {trackerNav.map(navLink)}
           </div>
         </div>
 
@@ -135,7 +105,7 @@ export default function Sidebar({ onQuickRecord }: SidebarProps) {
       {/* Footer */}
       <div className="px-4 py-3 border-t border-slate-100 flex items-center justify-between">
         <div>
-          <p className="text-xs font-semibold text-slate-700">Kyle Mahoney</p>
+          <p className="text-xs font-semibold text-slate-700">HR Personnel</p>
           <p className="text-[11px] text-slate-400">HR Admin</p>
         </div>
         <button
