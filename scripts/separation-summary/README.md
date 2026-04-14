@@ -79,6 +79,27 @@ Three macros live in `HubSync.bas`:
 - **Manually**: click a button on the Dashboard, or `Alt+F8 → HubSync.HubSync → Run` / `HubSync.PullHireDates → Run` / `HubSync.SnapshotHeadcount → Run`.
 - **On open (optional)**: in the VBA editor, open `ThisWorkbook`, add a `Workbook_Open()` handler, and call `HubSync.HubSync` from it.
 
+## New workbook-side HR outputs (macro-generated)
+
+The macro now writes richer HR-ready information directly into workbook sheets:
+
+- **`Sync Log` now includes richer columns** (A:P):
+  - timestamp, user, FY sheet, row, name, separation date, action, employee id, match type, details
+  - **division, department, position, hire date, tenure days, paylocity id**
+- **`Headcount Ledger` now tracks ambiguous matches** too (A:L):
+  - adds an explicit **Ambiguous** column between No Match and Failed
+- **`HR Separation Summary`** (new sheet):
+  - sync outcome totals (synced / already inactive / no match / ambiguous / failed)
+  - HR metrics (total separated, last 30/90, YTD, avg tenure days, unknown hire-date count)
+  - last-12-month separation trend
+  - top divisions and departments by separation volume
+  - detailed recent records (up to 500 rows) with HR fields and filters
+
+The summary sheet is regenerated each run of:
+- `HubSync.HubSync`
+- `HubSync.PullHireDates`
+- `HubSync.SnapshotHeadcount`
+
 ## What the macro does
 
 For every row on the currently selected FY sheet (determined by `Dashboard!B5`):
@@ -122,3 +143,4 @@ The old plan added a `Do Not Sync` column to every FY sheet. We dropped it to ke
 - **"NO_MATCH" rows in Sync Log** — the name doesn't resolve to any active employee in hub/Supabase; verify spelling and whether they are already inactive.
 - **"AMBIGUOUS" rows in Sync Log** — multiple candidates matched; resolve in hub before retrying.
 - **Headcount snapshot missing** — `/api/sync/roster` call failed (network/token/config); rerun `HubSync` or `SnapshotHeadcount` after connectivity is restored.
+- **No values in new HR columns (Division/Department/Tenure)** — verify `/api/sync/roster?include_inactive=true` is reachable with the same token; those fields are enriched from roster data.

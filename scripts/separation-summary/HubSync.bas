@@ -34,6 +34,7 @@ Private Const DATA_LAST_ROW As Long = 413
 ' --------- Internal sheets ---------
 Private Const LOG_SHEET As String = "Sync Log"
 Private Const HEADCOUNT_SHEET As String = "Headcount Ledger"
+Private Const HR_SUMMARY_SHEET As String = "HR Separation Summary"
 
 Public Sub HubSync()
     Dim answer As VbMsgBoxResult
@@ -62,8 +63,9 @@ Public Sub PullHireDates()
 End Sub
 
 Public Sub SnapshotHeadcount()
-    Dim synced As Long, alreadyInactive As Long, noMatch As Long, failed As Long
-    RecordHeadcountSnapshot "MANUAL_SNAPSHOT", "", synced, alreadyInactive, noMatch, failed, "Manual snapshot"
+    Dim synced As Long, alreadyInactive As Long, noMatch As Long, ambiguous As Long, failed As Long
+    RecordHeadcountSnapshot "MANUAL_SNAPSHOT", "", synced, alreadyInactive, noMatch, ambiguous, failed, "Manual snapshot"
+    RefreshHrSummary
     MsgBox "Headcount snapshot recorded.", vbInformation, "Headcount Ledger"
 End Sub
 
@@ -78,6 +80,7 @@ Private Sub RunHubSync(ByVal silent As Boolean)
     Dim wsLog As Worksheet
     Set wsLog = EnsureLogSheet()
     EnsureHeadcountSheet
+    EnsureHrSummarySheet
 
     Dim syncedKeys As Object
     Set syncedKeys = LoadSyncedKeys(wsLog)
@@ -94,7 +97,8 @@ Private Sub RunHubSync(ByVal silent As Boolean)
 
     If queued = 0 Then
         Dim zero As Long
-        RecordHeadcountSnapshot "SEPARATION_SYNC", wsFY.Name, zero, zero, zero, zero, "No eligible rows to push"
+        RecordHeadcountSnapshot "SEPARATION_SYNC", wsFY.Name, zero, zero, zero, zero, zero, "No eligible rows to push"
+        RefreshHrSummary
         If Not silent Then
             MsgBox "No eligible separation rows found." & vbCrLf & _
                    "Skipped locally: " & skippedLocal, vbInformation, "Hub Sync"
@@ -114,19 +118,24 @@ Private Sub RunHubSync(ByVal silent As Boolean)
     If statusCode < 200 Or statusCode >= 300 Then
         failed = queued
         LogApiFailureRows wsLog, metaByRow, "HTTP " & statusCode & " " & Left(responseText, 300)
-        RecordHeadcountSnapshot "SEPARATION_SYNC", wsFY.Name, synced, alreadyInactive, noMatch, failed, "Hub call failed"
+        RecordHeadcountSnapshot "SEPARATION_SYNC", wsFY.Name, synced, alreadyInactive, noMatch, ambiguous, failed, "Hub call failed"
+        RefreshHrSummary
         If Not silent Then
             MsgBox "Hub sync failed: HTTP " & statusCode & vbCrLf & Left(responseText, 700), vbExclamation, "Hub Sync"
         End If
         Exit Sub
     End If
 
-    If Not ProcessSeparationResults(responseText, wsLog, metaByRow, syncedKeys, synced, alreadyInactive, noMatch, ambiguous, failed) Then
+    Dim rosterById As Object
+    Set rosterById = FetchRosterById()
+
+    If Not ProcessSeparationResults(responseText, wsLog, metaByRow, syncedKeys, rosterById, synced, alreadyInactive, noMatch, ambiguous, failed) Then
         failed = queued
         LogApiFailureRows wsLog, metaByRow, "Could not parse /api/sync/separations response"
     End If
 
-    RecordHeadcountSnapshot "SEPARATION_SYNC", wsFY.Name, synced, alreadyInactive, noMatch, failed, "Hub separation push"
+    RecordHeadcountSnapshot "SEPARATION_SYNC", wsFY.Name, synced, alreadyInactive, noMatch, ambiguous, failed, "Hub separation push"
+    RefreshHrSummary
 
     If Not silent Then
         MsgBox "Hub Sync complete on " & wsFY.Name & vbCrLf & vbCrLf & _
@@ -192,8 +201,9 @@ NextRow:
 End Sub
 
 Private Function ProcessSeparationResults(ByVal json As String, ByVal wsLog As Worksheet, ByRef metaByRow As Object, _
-                                          ByRef syncedKeys As Object, ByRef synced As Long, ByRef alreadyInactive As Long, _
-                                          ByRef noMatch As Long, ByRef ambiguous As Long, ByRef failed As Long) As Boolean
+                                          ByRef syncedKeys As Object, ByVal rosterById As Object, ByRef synced As Long, _
+                                          ByRef alreadyInactive As Long, ByRef noMatch As Long, ByRef ambiguous As Long, _
+                                          ByRef failed As Long) As Boolean
     On Error GoTo ParseErr
 
     Dim sc As Object
@@ -274,7 +284,35 @@ Private Function ProcessSeparationResults(ByVal json As String, ByVal wsLog As W
                 failed = failed + 1
         End Select
 
-        LogRow wsLog, sheetName, rowNum, empName, dosDate, action, employeeId, matchType, message
+        Dim division As String, department As String, position As String
+        Dim hireDateText As String, paylocityId As String
+        Dim tenureDays As Variant
+        tenureDays = Empty
+        division = ""
+        department = ""
+        position = ""
+        hireDateText = ""
+        paylocityId = ""
+
+        If Len(employeeId) > 0 Then
+            If Not rosterById Is Nothing Then
+                If rosterById.Exists(employeeId) Then
+                    Dim rec As Variant
+                    rec = rosterById(employeeId)
+                    division = CStr(rec(5))
+                    department = CStr(rec(6))
+                    position = CStr(rec(7))
+                    paylocityId = CStr(rec(8))
+                    hireDateText = CStr(rec(3))
+                    If IsDate(hireDateText) Then
+                        tenureDays = DateDiff("d", CDate(hireDateText), dosDate)
+                    End If
+                End If
+            End If
+        End If
+
+        LogRow wsLog, sheetName, rowNum, empName, dosDate, action, employeeId, matchType, message, _
+               division, department, position, hireDateText, tenureDays, paylocityId
     Next i
 
     ProcessSeparationResults = True
@@ -387,7 +425,8 @@ NextSheet:
     Application.StatusBar = False
 
     Dim zero As Long
-    RecordHeadcountSnapshot "PULL_HIRE_DATES", "", zero, zero, zero, zero, "DOH backfill run"
+    RecordHeadcountSnapshot "PULL_HIRE_DATES", "", zero, zero, zero, zero, zero, "DOH backfill run"
+    RefreshHrSummary
 
     MsgBox "Pull Hire Dates complete." & vbCrLf & vbCrLf & _
            "  filled:       " & filled & vbCrLf & _
@@ -399,7 +438,8 @@ End Sub
 
 Private Sub RecordHeadcountSnapshot(ByVal eventName As String, ByVal fySheet As String, _
                                     ByVal synced As Long, ByVal alreadyInactive As Long, _
-                                    ByVal noMatch As Long, ByVal failed As Long, ByVal note As String)
+                                    ByVal noMatch As Long, ByVal ambiguous As Long, _
+                                    ByVal failed As Long, ByVal note As String)
     Dim ws As Worksheet
     Set ws = EnsureHeadcountSheet()
 
@@ -432,9 +472,10 @@ Private Sub RecordHeadcountSnapshot(ByVal eventName As String, ByVal fySheet As 
     ws.Cells(nextRow, 6).Value = synced
     ws.Cells(nextRow, 7).Value = alreadyInactive
     ws.Cells(nextRow, 8).Value = noMatch
-    ws.Cells(nextRow, 9).Value = failed
-    ws.Cells(nextRow, 10).Value = inferredHires
-    ws.Cells(nextRow, 11).Value = note
+    ws.Cells(nextRow, 9).Value = ambiguous
+    ws.Cells(nextRow, 10).Value = failed
+    ws.Cells(nextRow, 11).Value = inferredHires
+    ws.Cells(nextRow, 12).Value = note
 End Sub
 
 Private Function FetchActiveHeadcount() As Long
@@ -578,12 +619,17 @@ Private Function EnsureLogSheet() As Worksheet
     If ws Is Nothing Then
         Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.Count))
         ws.Name = LOG_SHEET
-        ws.Range("A1:J1").Value = Array( _
-            "Timestamp", "Workbook User", "FY Sheet", "Row", _
-            "Employee Name", "Separation Date", "Action", _
-            "Employee ID", "Match Type", "Details")
-        ws.Range("A1:J1").Font.Bold = True
     End If
+
+    ws.Range("A1:P1").Value = Array( _
+        "Timestamp", "Workbook User", "FY Sheet", "Row", _
+        "Employee Name", "Separation Date", "Action", _
+        "Employee ID", "Match Type", "Details", "Division", _
+        "Department", "Position", "Hire Date", "Tenure Days", "Paylocity ID")
+    ws.Range("A1:P1").Font.Bold = True
+    ws.Columns("A:P").HorizontalAlignment = xlLeft
+    ws.Columns("F").NumberFormat = "m/d/yyyy"
+    ws.Columns("N").NumberFormat = "m/d/yyyy"
 
     Set EnsureLogSheet = ws
 End Function
@@ -597,14 +643,29 @@ Private Function EnsureHeadcountSheet() As Worksheet
     If ws Is Nothing Then
         Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.Count))
         ws.Name = HEADCOUNT_SHEET
-        ws.Range("A1:K1").Value = Array( _
-            "Timestamp", "Event", "FY Sheet", "Active Employees", "Delta vs Prior", _
-            "Separations Synced", "Already Inactive", "No Match", "Failed", _
-            "Estimated New Hires Since Prior", "Note")
-        ws.Range("A1:K1").Font.Bold = True
     End If
 
+    ws.Range("A1:L1").Value = Array( _
+        "Timestamp", "Event", "FY Sheet", "Active Employees", "Delta vs Prior", _
+        "Separations Synced", "Already Inactive", "No Match", "Ambiguous", "Failed", _
+        "Estimated New Hires Since Prior", "Note")
+    ws.Range("A1:L1").Font.Bold = True
+
     Set EnsureHeadcountSheet = ws
+End Function
+
+Private Function EnsureHrSummarySheet() As Worksheet
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(HR_SUMMARY_SHEET)
+    On Error GoTo 0
+
+    If ws Is Nothing Then
+        Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.Count))
+        ws.Name = HR_SUMMARY_SHEET
+    End If
+
+    Set EnsureHrSummarySheet = ws
 End Function
 
 Private Function BuildKey(ByVal sheetName As String, ByVal rowNum As Long, _
@@ -649,7 +710,10 @@ End Function
 
 Private Sub LogRow(ByVal ws As Worksheet, ByVal sheetName As String, ByVal rowNum As Long, _
                    ByVal empName As String, ByVal dos As Date, ByVal action As String, _
-                   ByVal employeeId As String, ByVal matchType As String, ByVal details As String)
+                   ByVal employeeId As String, ByVal matchType As String, ByVal details As String, _
+                   Optional ByVal division As String = "", Optional ByVal department As String = "", _
+                   Optional ByVal position As String = "", Optional ByVal hireDateText As String = "", _
+                   Optional ByVal tenureDays As Variant, Optional ByVal paylocityId As String = "")
     Dim nextRow As Long
     nextRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row + 1
     If nextRow < 2 Then nextRow = 2
@@ -664,7 +728,351 @@ Private Sub LogRow(ByVal ws As Worksheet, ByVal sheetName As String, ByVal rowNu
     ws.Cells(nextRow, 8).Value = employeeId
     ws.Cells(nextRow, 9).Value = matchType
     ws.Cells(nextRow, 10).Value = details
+    ws.Cells(nextRow, 11).Value = division
+    ws.Cells(nextRow, 12).Value = department
+    ws.Cells(nextRow, 13).Value = position
+    If IsDate(hireDateText) Then
+        ws.Cells(nextRow, 14).Value = CDate(hireDateText)
+    Else
+        ws.Cells(nextRow, 14).Value = hireDateText
+    End If
+    If IsMissing(tenureDays) Then
+        ws.Cells(nextRow, 15).Value = ""
+    ElseIf IsNumeric(tenureDays) Then
+        ws.Cells(nextRow, 15).Value = CLng(tenureDays)
+    Else
+        ws.Cells(nextRow, 15).Value = ""
+    End If
+    ws.Cells(nextRow, 16).Value = paylocityId
 End Sub
+
+Private Sub RefreshHrSummary()
+    On Error GoTo SafeExit
+
+    Dim ws As Worksheet
+    Set ws = EnsureHrSummarySheet()
+
+    Dim wsLog As Worksheet
+    Set wsLog = EnsureLogSheet()
+
+    ws.Cells.Clear
+
+    ws.Range("A1").Value = "HR Separation Summary"
+    ws.Range("A1").Font.Bold = True
+    ws.Range("A1").Font.Size = 14
+    ws.Range("A2").Value = "Last refresh:"
+    ws.Range("B2").Value = Now
+    ws.Range("B2").NumberFormat = "m/d/yyyy h:mm AM/PM"
+
+    Dim totalSynced As Long, totalAlreadyInactive As Long, totalNoMatch As Long
+    Dim totalAmbiguous As Long, totalFailed As Long
+    Dim totalSeparated As Long, last30 As Long, last90 As Long, ytd As Long
+    Dim unknownHire As Long, tenureCount As Long
+    Dim tenureSum As Double
+
+    Dim divisionCounts As Object, deptCounts As Object
+    Set divisionCounts = CreateObject("Scripting.Dictionary")
+    divisionCounts.CompareMode = vbTextCompare
+    Set deptCounts = CreateObject("Scripting.Dictionary")
+    deptCounts.CompareMode = vbTextCompare
+
+    Dim trendCounts As Object
+    Set trendCounts = CreateObject("Scripting.Dictionary")
+    trendCounts.CompareMode = vbTextCompare
+
+    Dim i As Long
+    For i = 0 To 11
+        Dim d As Date
+        d = DateSerial(Year(Date), Month(Date) - i, 1)
+        trendCounts(Format(d, "yyyy-mm")) = 0
+    Next i
+
+    Dim startYtd As Date
+    startYtd = DateSerial(Year(Date), 1, 1)
+
+    Dim lastRow As Long
+    lastRow = wsLog.Cells(wsLog.Rows.Count, 1).End(xlUp).Row
+    Dim r As Long
+    For r = 2 To lastRow
+        Dim action As String
+        action = UCase(Trim(CStr(wsLog.Cells(r, 7).Value & "")))
+        Select Case action
+            Case "SYNCED": totalSynced = totalSynced + 1
+            Case "ALREADY_INACTIVE": totalAlreadyInactive = totalAlreadyInactive + 1
+            Case "NO_MATCH": totalNoMatch = totalNoMatch + 1
+            Case "AMBIGUOUS": totalAmbiguous = totalAmbiguous + 1
+            Case "FAILED": totalFailed = totalFailed + 1
+        End Select
+
+        If action = "SYNCED" Or action = "ALREADY_INACTIVE" Then
+            totalSeparated = totalSeparated + 1
+
+            Dim dosVal As Variant
+            dosVal = wsLog.Cells(r, 6).Value
+            If IsDate(dosVal) Then
+                Dim dos As Date
+                dos = CDate(dosVal)
+                Dim sinceDays As Long
+                sinceDays = DateDiff("d", dos, Date)
+                If sinceDays >= 0 Then
+                    If sinceDays < 30 Then last30 = last30 + 1
+                    If sinceDays < 90 Then last90 = last90 + 1
+                End If
+                If dos >= startYtd Then ytd = ytd + 1
+
+                Dim ym As String
+                ym = Format(dos, "yyyy-mm")
+                If trendCounts.Exists(ym) Then trendCounts(ym) = CLng(trendCounts(ym)) + 1
+            End If
+
+            Dim division As String, dept As String
+            division = Trim(CStr(wsLog.Cells(r, 11).Value & ""))
+            dept = Trim(CStr(wsLog.Cells(r, 12).Value & ""))
+            If Len(division) = 0 Then division = dept
+            If Len(division) = 0 Then division = "Unknown"
+            If Len(dept) = 0 Then dept = "Unknown"
+            AddCount divisionCounts, division
+            AddCount deptCounts, dept
+
+            Dim tenureVal As Variant
+            tenureVal = wsLog.Cells(r, 15).Value
+            If IsNumeric(tenureVal) Then
+                tenureCount = tenureCount + 1
+                tenureSum = tenureSum + CDbl(tenureVal)
+            Else
+                unknownHire = unknownHire + 1
+            End If
+        End If
+    Next r
+
+    ws.Range("A4:B4").Value = Array("Metric", "Value")
+    ws.Range("A4:B4").Font.Bold = True
+    ws.Range("A5").Value = "Synced"
+    ws.Range("B5").Value = totalSynced
+    ws.Range("A6").Value = "Already Inactive"
+    ws.Range("B6").Value = totalAlreadyInactive
+    ws.Range("A7").Value = "No Match"
+    ws.Range("B7").Value = totalNoMatch
+    ws.Range("A8").Value = "Ambiguous"
+    ws.Range("B8").Value = totalAmbiguous
+    ws.Range("A9").Value = "Failed"
+    ws.Range("B9").Value = totalFailed
+
+    ws.Range("D4:E4").Value = Array("HR Metric", "Value")
+    ws.Range("D4:E4").Font.Bold = True
+    ws.Range("D5").Value = "Total Separated"
+    ws.Range("E5").Value = totalSeparated
+    ws.Range("D6").Value = "Last 30 Days"
+    ws.Range("E6").Value = last30
+    ws.Range("D7").Value = "Last 90 Days"
+    ws.Range("E7").Value = last90
+    ws.Range("D8").Value = "YTD"
+    ws.Range("E8").Value = ytd
+    ws.Range("D9").Value = "Avg Tenure (days)"
+    If tenureCount > 0 Then
+        ws.Range("E9").Value = Round(tenureSum / tenureCount, 1)
+    Else
+        ws.Range("E9").Value = "N/A"
+    End If
+    ws.Range("D10").Value = "Unknown Hire Date"
+    ws.Range("E10").Value = unknownHire
+
+    ws.Range("G4:H4").Value = Array("Month", "Separations")
+    ws.Range("G4:H4").Font.Bold = True
+    Dim monthRow As Long
+    monthRow = 5
+    For i = 11 To 0 Step -1
+        Dim monthDate As Date, monthKey As String
+        monthDate = DateSerial(Year(Date), Month(Date) - i, 1)
+        monthKey = Format(monthDate, "yyyy-mm")
+        ws.Cells(monthRow, 7).Value = Format(monthDate, "mmm yyyy")
+        ws.Cells(monthRow, 8).Value = CLng(trendCounts(monthKey))
+        monthRow = monthRow + 1
+    Next i
+
+    ws.Range("A13:C13").Value = Array("Division", "Count", "%")
+    ws.Range("A13:C13").Font.Bold = True
+    WriteCountTable ws, 14, 1, divisionCounts, totalSeparated
+
+    ws.Range("E13:G13").Value = Array("Department", "Count", "%")
+    ws.Range("E13:G13").Font.Bold = True
+    WriteCountTable ws, 14, 5, deptCounts, totalSeparated
+
+    ws.Range("A28:P28").Value = Array( _
+        "Timestamp", "Action", "Employee Name", "Separation Date", "Division", _
+        "Department", "Position", "Hire Date", "Tenure Days", "Tenure Years", _
+        "Paylocity ID", "Employee ID", "FY Sheet", "Row", "Match Type", "Details")
+    ws.Range("A28:P28").Font.Bold = True
+    ws.Rows(28).AutoFilter
+
+    Dim outRow As Long
+    outRow = 29
+    Dim detailCap As Long
+    detailCap = 500
+    For r = lastRow To 2 Step -1
+        If detailCap <= 0 Then Exit For
+        ws.Cells(outRow, 1).Value = wsLog.Cells(r, 1).Value
+        ws.Cells(outRow, 2).Value = wsLog.Cells(r, 7).Value
+        ws.Cells(outRow, 3).Value = wsLog.Cells(r, 5).Value
+        ws.Cells(outRow, 4).Value = wsLog.Cells(r, 6).Value
+        ws.Cells(outRow, 5).Value = wsLog.Cells(r, 11).Value
+        ws.Cells(outRow, 6).Value = wsLog.Cells(r, 12).Value
+        ws.Cells(outRow, 7).Value = wsLog.Cells(r, 13).Value
+        ws.Cells(outRow, 8).Value = wsLog.Cells(r, 14).Value
+        ws.Cells(outRow, 9).Value = wsLog.Cells(r, 15).Value
+        If IsNumeric(wsLog.Cells(r, 15).Value) Then
+            ws.Cells(outRow, 10).Value = Round(CDbl(wsLog.Cells(r, 15).Value) / 365.25, 2)
+        End If
+        ws.Cells(outRow, 11).Value = wsLog.Cells(r, 16).Value
+        ws.Cells(outRow, 12).Value = wsLog.Cells(r, 8).Value
+        ws.Cells(outRow, 13).Value = wsLog.Cells(r, 3).Value
+        ws.Cells(outRow, 14).Value = wsLog.Cells(r, 4).Value
+        ws.Cells(outRow, 15).Value = wsLog.Cells(r, 9).Value
+        ws.Cells(outRow, 16).Value = wsLog.Cells(r, 10).Value
+        outRow = outRow + 1
+        detailCap = detailCap - 1
+    Next r
+
+    ws.Columns("A:P").AutoFit
+    ws.Range("A29:A" & outRow).NumberFormat = "m/d/yyyy h:mm AM/PM"
+    ws.Range("D29:D" & outRow).NumberFormat = "m/d/yyyy"
+    ws.Range("H29:H" & outRow).NumberFormat = "m/d/yyyy"
+    ws.Range("J29:J" & outRow).NumberFormat = "0.00"
+
+SafeExit:
+End Sub
+
+Private Sub AddCount(ByVal dict As Object, ByVal key As String)
+    If dict.Exists(key) Then
+        dict(key) = CLng(dict(key)) + 1
+    Else
+        dict(key) = 1
+    End If
+End Sub
+
+Private Sub WriteCountTable(ByVal ws As Worksheet, ByVal startRow As Long, ByVal startCol As Long, _
+                            ByVal dict As Object, ByVal total As Long)
+    If dict Is Nothing Or dict.Count = 0 Then
+        ws.Cells(startRow, startCol).Value = "—"
+        ws.Cells(startRow, startCol + 1).Value = 0
+        ws.Cells(startRow, startCol + 2).Value = "0%"
+        Exit Sub
+    End If
+
+    Dim keys As Variant
+    keys = SortedKeysByCount(dict)
+    Dim i As Long
+    For i = LBound(keys) To UBound(keys)
+        If i > 9 Then Exit For
+        Dim outRow As Long
+        outRow = startRow + i
+        ws.Cells(outRow, startCol).Value = CStr(keys(i))
+        ws.Cells(outRow, startCol + 1).Value = CLng(dict(keys(i)))
+        If total > 0 Then
+            ws.Cells(outRow, startCol + 2).Value = Round((CLng(dict(keys(i))) / total) * 100, 1) & "%"
+        Else
+            ws.Cells(outRow, startCol + 2).Value = "0%"
+        End If
+    Next i
+End Sub
+
+Private Function SortedKeysByCount(ByVal dict As Object) As Variant
+    If dict.Count = 0 Then
+        SortedKeysByCount = Array()
+        Exit Function
+    End If
+
+    Dim keys As Variant
+    keys = dict.Keys
+
+    Dim i As Long, j As Long
+    For i = LBound(keys) To UBound(keys) - 1
+        For j = i + 1 To UBound(keys)
+            Dim swapNeeded As Boolean
+            swapNeeded = False
+            If CLng(dict(keys(j))) > CLng(dict(keys(i))) Then
+                swapNeeded = True
+            ElseIf CLng(dict(keys(j))) = CLng(dict(keys(i))) Then
+                If StrComp(CStr(keys(j)), CStr(keys(i)), vbTextCompare) < 0 Then
+                    swapNeeded = True
+                End If
+            End If
+            If swapNeeded Then
+                Dim tmp As Variant
+                tmp = keys(i)
+                keys(i) = keys(j)
+                keys(j) = tmp
+            End If
+        Next j
+    Next i
+
+    SortedKeysByCount = keys
+End Function
+
+Private Function FetchRosterById() As Object
+    Dim byId As Object
+    Set byId = CreateObject("Scripting.Dictionary")
+    byId.CompareMode = vbTextCompare
+
+    Dim json As String, statusCode As Long
+    statusCode = HttpJson("GET", BuildHubUrl("/api/sync/roster?include_inactive=true"), "", json)
+    If statusCode < 200 Or statusCode >= 300 Then
+        Set FetchRosterById = byId
+        Exit Function
+    End If
+
+    Dim rows As Collection
+    Set rows = ParseRosterRecordsJson(json)
+
+    Dim rec As Variant
+    For Each rec In rows
+        If Len(CStr(rec(0))) > 0 Then
+            byId(CStr(rec(0))) = rec
+        End If
+    Next rec
+
+    Set FetchRosterById = byId
+End Function
+
+Private Function ParseRosterRecordsJson(ByVal json As String) As Collection
+    Dim out As New Collection
+    On Error GoTo ParseErr
+
+    Dim sc As Object
+    Set sc = CreateObject("ScriptControl")
+    sc.Language = "JScript"
+    sc.AddCode "function getProp(obj,key){return obj ? obj[key] : null;}"
+    sc.AddCode "function getItem(arr,i){return arr[i];}"
+    sc.AddCode "function getLength(arr){return arr ? arr.length : 0;}"
+    sc.AddCode "function text(v){return (v===null||v===undefined)?'':String(v);}"
+
+    Dim root As Object, emps As Object
+    Set root = sc.Eval("(" & json & ")")
+    Set emps = sc.Run("getProp", root, "employees")
+
+    Dim i As Long, cnt As Long
+    cnt = CLng(sc.Run("getLength", emps))
+    For i = 0 To cnt - 1
+        Dim item As Object
+        Set item = sc.Run("getItem", emps, i)
+        Dim rec(0 To 8) As String
+        rec(0) = CStr(sc.Run("text", sc.Run("getProp", item, "id")))
+        rec(1) = CStr(sc.Run("text", sc.Run("getProp", item, "first_name")))
+        rec(2) = CStr(sc.Run("text", sc.Run("getProp", item, "last_name")))
+        rec(3) = CStr(sc.Run("text", sc.Run("getProp", item, "hire_date")))
+        rec(4) = CStr(sc.Run("text", sc.Run("getProp", item, "terminated_at")))
+        rec(5) = CStr(sc.Run("text", sc.Run("getProp", item, "division")))
+        rec(6) = CStr(sc.Run("text", sc.Run("getProp", item, "department")))
+        rec(7) = CStr(sc.Run("text", sc.Run("getProp", item, "position")))
+        rec(8) = CStr(sc.Run("text", sc.Run("getProp", item, "paylocity_id")))
+        out.Add rec
+    Next i
+
+    Set ParseRosterRecordsJson = out
+    Exit Function
+ParseErr:
+    Set ParseRosterRecordsJson = out
+End Function
 
 Private Function LastNumericInColumn(ByVal ws As Worksheet, ByVal colNum As Long) As Variant
     Dim r As Long
