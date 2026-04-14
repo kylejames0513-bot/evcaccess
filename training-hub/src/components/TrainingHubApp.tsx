@@ -100,6 +100,11 @@ interface ScheduleResponse {
   sessions: ScheduledSession[];
 }
 
+interface SessionActionFeedback {
+  kind: "success" | "error";
+  text: string;
+}
+
 interface ComplianceRow {
   employee_id: string | null;
   training_type_id: number | null;
@@ -209,6 +214,8 @@ interface SyncStatusResponse {
     errors: number;
   }>;
 }
+
+type ScheduleAction = "create" | "enroll" | "remove";
 
 interface ApiState<T> {
   data: T | null;
@@ -339,6 +346,20 @@ function progressWidth(completed: number, total: number): string {
   return `${Math.max(0, Math.min(100, pct))}%`;
 }
 
+function toInputDateFromDisplay(value: string): string {
+  // "4/14/2026" -> "2026-04-14" (best-effort)
+  const slash = value.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slash) {
+    const [, m, d, y] = slash;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(
+    parsed.getDate(),
+  ).padStart(2, "0")}`;
+}
+
 export function TrainingHubApp() {
   const [activeView, setActiveView] = useState<HubScreen>("dashboard");
   const [refreshToken, setRefreshToken] = useState(0);
@@ -347,6 +368,17 @@ export function TrainingHubApp() {
   const [complianceSearch, setComplianceSearch] = useState("");
   const [complianceStatus, setComplianceStatus] = useState<ComplianceStatusFilter>("all");
   const [reportType, setReportType] = useState<ReportType>("department");
+  const [scheduleTraining, setScheduleTraining] = useState("");
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
+  const [scheduleLocation, setScheduleLocation] = useState("");
+  const [scheduleMessage, setScheduleMessage] = useState<string | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [scheduleSessionId, setScheduleSessionId] = useState("");
+  const [scheduleEmployeeName, setScheduleEmployeeName] = useState("");
+  const [scheduleActionBusy, setScheduleActionBusy] = useState<ScheduleAction | null>(null);
+  const [scheduleActionFeedback, setScheduleActionFeedback] = useState<SessionActionFeedback | null>(null);
 
   const dashboardApi = useApiData<HubOverviewResponse>("/api/hub-overview", refreshToken, true);
   const employeesApi = useApiData<EmployeesResponse>(
@@ -369,6 +401,17 @@ export function TrainingHubApp() {
     activeView === "reports",
   );
   const syncApi = useApiData<SyncStatusResponse>("/api/sync-status", refreshToken, activeView === "sync");
+
+  const sessionsByTraining = useMemo(() => {
+    const map = new Map<string, ScheduledSession[]>();
+    const sessions = scheduleApi.data?.sessions ?? [];
+    for (const session of sessions) {
+      const list = map.get(session.training) ?? [];
+      list.push(session);
+      map.set(session.training, list);
+    }
+    return map;
+  }, [scheduleApi.data?.sessions]);
 
   const filteredEmployees = useMemo(() => {
     const rows = employeesApi.data?.employees ?? [];
@@ -521,6 +564,26 @@ export function TrainingHubApp() {
     ];
   }, [scheduleApi.data?.sessions]);
 
+  const scheduleByTrainingMiniStats = useMemo<MiniStat[]>(() => {
+    const sessions = scheduleApi.data?.sessions ?? [];
+    if (sessions.length === 0) {
+      return [{ label: "Training Buckets", value: "0", note: "No sessions loaded yet" }];
+    }
+    const grouped = [...sessionsByTraining.entries()].sort((a, b) => b[1].length - a[1].length);
+    return grouped.slice(0, 4).map(([training, groupedSessions]) => {
+      const openSeats = groupedSessions.reduce(
+        (sum, session) => sum + Math.max(0, session.capacity - session.enrolled.length),
+        0,
+      );
+      return {
+        label: training,
+        value: `${groupedSessions.length} session${groupedSessions.length === 1 ? "" : "s"}`,
+        note: `${openSeats} open seat${openSeats === 1 ? "" : "s"}`,
+        tone: openSeats === 0 ? "warn" : "neutral",
+      };
+    });
+  }, [scheduleApi.data?.sessions, sessionsByTraining]);
+
   const complianceMiniStats = useMemo<MiniStat[]>(() => {
     const summary = complianceApi.data?.summary.status_counts;
     if (!summary) {
@@ -657,6 +720,282 @@ export function TrainingHubApp() {
       },
     ];
   }, [syncApi.data]);
+
+  const reportCsvUrl = useMemo(() => {
+    if (reportType === "separations") return "/api/export?type=employees";
+    if (reportType === "department" || reportType === "training" || reportType === "needs") {
+      return "/api/export?type=compliance";
+    }
+    return "/api/export?type=history";
+  }, [reportType]);
+
+  async function handleCreateSession(event: React.FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setScheduleMessage(null);
+    setScheduleError(null);
+    setScheduleActionFeedback(null);
+
+    if (!scheduleTraining.trim() || !scheduleDate.trim()) {
+      setScheduleError("Training and date are required.");
+      return;
+    }
+
+    setScheduleBusy(true);
+    try {
+      const response = await fetch("/api/create-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trainingType: scheduleTraining.trim(),
+          date: scheduleDate,
+          time: scheduleTime.trim(),
+          location: scheduleLocation.trim(),
+          enrollees: [],
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
+      if (!response.ok) {
+        throw new Error(body.error ?? "Failed to create session.");
+      }
+      setScheduleMessage(body.message ?? "Session created.");
+      setScheduleTraining("");
+      setScheduleDate("");
+      setScheduleTime("");
+      setScheduleLocation("");
+      retryActiveView();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to create session.";
+      setScheduleError(message);
+    } finally {
+      setScheduleBusy(false);
+    }
+  }
+
+  async function handleSessionRosterAction(action: "enroll" | "remove"): Promise<void> {
+    setScheduleActionFeedback(null);
+    if (!scheduleSessionId.trim() || !scheduleEmployeeName.trim()) {
+      setScheduleActionFeedback({
+        kind: "error",
+        text: "Pick a session and provide an employee name.",
+      });
+      return;
+    }
+
+    setScheduleActionBusy(action);
+    try {
+      const endpoint = action === "enroll" ? "/api/enroll" : "/api/remove-enrollee";
+      const payload =
+        action === "enroll"
+          ? { sessionId: scheduleSessionId, names: [scheduleEmployeeName.trim()] }
+          : { sessionId: scheduleSessionId, name: scheduleEmployeeName.trim() };
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = (await response.json().catch(() => ({}))) as { message?: string; error?: string };
+      if (!response.ok) {
+        throw new Error(body.error ?? `Failed to ${action} employee.`);
+      }
+      setScheduleActionFeedback({
+        kind: "success",
+        text: body.message ?? (action === "enroll" ? "Employee enrolled." : "Employee removed."),
+      });
+      setScheduleEmployeeName("");
+      retryActiveView();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `Failed to ${action} employee.`;
+      setScheduleActionFeedback({ kind: "error", text: message });
+    } finally {
+      setScheduleActionBusy(null);
+    }
+  }
+
+  async function autoFillSession(session: ScheduledSession): Promise<void> {
+    setScheduleMessage(null);
+    setScheduleError(null);
+    const spotsLeft = Math.max(0, session.capacity - session.enrolled.length);
+    if (spotsLeft <= 0) {
+      setScheduleError("Session is already full.");
+      return;
+    }
+
+    setScheduleBusy(true);
+    try {
+      const needsResponse = await fetch(`/api/needs-training?training=${encodeURIComponent(session.training)}`);
+      const needsPayload = (await needsResponse.json().catch(() => ({}))) as {
+        employees?: Array<{ name: string }>;
+        error?: string;
+      };
+      if (!needsResponse.ok) {
+        throw new Error(needsPayload.error ?? "Failed to load who-needs list.");
+      }
+      const toEnroll = (needsPayload.employees ?? [])
+        .slice(0, spotsLeft)
+        .map((row) => row.name)
+        .filter(Boolean);
+      if (toEnroll.length === 0) {
+        setScheduleMessage("No eligible employees were returned for auto-fill.");
+        return;
+      }
+
+      const enrollResponse = await fetch("/api/enroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: session.id,
+          names: toEnroll,
+        }),
+      });
+      const enrollPayload = (await enrollResponse.json().catch(() => ({}))) as {
+        success?: boolean;
+        message?: string;
+        error?: string;
+      };
+      if (!enrollResponse.ok || enrollPayload.success === false) {
+        throw new Error(enrollPayload.error ?? enrollPayload.message ?? "Auto-fill failed.");
+      }
+      setScheduleMessage(enrollPayload.message ?? `Auto-filled ${toEnroll.length} employees.`);
+      retryActiveView();
+    } catch (err) {
+      setScheduleError(err instanceof Error ? err.message : "Auto-fill failed.");
+    } finally {
+      setScheduleBusy(false);
+    }
+  }
+
+  async function archiveOrDeleteSession(sessionId: string, mode: "archive" | "delete"): Promise<void> {
+    setScheduleMessage(null);
+    setScheduleError(null);
+    setScheduleBusy(true);
+    try {
+      if (mode === "archive") {
+        const response = await fetch(`/api/sessions/${sessionId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "archive" }),
+        });
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        if (!response.ok) throw new Error(payload.error ?? "Failed to archive session.");
+        setScheduleMessage("Session archived.");
+      } else {
+        const response = await fetch("/api/delete-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId }),
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          message?: string;
+          error?: string;
+        };
+        if (!response.ok || payload.success === false) {
+          throw new Error(payload.error ?? payload.message ?? "Failed to delete session.");
+        }
+        setScheduleMessage(payload.message ?? "Session deleted.");
+      }
+      retryActiveView();
+    } catch (err) {
+      setScheduleError(err instanceof Error ? err.message : "Session update failed.");
+    } finally {
+      setScheduleBusy(false);
+    }
+  }
+
+  async function copySessionMemo(sessionId: string, type: "memo_text" | "calendar_text"): Promise<void> {
+    setScheduleMessage(null);
+    setScheduleError(null);
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/memo`);
+      const payload = (await response.json().catch(() => ({}))) as {
+        memo_text?: string;
+        calendar_text?: string;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to load memo.");
+      }
+      const text = payload[type];
+      if (!text) throw new Error("Memo text is missing.");
+      await navigator.clipboard.writeText(text);
+      setScheduleMessage(type === "memo_text" ? "Class memo copied." : "Calendar block copied.");
+    } catch (err) {
+      setScheduleError(err instanceof Error ? err.message : "Copy failed.");
+    }
+  }
+
+  async function markEmployeeStatus(employee: EmployeeRow, isActive: boolean): Promise<void> {
+    setScheduleMessage(null);
+    setScheduleError(null);
+    try {
+      const response = await fetch(`/api/employees/${employee.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: isActive }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Failed to update employee status.");
+      }
+      setScheduleMessage(isActive ? "Employee marked active." : "Employee marked inactive.");
+      retryActiveView();
+    } catch (err) {
+      setScheduleError(err instanceof Error ? err.message : "Status update failed.");
+    }
+  }
+
+  const reportNeedsRows = useMemo(() => {
+    if (!reportsApi.data?.employees) return [];
+    return reportsApi.data.employees
+      .map((row) => ({
+        employee: row.employee,
+        division: row.division,
+        missingCount: row.missing?.length ?? 0,
+        topItems: (row.missing ?? [])
+          .slice(0, 3)
+          .map((item) => `${item.training} (${item.status.replace("_", " ")})`),
+      }))
+      .sort((a, b) => b.missingCount - a.missingCount);
+  }, [reportsApi.data?.employees]);
+
+  function exportComplianceCsv(): void {
+    const header = [
+      "employee",
+      "division",
+      "training",
+      "status",
+      "completed",
+      "expires",
+      "tier",
+    ];
+    const rows = filteredComplianceRows.map((row) => [
+      `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim(),
+      row.division ?? row.department ?? "",
+      row.training_name ?? "",
+      row.status ?? "",
+      row.completion_date ?? "",
+      row.expiration_date ?? "",
+      row.tier ?? "",
+    ]);
+    const csvLines = [header, ...rows].map((line) =>
+      line
+        .map((value) => {
+          const normalized = String(value ?? "");
+          if (normalized.includes(",") || normalized.includes('"') || normalized.includes("\n")) {
+            return `"${normalized.replace(/"/g, '""')}"`;
+          }
+          return normalized;
+        })
+        .join(","),
+    );
+    const blob = new Blob([csvLines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `compliance-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   function renderMiniStats(stats: MiniStat[]): ReactElement {
     return (
@@ -933,6 +1272,7 @@ export function TrainingHubApp() {
                       <th>Compliance</th>
                       <th>Completed</th>
                       <th>Expired</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -970,6 +1310,15 @@ export function TrainingHubApp() {
                             </div>
                           </td>
                           <td>{employee.counts.expired}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className={styles.tinyButton}
+                              onClick={() => void markEmployeeStatus(employee, !employee.is_active)}
+                            >
+                              {employee.is_active ? "Set inactive" : "Set active"}
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -984,9 +1333,105 @@ export function TrainingHubApp() {
           <section className={styles.panel}>
             <div className={styles.panelHeader}>
               <h3 className={styles.panelTitle}>Session schedule</h3>
-              <p className={styles.panelHint}>Live class roster with enrollment and no-show visibility.</p>
+              <p className={styles.panelHint}>Create classes, manage enrollments, and run memo workflows from one tab.</p>
             </div>
             {renderMiniStats(sessionMiniStats)}
+            {renderMiniStats(scheduleByTrainingMiniStats)}
+
+            <section className={styles.actionGrid}>
+              <article className={styles.actionCard}>
+                <p className={styles.actionTitle}>Create session</p>
+                <p className={styles.actionHint}>Matches backup create-session workflow.</p>
+                <form onSubmit={handleCreateSession}>
+                  <div className={styles.fieldGrid}>
+                    <input
+                      className={styles.input}
+                      placeholder="Training name"
+                      value={scheduleTraining}
+                      onChange={(event) => setScheduleTraining(event.currentTarget.value)}
+                    />
+                    <input
+                      className={styles.input}
+                      type="date"
+                      value={scheduleDate}
+                      onChange={(event) => setScheduleDate(event.currentTarget.value)}
+                    />
+                    <input
+                      className={styles.input}
+                      placeholder="Start time (optional)"
+                      value={scheduleTime}
+                      onChange={(event) => setScheduleTime(event.currentTarget.value)}
+                    />
+                    <input
+                      className={styles.input}
+                      placeholder="Location (optional)"
+                      value={scheduleLocation}
+                      onChange={(event) => setScheduleLocation(event.currentTarget.value)}
+                    />
+                  </div>
+                  <div className={styles.actionRow}>
+                    <button type="submit" className={styles.primaryButton} disabled={scheduleBusy}>
+                      {scheduleBusy ? "Creating..." : "Create session"}
+                    </button>
+                  </div>
+                </form>
+              </article>
+
+              <article className={styles.actionCard}>
+                <p className={styles.actionTitle}>Quick roster actions</p>
+                <p className={styles.actionHint}>Manual enroll/remove for a selected session.</p>
+                <div className={styles.fieldGrid}>
+                  <select
+                    className={styles.select}
+                    value={scheduleSessionId}
+                    onChange={(event) => setScheduleSessionId(event.currentTarget.value)}
+                  >
+                    <option value="">Select session</option>
+                    {(scheduleApi.data?.sessions ?? []).map((session) => (
+                      <option key={session.id} value={session.id}>
+                        {session.training} · {session.date}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className={styles.input}
+                    placeholder="Employee full name"
+                    value={scheduleEmployeeName}
+                    onChange={(event) => setScheduleEmployeeName(event.currentTarget.value)}
+                  />
+                </div>
+                <div className={styles.actionRow}>
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    disabled={scheduleActionBusy !== null}
+                    onClick={() => void handleSessionRosterAction("enroll")}
+                  >
+                    {scheduleActionBusy === "enroll" ? "Enrolling..." : "Enroll"}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.secondaryButton}
+                    disabled={scheduleActionBusy !== null}
+                    onClick={() => void handleSessionRosterAction("remove")}
+                  >
+                    {scheduleActionBusy === "remove" ? "Removing..." : "Remove"}
+                  </button>
+                  {scheduleActionFeedback ? (
+                    <span
+                      className={
+                        scheduleActionFeedback.kind === "success" ? styles.statusGood : styles.statusBad
+                      }
+                    >
+                      {scheduleActionFeedback.text}
+                    </span>
+                  ) : null}
+                </div>
+              </article>
+            </section>
+
+            {scheduleMessage ? <p className={styles.statusGood}>{scheduleMessage}</p> : null}
+            {scheduleError ? <p className={styles.statusBad}>{scheduleError}</p> : null}
 
             {scheduleApi.loading ? (
               <div className={styles.loadingPanel}>Loading schedule...</div>
@@ -1011,24 +1456,86 @@ export function TrainingHubApp() {
                       <th>Enrollment</th>
                       <th>No-shows</th>
                       <th>Status</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {scheduleApi.data?.sessions.map((session) => (
-                      <tr key={session.id}>
-                        <td>{session.training}</td>
-                        <td>{session.date}</td>
-                        <td>{session.time || "--"}</td>
-                        <td>{session.location || "--"}</td>
-                        <td>
-                          {session.enrolled.length}/{session.capacity}
-                        </td>
-                        <td>{session.noShows.length}</td>
-                        <td>
-                          <span className={`${styles.pill} ${statusClass(session.status)}`}>{session.status}</span>
-                        </td>
-                      </tr>
-                    ))}
+                    {(scheduleApi.data?.sessions ?? []).map((session) => {
+                      const sessionDate = toInputDateFromDisplay(session.date);
+                      return (
+                        <tr key={session.id}>
+                          <td>{session.training}</td>
+                          <td>{session.date}</td>
+                          <td>{session.time || "--"}</td>
+                          <td>{session.location || "--"}</td>
+                          <td>
+                            {session.enrolled.length}/{session.capacity}
+                          </td>
+                          <td>{session.noShows.length}</td>
+                          <td>
+                            <span className={`${styles.pill} ${statusClass(session.status)}`}>{session.status}</span>
+                          </td>
+                          <td>
+                            <div className={styles.inlineStack}>
+                              {session.status === "scheduled" ? (
+                                <button
+                                  type="button"
+                                  className={styles.tinyButton}
+                                  onClick={() => {
+                                    setScheduleTraining(session.training);
+                                    setScheduleDate(sessionDate);
+                                    setScheduleTime(session.time || "");
+                                    setScheduleLocation(session.location || "");
+                                  }}
+                                >
+                                  Edit copy
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                className={styles.tinyButton}
+                                onClick={() => void autoFillSession(session)}
+                                disabled={scheduleBusy}
+                              >
+                                Auto-fill
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.tinyButton}
+                                onClick={() => void copySessionMemo(session.id, "memo_text")}
+                              >
+                                Copy memo
+                              </button>
+                              <button
+                                type="button"
+                                className={styles.tinyButton}
+                                onClick={() => void copySessionMemo(session.id, "calendar_text")}
+                              >
+                                Copy calendar
+                              </button>
+                              {session.status === "scheduled" ? (
+                                <button
+                                  type="button"
+                                  className={`${styles.tinyButton} ${styles.tinyButtonWarn}`}
+                                  onClick={() => void archiveOrDeleteSession(session.id, "archive")}
+                                  disabled={scheduleBusy}
+                                >
+                                  Archive
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                className={`${styles.tinyButton} ${styles.tinyButtonDanger}`}
+                                onClick={() => void archiveOrDeleteSession(session.id, "delete")}
+                                disabled={scheduleBusy}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1091,6 +1598,7 @@ export function TrainingHubApp() {
                       <th>Completed</th>
                       <th>Expires</th>
                       <th>Tier</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1107,6 +1615,38 @@ export function TrainingHubApp() {
                         <td>{formatDate(row.completion_date)}</td>
                         <td>{formatDate(row.expiration_date)}</td>
                         <td>{row.tier ?? "--"}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className={styles.tinyButton}
+                            onClick={async () => {
+                              const name = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim();
+                              if (!name || !row.training_name) return;
+                              setScheduleMessage(null);
+                              setScheduleError(null);
+                              try {
+                                const response = await fetch("/api/training-notes", {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({
+                                    employee: name,
+                                    training: row.training_name,
+                                    note: `Follow-up from compliance tab (${row.status ?? "unknown"})`,
+                                  }),
+                                });
+                                const body = (await response.json().catch(() => ({}))) as { error?: string };
+                                if (!response.ok) throw new Error(body.error ?? "Failed to save follow-up note.");
+                                setScheduleMessage(`Follow-up note saved for ${name}.`);
+                              } catch (error) {
+                                const message =
+                                  error instanceof Error ? error.message : "Failed to save follow-up note.";
+                                setScheduleError(message);
+                              }
+                            }}
+                          >
+                            Add follow-up note
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1196,6 +1736,9 @@ export function TrainingHubApp() {
                   <option value="separations">Separations</option>
                 </select>
               </div>
+              <a className={styles.secondaryButton} href={reportCsvUrl}>
+                Export current report CSV
+              </a>
             </div>
 
             {reportsApi.loading ? (

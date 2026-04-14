@@ -260,6 +260,123 @@
   margin-bottom: 0.2rem;
 }
 
+.actionGrid {
+  display: grid;
+  gap: 0.85rem;
+  margin-bottom: 0.9rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.actionCard {
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  padding: 0.9rem;
+  box-shadow: 0 6px 14px rgba(148, 163, 184, 0.12);
+}
+
+.actionTitle {
+  font-size: 0.92rem;
+  font-weight: 700;
+  margin-bottom: 0.3rem;
+  color: #0f172a;
+}
+
+.actionHint {
+  font-size: 0.78rem;
+  color: #64748b;
+  margin-bottom: 0.52rem;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.input,
+.select {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.52);
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+  padding: 0.42rem 0.56rem;
+  font-size: 0.82rem;
+}
+
+.input:focus-visible,
+.select:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.32);
+  outline-offset: 1px;
+}
+
+.actionRow {
+  margin-top: 0.55rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.46rem;
+}
+
+.tinyButton {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.35rem 0.56rem;
+  cursor: pointer;
+}
+
+.tinyButton:hover {
+  background: #f8fafc;
+}
+
+.tinyButtonDanger {
+  border-color: rgba(244, 63, 94, 0.35);
+  color: #be123c;
+  background: #fff1f2;
+}
+
+.tinyButtonDanger:hover {
+  background: #ffe4e6;
+}
+
+.tinyButtonWarn {
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #b45309;
+  background: #fff7ed;
+}
+
+.tinyButtonWarn:hover {
+  background: #ffedd5;
+}
+
+.mutedMeta {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.inlineStack {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  flex-wrap: wrap;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 0.72rem;
+  padding: 0.14rem 0.5rem;
+}
+
 .miniStatsGrid {
   display: grid;
   gap: 0.72rem;
@@ -389,7 +506,7 @@
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  min-width: 800px;
+  min-width: 700px;
 }
 
 .table th,
@@ -482,7 +599,7 @@
   border-radius: 10px;
   background: #fff;
   padding: 0.54rem 0.7rem;
-  min-width: 280px;
+  min-width: 220px;
   font-size: 0.9rem;
   color: #0f172a;
 }
@@ -559,6 +676,10 @@
   .miniStatsGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .actionGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 1060px) {
@@ -582,7 +703,7 @@
   }
 
   .table {
-    min-width: 680px;
+    min-width: 620px;
   }
 }
 
@@ -603,6 +724,10 @@
   }
 
   .miniStatsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .fieldGrid {
     grid-template-columns: 1fr;
   }
 }
