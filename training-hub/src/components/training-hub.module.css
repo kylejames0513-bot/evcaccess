@@ -41,6 +41,8 @@
   border-radius: 10px;
   cursor: pointer;
   font-weight: 600;
+  display: grid;
+  gap: 0.1rem;
 }
 
 .navButton:hover {
@@ -51,6 +53,16 @@
   background: rgba(37, 99, 235, 0.25);
   border-color: rgba(96, 165, 250, 0.55);
   color: #eff6ff;
+}
+
+.navLabel {
+  font-size: 0.9rem;
+}
+
+.navHint {
+  font-size: 0.74rem;
+  color: #93c5fd;
+  opacity: 0.9;
 }
 
 .main {
@@ -70,14 +82,25 @@
   gap: 0.75rem;
 }
 
+.topbarTitle {
+  display: grid;
+  gap: 0.2rem;
+}
+
 .topbar h2 {
   font-size: 1.15rem;
   margin-bottom: 0.2rem;
 }
 
-.topbar p {
+.pageMeta {
   color: var(--text-muted);
   font-size: 0.9rem;
+}
+
+.topbarActions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
 }
 
 .primaryButton,
@@ -86,6 +109,7 @@
   padding: 0.55rem 0.85rem;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
 }
 
 .primaryButton {
@@ -100,10 +124,14 @@
   color: var(--text);
 }
 
+.secondaryButton:hover {
+  background: #f8fafc;
+}
+
 .overviewGrid {
   display: grid;
   gap: 0.8rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .card {
@@ -111,6 +139,7 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 0.85rem;
+  min-height: 100px;
 }
 
 .cardLabel {
@@ -143,14 +172,42 @@
   padding: 1rem;
 }
 
-.panel h3 {
-  font-size: 1rem;
+.panelHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem 0.75rem;
   margin-bottom: 0.65rem;
+}
+
+.panelTitle {
+  font-size: 1rem;
+  margin: 0;
 }
 
 .panelHint {
   color: var(--text-muted);
   font-size: 0.9rem;
+}
+
+.loadingPanel {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 1rem;
+  color: var(--text-muted);
+  text-align: center;
+  background: #fcfdff;
+}
+
+.errorPanel {
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  border-radius: 12px;
+  padding: 0.9rem;
+  color: #9f1239;
+  display: grid;
+  gap: 0.55rem;
 }
 
 .tableWrap {
@@ -163,7 +220,7 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 900px;
+  min-width: 760px;
 }
 
 .table th,
@@ -172,6 +229,7 @@
   padding: 0.6rem;
   text-align: left;
   font-size: 0.88rem;
+  vertical-align: top;
 }
 
 .table th {
@@ -180,6 +238,9 @@
   text-transform: uppercase;
   font-size: 0.76rem;
   letter-spacing: 0.03em;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .pill {
@@ -201,9 +262,19 @@
   color: #b45309;
 }
 
+.pillNeeded {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 .pillOverdue {
   background: #fef2f2;
   color: #b91c1c;
+}
+
+.pillInactive {
+  background: #f1f5f9;
+  color: #475569;
 }
 
 .controlsRow {
@@ -213,6 +284,15 @@
   justify-content: space-between;
   gap: 0.6rem;
   margin-bottom: 0.8rem;
+}
+
+.searchInput {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.5rem 0.65rem;
+  min-width: 260px;
+  font-size: 0.9rem;
 }
 
 .filterGroup {
@@ -231,29 +311,6 @@
   border-radius: 8px;
   background: #fff;
   padding: 0.35rem 0.5rem;
-}
-
-.timeline {
-  display: grid;
-  gap: 0.7rem;
-}
-
-.timelineItem {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.7rem;
-  background: #fff;
-}
-
-.timelineMeta {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  margin-bottom: 0.25rem;
-}
-
-.timelineTitle {
-  font-weight: 700;
-  margin-bottom: 0.2rem;
 }
 
 .grid2 {
@@ -287,10 +344,19 @@
   .grid2 {
     grid-template-columns: 1fr;
   }
+
+  .table {
+    min-width: 640px;
+  }
 }
 
 @media (max-width: 680px) {
   .overviewGrid {
     grid-template-columns: 1fr;
+  }
+
+  .searchInput {
+    min-width: 100%;
+    width: 100%;
   }
 }

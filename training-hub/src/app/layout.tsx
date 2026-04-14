@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Training Hub v2",
-  description: "Frontend-first redesign of the Training Hub experience.",
+  title: "Training Hub",
+  description: "Live training operations hub with restored backend data feeds.",
 };
 
 export default function RootLayout({
