@@ -327,6 +327,18 @@ class XlsxPatcher:
             return None
         return ET.tostring(c, pretty_print=False).decode()
 
+    def clear_cell(self, sheet_name: str, cell_ref: str) -> None:
+        """Remove value/formula content from a cell while keeping its
+        style and existence. After this, Excel renders the cell as
+        empty but the `s` index and layout position are preserved."""
+        cell = self._get_cell(sheet_name, cell_ref)
+        if cell is None:
+            return
+        for child in list(cell):
+            cell.remove(child)
+        if "t" in cell.attrib:
+            del cell.attrib["t"]
+
     def has_content(self, sheet_name: str, cell_ref: str) -> bool:
         """True if a cell exists AND has a value, formula, or inline
         string child. Used by stages that only want to write into
@@ -343,6 +355,48 @@ class XlsxPatcher:
     # ------------------------------------------------------------------
     # Workbook-level settings
     # ------------------------------------------------------------------
+    def rename_font_by_size(
+        self,
+        target_size: str,
+        new_name: str,
+        only_non_bold: bool = True,
+    ) -> int:
+        """Rename every font entry of `target_size` to `new_name`.
+
+        With only_non_bold=True (the default), bold fonts are left
+        alone because they're almost always section headers or
+        subtotals, and the user's directive is "calibri 9 everywhere
+        besides headers". Returns the count of fonts renamed.
+
+        Operates directly on xl/styles.xml -- no cellXf changes
+        needed, since cells continue to reference the same fontId
+        indices but the underlying font definition is updated."""
+        styles = self._files["xl/styles.xml"].decode("utf-8")
+        changed = 0
+        size_tag = f'<sz val="{target_size}"/>'
+
+        def repl(match: re.Match) -> str:
+            nonlocal changed
+            block = match.group(0)
+            if size_tag not in block:
+                return block
+            if only_non_bold and "<b/>" in block:
+                return block
+            new_block, n = re.subn(
+                r'<name val="[^"]*"/>',
+                f'<name val="{new_name}"/>',
+                block,
+                count=1,
+            )
+            if n:
+                changed += 1
+                return new_block
+            return block
+
+        styles = re.sub(r"<font>.*?</font>", repl, styles, flags=re.DOTALL)
+        self._files["xl/styles.xml"] = styles.encode("utf-8")
+        return changed
+
     def set_auto_calc(self) -> None:
         """Force full recalculation on workbook open and auto calc mode.
         The original file has calcPr without fullCalcOnLoad, so Excel

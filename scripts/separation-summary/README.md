@@ -68,8 +68,13 @@ Zero workbook changes. The macro manages its own state in a "Sync Log" sheet tha
 
 ## Running the sync
 
-- **Manually**: click the "Sync to Hub" button on the Dashboard, or `Alt+F8 → HubSync.HubSync → Run`.
-- **On open**: uncomment the `RunHubSync True` line inside `Workbook_Open` in `HubSync.bas`, re-import, save.
+Two separate macros live in `HubSync.bas`:
+
+- **`HubSync.HubSync`** — pushes pending separations to Supabase (marks terminated, sets `terminated_at`). Run this when you've entered new separations on the current FY sheet.
+- **`HubSync.PullHireDates`** — pulls `hire_date` from Supabase for any FY-sheet row that has a name but a blank `DOH` cell. Useful for backfilling historical FY 2023/2024/2025 rows where Date of Hire was never recorded. Never overwrites an existing DOH value.
+
+- **Manually**: click a button on the Dashboard, or `Alt+F8 → HubSync.HubSync → Run` / `HubSync.PullHireDates → Run`.
+- **On open (sync)**: uncomment the `RunHubSync True` line inside `Workbook_Open` in `HubSync.bas`, re-import, save.
 
 ## What the macro does
 
