@@ -397,6 +397,125 @@ class XlsxPatcher:
         self._files["xl/styles.xml"] = styles.encode("utf-8")
         return changed
 
+    def clone_cellxfs_with_font_swap(
+        self,
+        from_font_id: int,
+        to_font_id: int,
+    ) -> dict[int, int]:
+        """For every cellXf that references `from_font_id`, append a
+        clone with fontId swapped to `to_font_id`. Returns the
+        mapping {old_cellxf_index: new_cellxf_index}.
+
+        Uses lxml to parse xl/styles.xml correctly: cellXfs contain
+        both self-closing `<xf .../>` and paired `<xf ...><alignment/>
+        </xf>` entries with child alignment/protection elements.
+        A regex-only approach was attempted first and blew up because
+        `[^/]*` inside an xf opening tag chews through the alignment
+        child, leaving an orphan `</xf>`."""
+        styles_xml = self._files["xl/styles.xml"]
+        tree = ET.fromstring(styles_xml)
+
+        # styles.xml is in the same spreadsheetml namespace as sheets
+        cellxfs = tree.find(_qn("cellXfs"))
+        if cellxfs is None:
+            return {}
+
+        xf_children = cellxfs.findall(_qn("xf"))
+        mapping: dict[int, int] = {}
+        new_xfs: list[ET._Element] = []
+        base_count = len(xf_children)
+
+        for i, xf in enumerate(xf_children):
+            if xf.get("fontId") == str(from_font_id):
+                clone = ET.fromstring(ET.tostring(xf))
+                clone.set("fontId", str(to_font_id))
+                # Ensure applyFont="1" so the new font is actually used.
+                clone.set("applyFont", "1")
+                mapping[i] = base_count + len(new_xfs)
+                new_xfs.append(clone)
+
+        if not new_xfs:
+            return mapping
+
+        for clone in new_xfs:
+            cellxfs.append(clone)
+        cellxfs.set("count", str(base_count + len(new_xfs)))
+
+        serialized = ET.tostring(
+            tree,
+            xml_declaration=True,
+            encoding="UTF-8",
+            standalone=True,
+        )
+        self._files["xl/styles.xml"] = serialized
+        return mapping
+
+    def remap_cell_styles(
+        self,
+        sheet_name: str,
+        style_map: dict[int, int],
+        row_range: Optional[range] = None,
+        min_col: int = 1,
+        max_col: int = 16384,
+    ) -> int:
+        """On the given sheet, for every cell whose row is in
+        `row_range` and whose `s` attribute is a key in `style_map`,
+        replace the style index with the mapped value. Returns count
+        of cells changed."""
+        if not style_map:
+            return 0
+        sheet = self._get_sheet_tree(sheet_name)
+        sd = sheet.find(_qn("sheetData"))
+        if sd is None:
+            return 0
+        changed = 0
+        for row in sd.findall(_qn("row")):
+            rn = int(row.get("r", "0"))
+            if row_range is not None and rn not in row_range:
+                continue
+            for cell in row.findall(_qn("c")):
+                s = cell.get("s")
+                if s is None:
+                    continue
+                s_int = int(s)
+                if s_int not in style_map:
+                    continue
+                ref = cell.get("r", "")
+                m = _CELL_RE.match(ref)
+                if not m:
+                    continue
+                col_num = _col_letter_to_num(m.group(1))
+                if not (min_col <= col_num <= max_col):
+                    continue
+                cell.set("s", str(style_map[s_int]))
+                changed += 1
+        return changed
+        styles = self._files["xl/styles.xml"].decode("utf-8")
+        changed = 0
+        size_tag = f'<sz val="{target_size}"/>'
+
+        def repl(match: re.Match) -> str:
+            nonlocal changed
+            block = match.group(0)
+            if size_tag not in block:
+                return block
+            if only_non_bold and "<b/>" in block:
+                return block
+            new_block, n = re.subn(
+                r'<name val="[^"]*"/>',
+                f'<name val="{new_name}"/>',
+                block,
+                count=1,
+            )
+            if n:
+                changed += 1
+                return new_block
+            return block
+
+        styles = re.sub(r"<font>.*?</font>", repl, styles, flags=re.DOTALL)
+        self._files["xl/styles.xml"] = styles.encode("utf-8")
+        return changed
+
     def set_auto_calc(self) -> None:
         """Force full recalculation on workbook open and auto calc mode.
         The original file has calcPr without fullCalcOnLoad, so Excel
