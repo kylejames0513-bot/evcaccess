@@ -327,6 +327,56 @@ class XlsxPatcher:
             return None
         return ET.tostring(c, pretty_print=False).decode()
 
+    def has_content(self, sheet_name: str, cell_ref: str) -> bool:
+        """True if a cell exists AND has a value, formula, or inline
+        string child. Used by stages that only want to write into
+        empty cells so hand-typed historical data is not clobbered."""
+        cell = self._get_cell(sheet_name, cell_ref)
+        if cell is None:
+            return False
+        for child in cell:
+            tag = child.tag.split("}")[-1]
+            if tag in ("v", "f", "is"):
+                return True
+        return False
+
+    # ------------------------------------------------------------------
+    # Workbook-level settings
+    # ------------------------------------------------------------------
+    def set_auto_calc(self) -> None:
+        """Force full recalculation on workbook open and auto calc mode.
+        The original file has calcPr without fullCalcOnLoad, so Excel
+        opens with possibly-stale cached values. This writes
+        calcMode="auto" and fullCalcOnLoad="1" on the existing calcPr."""
+        wb_xml = self._files["xl/workbook.xml"].decode("utf-8")
+        # Parse out existing calcPr
+        m = re.search(r"<calcPr\b([^/>]*)/>", wb_xml)
+        if not m:
+            # No calcPr element at all -- insert one before </workbook>
+            wb_xml = wb_xml.replace(
+                "</workbook>",
+                '<calcPr calcMode="auto" fullCalcOnLoad="1"/></workbook>',
+                1,
+            )
+        else:
+            attrs = m.group(1)
+            # Ensure calcMode="auto"
+            if re.search(r'\bcalcMode="[^"]*"', attrs):
+                attrs = re.sub(
+                    r'\bcalcMode="[^"]*"', 'calcMode="auto"', attrs
+                )
+            else:
+                attrs = attrs + ' calcMode="auto"'
+            # Ensure fullCalcOnLoad="1"
+            if re.search(r'\bfullCalcOnLoad="[^"]*"', attrs):
+                attrs = re.sub(
+                    r'\bfullCalcOnLoad="[^"]*"', 'fullCalcOnLoad="1"', attrs
+                )
+            else:
+                attrs = attrs + ' fullCalcOnLoad="1"'
+            wb_xml = wb_xml[: m.start()] + f"<calcPr{attrs}/>" + wb_xml[m.end():]
+        self._files["xl/workbook.xml"] = wb_xml.encode("utf-8")
+
     # ------------------------------------------------------------------
     # Sheet creation (for Sync Log)
     # ------------------------------------------------------------------
