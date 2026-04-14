@@ -42,6 +42,27 @@ export interface ImportResponse {
   data: ImportData;
 }
 
+export interface HubSyncState {
+  lastRunId: string | null;
+  lastSource: string | null;
+  lastPushedAt: string | null;
+  pushCount: number;
+  processedRunIds: string[];
+}
+
+export interface HubState {
+  data: ImportData | null;
+  summary: ImportSummary | null;
+  sync: HubSyncState;
+}
+
+export interface HubPushPayload {
+  runId: string;
+  source?: string;
+  employees: Record<string, unknown>[];
+  records: Record<string, unknown>[];
+}
+
 export interface ComplianceRow {
   rowKey: string;
   employeeId: string;

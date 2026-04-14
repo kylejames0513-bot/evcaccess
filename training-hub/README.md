@@ -1,36 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Training Hub v2 (Hub-First)
 
-## Getting Started
+Training Hub has been rebuilt as a hub-first app:
 
-First, run the development server:
+- Data is pushed into the hub through API endpoints
+- The dashboard reads and analyzes the hub state
+- A one-time run guard blocks duplicate pushes by `runId`
+
+## Run locally
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## API flow
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 1) Push records from Google Apps Script
 
-## Learn More
+Endpoint: `POST /api/hub/push`
 
-To learn more about Next.js, take a look at the following resources:
+Payload shape:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```json
+{
+  "runId": "sheet-run-2026-04-14T18:40:00Z",
+  "source": "google-sheets",
+  "employees": [{ "employee_id": "E-1001", "name": "Jane Doe", "division": "Residential", "location": "North", "status": "active" }],
+  "records": [{ "employee_id": "E-1001", "training_key": "cpr", "completed_at": "2026-01-10", "expires_at": "2028-01-10", "source": "google-sheets" }]
+}
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+`runId` is idempotent: the hub processes it once and rejects repeats.
 
-## Deploy on Vercel
+### 2) Read state in the hub
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Endpoint: `GET /api/hub/state`
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Returns:
+
+- `data` (employees + records currently loaded)
+- `summary` (counts + warnings)
+- `sync` (last run metadata and processed run IDs)
+
+## Google Apps Script example
+
+```javascript
+function pushTrainingHubRun() {
+  var runId = Utilities.formatDate(new Date(), "UTC", "yyyy-MM-dd'T'HH:mm:ss'Z'");
+  var payload = {
+    runId: "sheet-run-" + runId,
+    source: "google-sheets",
+    employees: [
+      { employee_id: "E-1001", name: "Jane Doe", division: "Residential", location: "North", status: "active" }
+    ],
+    records: [
+      { employee_id: "E-1001", training_key: "cpr", completed_at: "2026-01-10", expires_at: "2028-01-10", source: "google-sheets" }
+    ]
+  };
+
+  var response = UrlFetchApp.fetch("https://evcaccess.vercel.app/api/hub/push", {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+
+  Logger.log(response.getResponseCode());
+  Logger.log(response.getContentText());
+}
+```

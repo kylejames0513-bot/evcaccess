@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./training-hub.module.css";
 import {
   PRIMARY_TRAININGS,
@@ -15,35 +15,25 @@ import {
   formatPercent,
   trainingCoverage,
 } from "@/lib/training/analysis";
-import type {
-  ImportPayload,
-  ImportResponse,
-  TrainingFilter,
-} from "@/lib/training/types";
+import type { HubState, TrainingFilter } from "@/lib/training/types";
 
-type ImportState = {
+type StatusState = {
   kind: "idle" | "loading" | "success" | "error";
   message?: string;
 };
 
-async function readFileText(file: File): Promise<string> {
-  return await file.text();
-}
-
 export function TrainingHubApp() {
-  const [employeesCsvFile, setEmployeesCsvFile] = useState<File | null>(null);
-  const [recordsCsvFile, setRecordsCsvFile] = useState<File | null>(null);
   const [trainingFilter, setTrainingFilter] = useState<TrainingFilter>("all");
-  const [importState, setImportState] = useState<ImportState>({ kind: "idle" });
-  const [imported, setImported] = useState<ImportResponse | null>(null);
+  const [statusState, setStatusState] = useState<StatusState>({ kind: "idle" });
+  const [hubState, setHubState] = useState<HubState | null>(null);
 
   const metrics = useMemo(() => {
-    if (!imported) {
+    if (!hubState?.data) {
       return null;
     }
 
-    return analyzeRecords(imported.data.employees, imported.data.records);
-  }, [imported]);
+    return analyzeRecords(hubState.data.employees, hubState.data.records);
+  }, [hubState]);
 
   const filteredRows = useMemo(() => {
     if (!metrics) {
@@ -82,111 +72,96 @@ export function TrainingHubApp() {
 
   const expiringSoonCount = metrics ? countExpiringSoon(metrics.rows) : 0;
 
-  const canImport = Boolean(employeesCsvFile && recordsCsvFile);
-
-  async function onImportSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!employeesCsvFile || !recordsCsvFile) {
-      setImportState({
-        kind: "error",
-        message: "Select both employee and training record CSV files.",
-      });
-      return;
-    }
-
+  const refreshHubState = useCallback(async () => {
     try {
-      setImportState({ kind: "loading" });
-      const [employeesCsv, recordsCsv] = await Promise.all([
-        readFileText(employeesCsvFile),
-        readFileText(recordsCsvFile),
-      ]);
-
-      const payload: ImportPayload = { employeesCsv, recordsCsv };
-      const response = await fetch("/api/import", {
-        method: "POST",
+      setStatusState({ kind: "loading", message: "Loading hub state..." });
+      const response = await fetch("/api/hub/state", {
+        method: "GET",
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify(payload),
       });
-
-      const body = (await response.json()) as ImportResponse | { error: string };
-
+      const body = (await response.json()) as HubState | { error: string };
       if (!response.ok || "error" in body) {
-        throw new Error("error" in body ? body.error : "Import failed.");
+        throw new Error("error" in body ? body.error : "Failed to load hub state.");
       }
 
-      setImported(body);
-      setImportState({
+      setHubState(body);
+      setStatusState({
         kind: "success",
-        message: body.summary.warningCount
-          ? `Imported with ${body.summary.warningCount} warning(s).`
-          : "Import complete with no warnings.",
+        message: body.data
+          ? "Hub state loaded."
+          : "Hub is ready. Push data from your Google Sheets script to begin.",
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown import error.";
-      setImportState({ kind: "error", message });
+      const message = error instanceof Error ? error.message : "Failed to load hub state.";
+      setStatusState({ kind: "error", message });
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    void refreshHubState();
+  }, [refreshHubState]);
 
   return (
     <main className={styles.page}>
       <section className={styles.hero}>
         <h1>Training Hub v2</h1>
         <p>
-          Rebuilt to support a spreadsheet-first workflow. Export CSVs from Google Sheets
-          or Excel, import them here, and instantly review compliance.
+          Rebuilt for hub-first operations. Push records from your Google Sheets script into
+          the hub API, then monitor compliance and run status in one place.
         </p>
       </section>
 
       <section className={styles.panel}>
-        <h2>1) Import data</h2>
+        <h2>1) Push data into hub (one-time run)</h2>
         <p className={styles.panelHint}>
-          Employees CSV columns: <code>employee_id,name,division,location,status</code>.
-          Records CSV columns:{" "}
-          <code>employee_id,training_key,completed_at,expires_at,source</code>.
+          POST to <code>/api/hub/push</code> from your Google Apps Script using payload
+          <code> {"{ runId, source, employees, records }"} </code>. Reusing the same
+          <code>runId</code> is blocked, so each run only executes once.
         </p>
-        <form className={styles.importForm} onSubmit={onImportSubmit}>
-          <label className={styles.field}>
-            <span>Employees export (.csv)</span>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={(event) => setEmployeesCsvFile(event.currentTarget.files?.[0] ?? null)}
-            />
-          </label>
 
-          <label className={styles.field}>
-            <span>Training records export (.csv)</span>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={(event) => setRecordsCsvFile(event.currentTarget.files?.[0] ?? null)}
-            />
-          </label>
-
-          <button className={styles.primaryButton} disabled={!canImport || importState.kind === "loading"}>
-            {importState.kind === "loading" ? "Importing..." : "Import and Analyze"}
+        <div className={styles.inlineActions}>
+          <button
+            className={styles.primaryButton}
+            disabled={statusState.kind === "loading"}
+            onClick={() => void refreshHubState()}
+          >
+            {statusState.kind === "loading" ? "Refreshing..." : "Refresh Hub Status"}
           </button>
-        </form>
+        </div>
 
-        {importState.message ? (
+        {statusState.message ? (
           <p
             className={
-              importState.kind === "error"
+              statusState.kind === "error"
                 ? styles.statusError
-                : importState.kind === "success"
+                : statusState.kind === "success"
                   ? styles.statusSuccess
                   : styles.statusInfo
             }
           >
-            {importState.message}
+            {statusState.message}
           </p>
         ) : null}
+
+        <ul className={styles.metaList}>
+          <li>
+            Last run ID: <strong>{hubState?.sync.lastRunId ?? "none"}</strong>
+          </li>
+          <li>
+            Last source: <strong>{hubState?.sync.lastSource ?? "none"}</strong>
+          </li>
+          <li>
+            Last pushed at: <strong>{hubState?.sync.lastPushedAt ?? "never"}</strong>
+          </li>
+          <li>
+            Push count: <strong>{hubState?.sync.pushCount ?? 0}</strong>
+          </li>
+        </ul>
       </section>
 
-      {imported && metrics ? (
+      {hubState?.data && metrics ? (
         <>
           <section className={styles.grid}>
             <article className={styles.metric}>
@@ -272,11 +247,11 @@ export function TrainingHubApp() {
             </div>
           </section>
 
-          {imported.summary.warnings.length ? (
+          {hubState.summary?.warnings.length ? (
             <section className={styles.panel}>
               <h2>Import warnings</h2>
               <ul className={styles.warningList}>
-                {imported.summary.warnings.map((warning) => (
+                {hubState.summary.warnings.map((warning) => (
                   <li key={warning}>{warning}</li>
                 ))}
               </ul>

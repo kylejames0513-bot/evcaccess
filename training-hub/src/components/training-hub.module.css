@@ -119,6 +119,19 @@
   color: var(--danger);
 }
 
+.inlineActions {
+  margin-top: 0.75rem;
+}
+
+.metaList {
+  margin-top: 0.75rem;
+  margin-left: 1rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
 .uploadRow {
   margin-top: 0.85rem;
   display: flex;
