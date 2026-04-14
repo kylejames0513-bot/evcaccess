@@ -124,7 +124,18 @@ export async function fixSharedColumnKeyCompliance(
     .order("completion_date", { ascending: false });
   if (error) throw error;
 
-  // Index: employee_id → latest completion across sibling types (by column_key)
+  // Defense-in-depth: also pull sibling excusals so that an excusal on
+  // "Initial Med Training" satisfies a "Med Recert" requirement (and
+  // vice versa) even if the compliance view migration that fixes the
+  // excusal join hasn't been applied yet.
+  const { data: excRecords, error: excErr } = await db()
+    .from("excusals")
+    .select("employee_id, training_type_id, reason")
+    .in("employee_id", employeeIds)
+    .in("training_type_id", siblingTypeIds);
+  if (excErr) throw excErr;
+
+  // Index: employee_id|column_key → latest completion across sibling types
   const latestByEmpKey = new Map<string, { completion_date: string; expiration_date: string | null }>();
   for (const rec of records ?? []) {
     const group = siblingMap.get(rec.training_type_id);
@@ -135,6 +146,17 @@ export async function fixSharedColumnKeyCompliance(
         completion_date: rec.completion_date,
         expiration_date: rec.expiration_date,
       });
+    }
+  }
+
+  // Index: employee_id|column_key → excusal reason (any sibling excusal)
+  const excusedByEmpKey = new Map<string, string | null>();
+  for (const exc of excRecords ?? []) {
+    const group = siblingMap.get(exc.training_type_id);
+    if (!group) continue;
+    const key = `${exc.employee_id}|${group.columnKey}`;
+    if (!excusedByEmpKey.has(key)) {
+      excusedByEmpKey.set(key, exc.reason ?? null);
     }
   }
 
@@ -185,6 +207,18 @@ export async function fixSharedColumnKeyCompliance(
 
     const group = siblingMap.get(row.training_type_id)!;
     const key = `${row.employee_id}|${group.columnKey}`;
+
+    // First, check if any sibling training_type has an excusal for this
+    // employee. If so, the requirement is satisfied — flip status to
+    // "excused" so HR doesn't see a phantom "needed" row.
+    if (excusedByEmpKey.has(key)) {
+      return {
+        ...row,
+        status: "excused" as ComplianceStatus,
+        excusal_reason: excusedByEmpKey.get(key) ?? row.excusal_reason ?? null,
+      };
+    }
+
     const latest = latestByEmpKey.get(key);
 
     if (!latest) {
@@ -253,7 +287,16 @@ export async function listCompliance(
 ): Promise<EmployeeCompliance[]> {
   let query = db().from("employee_compliance").select("*");
 
-  if (filters.department) query = query.ilike("department", filters.department);
+  if (filters.department) {
+    // Match either column case-insensitively. The compliance view
+    // exposes both `department` (sub-unit) and `division` (umbrella),
+    // and the rest of the app filters on the umbrella name even
+    // though the param is historically called "department". Strip
+    // commas so the PostgREST OR parser doesn't break on multi-word
+    // division names like "Behavioral Health".
+    const safe = filters.department.replace(/[,]/g, "");
+    query = query.or(`division.ilike.${safe},department.ilike.${safe}`);
+  }
   if (filters.position) query = query.ilike("position", filters.position);
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.trainingTypeId != null) query = query.eq("training_type_id", filters.trainingTypeId);

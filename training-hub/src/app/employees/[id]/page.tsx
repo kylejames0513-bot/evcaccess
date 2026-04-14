@@ -11,6 +11,7 @@ interface Employee {
   terminated_at: string | null;
   reactivated_at: string | null;
   department: string | null;
+  division: string | null;
   position: string | null;
   job_title: string | null;
   hire_date: string | null;
@@ -213,8 +214,9 @@ export default function EmployeeDetailPage({
         {statusError && (
           <div className="mt-2 text-xs text-red-600">{statusError}</div>
         )}
-        <dl className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+        <dl className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-3">
           <div><dt className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Paylocity ID</dt><dd className="text-sm text-slate-900">{e.paylocity_id ?? ""}</dd></div>
+          <div><dt className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Division</dt><dd className="text-sm text-slate-900">{e.division ?? ""}</dd></div>
           <div><dt className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Department</dt><dd className="text-sm text-slate-900">{e.department ?? ""}</dd></div>
           <div><dt className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Position</dt><dd className="text-sm text-slate-900">{e.position ?? e.job_title ?? ""}</dd></div>
           <div><dt className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Hire date</dt><dd className="text-sm text-slate-900">{e.hire_date ?? ""}</dd></div>

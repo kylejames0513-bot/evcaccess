@@ -23,7 +23,9 @@ export const POST = withApiHandler(async (request) => {
       .from("enrollments")
       .delete()
       .eq("session_id", sessionId);
-    if (error) throw error;
+    if (error) {
+      throw new ApiError(`failed to clear enrollments: ${error.message}`, 500, "internal");
+    }
     return { success: true, removed: true };
   }
 

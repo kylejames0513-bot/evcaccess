@@ -34,7 +34,7 @@ export const POST = withApiHandler(async (request) => {
     .eq("id", sessionId)
     .maybeSingle();
 
-  if (fetchError) throw new Error(`Failed to fetch session: ${fetchError.message}`);
+  if (fetchError) throw new ApiError(`Failed to fetch session: ${fetchError.message}`, 500, "internal");
   if (!existing) throw new ApiError("Session not found", 404, "not_found");
   const typedExisting = existing as unknown as ExistingSession;
 
@@ -44,16 +44,32 @@ export const POST = withApiHandler(async (request) => {
   if (location !== undefined) updates.location = location || null;
 
   if (training !== undefined) {
-    const safeTraining = String(training).replace(/[,%]/g, "");
-    const { data: tt } = await supabase
-      .from("training_types")
-      .select("id")
-      .or(`name.ilike.${safeTraining},column_key.ilike.${safeTraining}`)
-      .limit(1)
-      .maybeSingle();
-
-    if (tt) {
-      updates.training_type_id = tt.id;
+    // Two separate queries instead of .or() to avoid PostgREST OR
+    // injection. The .or() string parser treats commas as condition
+    // separators, so a stripped-string approach is fragile against
+    // operator injection. Two .ilike() calls hit indexed columns and
+    // are still cheap.
+    const trainingStr = String(training).trim();
+    if (trainingStr.length > 0) {
+      const byName = await supabase
+        .from("training_types")
+        .select("id")
+        .ilike("name", trainingStr)
+        .limit(1)
+        .maybeSingle();
+      let tt = byName.data;
+      if (!tt) {
+        const byKey = await supabase
+          .from("training_types")
+          .select("id")
+          .ilike("column_key", trainingStr)
+          .limit(1)
+          .maybeSingle();
+        tt = byKey.data;
+      }
+      if (tt) {
+        updates.training_type_id = tt.id;
+      }
     }
   }
 
@@ -63,7 +79,7 @@ export const POST = withApiHandler(async (request) => {
       .update(updates)
       .eq("id", sessionId);
 
-    if (updateError) throw new Error(`Failed to update session: ${updateError.message}`);
+    if (updateError) throw new ApiError(`Failed to update session: ${updateError.message}`, 500, "internal");
   }
 
   const newTraining = training || typedExisting.training_types?.name || "Unknown";

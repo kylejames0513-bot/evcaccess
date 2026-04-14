@@ -70,6 +70,12 @@ export async function listRequiredTrainingsForDepartment(
  * Returns a Map keyed by training_type_id so callers can look up the
  * winning rule that applied (e.g. to show "required by Residential dept rule"
  * in the UI).
+ *
+ * `required_trainings.department` is seeded with DIVISION names
+ * (Residential, Executive, Board, etc.), not sub-unit names. It joins
+ * against `employees.division` — with a fallback to `employees.department`
+ * so historical rows that never got a division value still match. This
+ * mirrors the compliance view after migration 20260414000100.
  */
 export async function getRequiredTrainingsForEmployee(
   employee: { department?: string | null; division?: string | null; position?: string | null }
@@ -77,13 +83,15 @@ export async function getRequiredTrainingsForEmployee(
   const client = db();
   const candidates: RequiredTraining[] = [];
 
-  // Universal rules apply to every department except Board. Board
-  // members are in the employees table for roster/compliance display
-  // but are not subject to staff-wide training requirements. Board
-  // members still pick up any explicit department='Board' rules below.
-  const isBoard =
-    (employee.department ?? employee.division ?? "").trim().toLowerCase() ===
-    "board";
+  // Canonical division name: prefer division, fall back to department
+  // for pre-division-column rows.
+  const canonicalDivision = (employee.division ?? employee.department ?? "").trim();
+
+  // Universal rules apply to every division except Board. Board members
+  // are in the employees table for roster display but are not subject
+  // to staff-wide training requirements. Board-scoped division rules
+  // still apply via the explicit department='Board' match below.
+  const isBoard = canonicalDivision.toLowerCase() === "board";
   if (!isBoard) {
     const { data: universal, error: uErr } = await client
       .from("required_trainings")
@@ -93,15 +101,14 @@ export async function getRequiredTrainingsForEmployee(
     candidates.push(...(universal ?? []));
   }
 
-  // Division-scoped rules apply if employee.division matches.
-  // required_trainings.department stores the division name.
-  const divisionName = employee.division ?? employee.department;
-  if (divisionName) {
+  // Division-scoped rules apply if the canonical division matches
+  // required_trainings.department (which stores the division name).
+  if (canonicalDivision.length > 0) {
     const { data: deptRules, error: dErr } = await client
       .from("required_trainings")
       .select("*")
       .eq("is_universal", false)
-      .ilike("department", divisionName);
+      .ilike("department", canonicalDivision);
     if (dErr) throw dErr;
     candidates.push(...(deptRules ?? []));
   }

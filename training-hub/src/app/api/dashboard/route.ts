@@ -1,7 +1,7 @@
 import { getComplianceSummary, listCompliance } from "@/lib/db/compliance";
 import { getEmployeeCounts } from "@/lib/db/employees";
 import { createServerClient } from "@/lib/supabase";
-import { withApiHandler } from "@/lib/api-handler";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 
 export const GET = withApiHandler(async () => {
   const db = createServerClient();
@@ -18,7 +18,9 @@ export const GET = withApiHandler(async () => {
     .eq("status", "scheduled")
     .order("session_date", { ascending: true })
     .limit(10);
-  if (sessErr) throw sessErr;
+  if (sessErr) {
+    throw new ApiError(`failed to read training_sessions: ${sessErr.message}`, 500, "internal");
+  }
 
   // Get training names for these sessions
   const typeIds = [...new Set((sessions ?? []).map((s) => s.training_type_id))];

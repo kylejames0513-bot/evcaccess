@@ -47,7 +47,7 @@ export const POST = withApiHandler(async (request) => {
         .from("training_records")
         .delete()
         .in("id", body.recordIds);
-      if (error) throw new Error(error.message);
+      if (error) throw new ApiError(`delete failed: ${error.message}`, 500, "internal");
       return { success: true, deleted: body.recordIds.length };
     }
 
@@ -59,7 +59,7 @@ export const POST = withApiHandler(async (request) => {
         .from("excusals")
         .delete()
         .in("id", body.excusalIds);
-      if (error) throw new Error(error.message);
+      if (error) throw new ApiError(`delete failed: ${error.message}`, 500, "internal");
       return { success: true, deleted: body.excusalIds.length };
     }
 
@@ -71,7 +71,7 @@ export const POST = withApiHandler(async (request) => {
         .from("training_records")
         .delete()
         .eq("id", body.recordId);
-      if (error) throw new Error(error.message);
+      if (error) throw new ApiError(`delete failed: ${error.message}`, 500, "internal");
       return { success: true };
     }
 

@@ -79,22 +79,29 @@ export const GET = withApiHandler(async (req) => {
 
     // Build the old shape the modal expects, but ONLY for required trainings
     const db = createServerClient();
-    const { data: rules } = await db.from("required_trainings").select("*").eq("is_required", true);
+    const { data: rules, error: rulesErr } = await db
+      .from("required_trainings")
+      .select("*")
+      .eq("is_required", true);
+    if (rulesErr) {
+      throw new ApiError(`failed to read required_trainings: ${rulesErr.message}`, 500, "internal");
+    }
 
     // Determine which training_type_ids are required for this employee.
-    // Board members are excluded from universal rules (see compliance
-    // view migration 20260413130000) but still pick up any explicit
-    // Board-scoped department/position rules.
-    const empDivision = String(
-      (employee as Record<string, unknown>).division ?? ""
-    );
-    const isBoard = empDivision.toLowerCase() === "board";
+    // Use canonical division (employees.division → fallback employees.department)
+    // so the rules match the same way the compliance view does. Board
+    // members are excluded from universal rules but still pick up any
+    // explicit Board-scoped rules below.
+    const canonicalDivision = String(
+      employee.division ?? employee.department ?? ""
+    ).trim();
+    const isBoard = canonicalDivision.toLowerCase() === "board";
     const requiredTypeIds = new Set<number>();
     for (const rule of rules ?? []) {
       if (rule.is_universal) {
         if (!isBoard) requiredTypeIds.add(rule.training_type_id);
-      } else if (rule.department && empDivision &&
-        rule.department.toLowerCase() === empDivision.toLowerCase()) {
+      } else if (rule.department && canonicalDivision &&
+        rule.department.toLowerCase() === canonicalDivision.toLowerCase()) {
         if (rule.position == null) {
           requiredTypeIds.add(rule.training_type_id);
         } else if (employee.position && rule.position.toLowerCase() === employee.position.toLowerCase()) {
@@ -109,14 +116,32 @@ export const GET = withApiHandler(async (req) => {
       listTrainingTypes({ activeOnly: true }),
     ]);
 
-    const excusalMap = new Map(excusals.map(e => [e.training_type_id, e.reason]));
+    // Index excusals by column_key so an excusal on a sibling
+    // training_type (e.g. Initial Med Training) satisfies a sibling
+    // requirement (Med Recert). Same logic as the compliance view's
+    // LATERAL excusal join.
+    const ttById = new Map(allTypes.map((t) => [t.id, t]));
+    const excusalByColumnKey = new Map<string, string>();
+    for (const e of excusals) {
+      const tt = ttById.get(e.training_type_id);
+      if (!tt) continue;
+      if (!excusalByColumnKey.has(tt.column_key)) {
+        excusalByColumnKey.set(tt.column_key, e.reason);
+      }
+    }
 
     // Only show trainings required for this employee
     const requiredTypes = allTypes.filter(tt => requiredTypeIds.has(tt.id));
     const trainings = requiredTypes.map(tt => {
-      const records = history.filter(h => h.training_type_id === tt.id);
+      // Match completions by column_key as well so Initial Med satisfies
+      // Med Recert and vice versa.
+      const records = history.filter(
+        (h) =>
+          h.training_type_id === tt.id ||
+          (h.training_type_id != null && ttById.get(h.training_type_id)?.column_key === tt.column_key)
+      );
       const latest = records[0]; // already sorted desc by completion_date
-      const excusalReason = excusalMap.get(tt.id);
+      const excusalReason = excusalByColumnKey.get(tt.column_key);
 
       let status = "needed";
       if (excusalReason) {

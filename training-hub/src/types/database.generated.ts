@@ -70,6 +70,7 @@ export type Database = {
           auth_id: string | null
           created_at: string
           department: string | null
+          division: string | null
           email: string | null
           employee_number: string | null
           excusal_codes: string[] | null
@@ -92,6 +93,7 @@ export type Database = {
           auth_id?: string | null
           created_at?: string
           department?: string | null
+          division?: string | null
           email?: string | null
           employee_number?: string | null
           excusal_codes?: string[] | null
@@ -114,6 +116,7 @@ export type Database = {
           auth_id?: string | null
           created_at?: string
           department?: string | null
+          division?: string | null
           email?: string | null
           employee_number?: string | null
           excusal_codes?: string[] | null
@@ -603,6 +606,7 @@ export type Database = {
           completion_source: string | null
           days_overdue: number | null
           department: string | null
+          division: string | null
           due_in_30: boolean | null
           due_in_60: boolean | null
           due_in_90: boolean | null

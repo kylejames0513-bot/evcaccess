@@ -10,7 +10,7 @@ export const GET = withApiHandler(async (request) => {
     .from("hub_settings")
     .select("key, value")
     .eq("type", "training_note");
-  if (error) throw new Error(`Failed to load training notes: ${error.message}`);
+  if (error) throw new ApiError(`Failed to load training notes: ${error.message}`, 500, "internal");
 
   const notes: Record<string, string> = {};
 
@@ -50,14 +50,14 @@ export const POST = withApiHandler(async (request) => {
         { type: "training_note", key: settingsKey, value: note },
         { onConflict: "type,key" }
       );
-    if (error) throw new Error(`Failed to save note: ${error.message}`);
+    if (error) throw new ApiError(`Failed to save note: ${error.message}`, 500, "internal");
   } else {
     const { error } = await supabase
       .from("hub_settings")
       .delete()
       .eq("type", "training_note")
       .eq("key", settingsKey);
-    if (error) throw new Error(`Failed to delete note: ${error.message}`);
+    if (error) throw new ApiError(`Failed to delete note: ${error.message}`, 500, "internal");
   }
 
   return { success: true };

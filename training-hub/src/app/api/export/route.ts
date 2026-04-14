@@ -23,9 +23,20 @@ export const GET = withApiHandler(async (req) => {
         .select("*")
         .order("last_name")
         .order("first_name");
-      if (error) throw error;
+      if (error) throw new ApiError(`export query failed: ${error.message}`, 500, "internal");
 
-      const headers = ["Paylocity ID", "Last Name", "First Name", "Status", "Department", "Position", "Job Title", "Hire Date", "Terminated"];
+      const headers = [
+        "Paylocity ID",
+        "Last Name",
+        "First Name",
+        "Status",
+        "Division",
+        "Department",
+        "Position",
+        "Job Title",
+        "Hire Date",
+        "Terminated",
+      ];
       csv = headers.join(",") + "\n";
       for (const e of employees ?? []) {
         csv += [
@@ -33,6 +44,7 @@ export const GET = withApiHandler(async (req) => {
           esc(e.last_name),
           esc(e.first_name),
           e.is_active ? "Active" : "Terminated",
+          esc(e.division ?? ""),
           esc(e.department ?? ""),
           esc(e.position ?? ""),
           esc(e.job_title ?? ""),
@@ -50,7 +62,7 @@ export const GET = withApiHandler(async (req) => {
         .order("last_name")
         .order("first_name")
         .order("completion_date", { ascending: false });
-      if (error) throw error;
+      if (error) throw new ApiError(`export query failed: ${error.message}`, 500, "internal");
 
       const headers = [
         "Paylocity ID", "Last Name", "First Name", "Active", "Department",
@@ -82,10 +94,10 @@ export const GET = withApiHandler(async (req) => {
         .select("*")
         .order("last_name")
         .order("first_name");
-      if (error) throw error;
+      if (error) throw new ApiError(`export query failed: ${error.message}`, 500, "internal");
 
       const headers = [
-        "Paylocity ID", "Last Name", "First Name", "Department", "Position",
+        "Paylocity ID", "Last Name", "First Name", "Division", "Department", "Position",
         "Training", "Status", "Completion Date", "Expiration Date",
         "Days Overdue", "Source",
       ];
@@ -95,6 +107,7 @@ export const GET = withApiHandler(async (req) => {
           esc(r.paylocity_id ?? ""),
           esc(r.last_name ?? ""),
           esc(r.first_name ?? ""),
+          esc(r.division ?? ""),
           esc(r.department ?? ""),
           esc(r.position ?? ""),
           esc(r.training_name ?? ""),

@@ -1,5 +1,15 @@
+// ============================================================
+// GET /api/divisions — distinct division values across active
+// employees. Used by the filter dropdowns on several pages.
+// ============================================================
+// Reads employees.division first (the canonical umbrella name)
+// and falls back to employees.department if the row has no
+// division set yet (pre-division-column historical rows).
+// Mirrors the resolution used by the employee_compliance view.
+// ============================================================
+
 import { createServerClient } from "@/lib/supabase";
-import { withApiHandler } from "@/lib/api-handler";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 
 export const GET = withApiHandler(async () => {
   const supabase = createServerClient();
@@ -13,13 +23,15 @@ export const GET = withApiHandler(async () => {
   for (;;) {
     const { data: employees, error } = await supabase
       .from("employees")
-      .select("department")
+      .select("division, department")
       .eq("is_active", true)
       .range(offset, offset + PAGE_SIZE - 1);
-    if (error) throw new Error(`Failed to load employees: ${error.message}`);
+    if (error) {
+      throw new ApiError(`failed to read employees: ${error.message}`, 500, "internal");
+    }
     if (!employees || employees.length === 0) break;
     for (const emp of employees) {
-      const div = (emp.department || "").trim();
+      const div = (emp.division ?? emp.department ?? "").trim();
       if (div) divisions.add(div);
     }
     if (employees.length < PAGE_SIZE) break;

@@ -74,15 +74,36 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     ttById.set(tt.id, tt);
   }
 
-  // Fetch active employees (well under 1000)
-  const { data: empRows, error: empError } = await supabase
-    .from("employees")
-    .select("id, first_name, last_name, department, hire_date")
-    .eq("is_active", true)
-    .limit(10000);
-
-  if (empError) throw new Error(`Failed to load employees: ${empError.message}`);
-  if (!empRows || empRows.length === 0) return [];
+  // Fetch active employees. Pull both `division` (umbrella) and
+  // `department` (sub-unit) so the report layer can use the canonical
+  // division name for grouping. Pagination instead of a fixed limit
+  // because PostgREST silently caps single responses at 1000 rows.
+  type EmpRow = {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    department: string | null;
+    division: string | null;
+    hire_date: string | null;
+  };
+  const empRows: EmpRow[] = [];
+  {
+    const PAGE = 1000;
+    let off = 0;
+    for (;;) {
+      const { data, error: empError } = await supabase
+        .from("employees")
+        .select("id, first_name, last_name, department, division, hire_date")
+        .eq("is_active", true)
+        .range(off, off + PAGE - 1);
+      if (empError) throw new Error(`Failed to load employees: ${empError.message}`);
+      if (!data || data.length === 0) break;
+      empRows.push(...(data as EmpRow[]));
+      if (data.length < PAGE) break;
+      off += PAGE;
+    }
+  }
+  if (empRows.length === 0) return [];
 
   const empIds = empRows.map((e) => e.id);
 
@@ -157,7 +178,11 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     const name = `${emp.last_name}, ${emp.first_name}`;
     if (excludedSet.has(name.toLowerCase())) continue;
 
-    const position = emp.department || "";
+    // The `position` field on EmployeeTrainingRow is a legacy
+    // misnomer — reports actually use it as the division group key.
+    // Use canonical division (division → department fallback) so the
+    // groupings match the compliance view.
+    const position = (emp.division ?? emp.department ?? "");
     const employeeDefs = trackedDefs;
 
     const empEntry: EmployeeTrainingRow = {
@@ -537,12 +562,27 @@ export async function setExcusal(
   const employee = await findEmployee(supabase, employeeName);
   if (!employee) return { success: false, message: `Employee "${employeeName}" not found` };
 
-  const { data: trainingType } = await supabase
+  // Two separate queries instead of .or() to avoid PostgREST OR
+  // injection: the .or() parser treats commas as condition separators
+  // and the input string here is operator-controlled.
+  let trainingType: { id: number; name: string } | null = null;
+  const byKey = await supabase
     .from("training_types")
     .select("id, name")
-    .or(`column_key.ilike.${trainingColumnKey},name.ilike.${trainingColumnKey}`)
+    .ilike("column_key", trainingColumnKey)
     .limit(1)
-    .single();
+    .maybeSingle();
+  if (byKey.data) {
+    trainingType = byKey.data;
+  } else {
+    const byName = await supabase
+      .from("training_types")
+      .select("id, name")
+      .ilike("name", trainingColumnKey)
+      .limit(1)
+      .maybeSingle();
+    if (byName.data) trainingType = byName.data;
+  }
 
   if (!trainingType) return { success: false, message: `Training "${trainingColumnKey}" not found` };
 
@@ -597,17 +637,36 @@ export async function createSession(
 ): Promise<{ success: boolean; message: string }> {
   const supabase = createServerClient();
 
-  // Find training type
-  const { data: tt } = await supabase
+  // Two separate queries instead of .or() to avoid PostgREST OR
+  // injection. The .or() string parser treats commas as condition
+  // separators so an attacker-controlled comma would break out of the
+  // single condition we intended.
+  let tt: { id: number; class_capacity: number | null } | null = null;
+  const byName = await supabase
     .from("training_types")
     .select("id, class_capacity")
-    .or(`name.ilike.${trainingType},column_key.ilike.${trainingType}`)
+    .ilike("name", trainingType)
     .limit(1)
-    .single();
+    .maybeSingle();
+  if (byName.data) {
+    tt = byName.data;
+  } else {
+    const byKey = await supabase
+      .from("training_types")
+      .select("id, class_capacity")
+      .ilike("column_key", trainingType)
+      .limit(1)
+      .maybeSingle();
+    if (byKey.data) tt = byKey.data;
+  }
 
   if (!tt) return { success: false, message: `Training type "${trainingType}" not found` };
 
   // Create session
+  // class_capacity is nullable in the schema; coerce to undefined so
+  // the insert defaults to whatever training_sessions.capacity defaults
+  // to instead of explicitly passing null.
+  const capacity = tt.class_capacity ?? undefined;
   const { data: session, error: sessionErr } = await supabase
     .from("training_sessions")
     .insert({
@@ -615,8 +674,8 @@ export async function createSession(
       session_date: date,
       start_time: time || null,
       location: location || null,
-      capacity: tt.class_capacity,
-    })
+      capacity,
+    } as never)
     .select("id")
     .single();
 

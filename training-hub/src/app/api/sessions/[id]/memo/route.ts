@@ -69,7 +69,9 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
     )
     .eq("id", sessionId)
     .maybeSingle();
-  if (sessErr) throw sessErr;
+  if (sessErr) {
+    throw new ApiError(`failed to read session: ${sessErr.message}`, 500, "internal");
+  }
   if (!session) throw new ApiError("Session not found", 404, "not_found");
   const typedSession = session as unknown as SessionJoin;
   const trainingName = typedSession.training_types?.name ?? "Training";
@@ -82,7 +84,9 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
     )
     .eq("session_id", sessionId)
     .neq("status", "cancelled");
-  if (enrErr) throw enrErr;
+  if (enrErr) {
+    throw new ApiError(`failed to read enrollments: ${enrErr.message}`, 500, "internal");
+  }
 
   const attendees = ((enrollments ?? []) as unknown as EnrollmentJoin[])
     .map((e) => e.employees)

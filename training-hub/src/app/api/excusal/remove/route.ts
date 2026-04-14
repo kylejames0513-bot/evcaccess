@@ -26,6 +26,8 @@ export const POST = withApiHandler(async (request) => {
     .eq("employee_id", employee_id)
     .eq("training_type_id", training_type_id);
 
-  if (error) throw error;
+  if (error) {
+    throw new ApiError(`failed to delete excusal: ${error.message}`, 500, "internal");
+  }
   return { ok: true };
 });

@@ -1,5 +1,5 @@
 import { createServerClient } from "@/lib/supabase";
-import { withApiHandler } from "@/lib/api-handler";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 
 // ============================================================
 // Data Quality scan — Supabase-native checks
@@ -13,7 +13,7 @@ async function fetchAllPaged<T>(
   const out: T[] = [];
   for (let offset = 0; ; offset += pageSize) {
     const { data, error } = await buildQuery().range(offset, offset + pageSize - 1);
-    if (error) throw new Error(error.message);
+    if (error) throw new ApiError(`data-health query failed: ${error.message}`, 500, "internal");
     if (!data || data.length === 0) break;
     out.push(...(data as T[]));
     if (data.length < pageSize) break;
@@ -29,6 +29,7 @@ export const GET = withApiHandler(async () => {
     first_name: string | null;
     last_name: string | null;
     department: string | null;
+    division: string | null;
     hire_date: string | null;
     is_active: boolean;
   }
@@ -45,7 +46,7 @@ export const GET = withApiHandler(async () => {
   const allEmployees = await fetchAllPaged<EmployeeRow>(() =>
     supabase
       .from("employees")
-      .select("id, first_name, last_name, department, hire_date, is_active")
+      .select("id, first_name, last_name, department, division, hire_date, is_active")
   );
 
   const employeeRows: EmployeeRow[] = allEmployees.filter((e) => e.is_active);
@@ -77,9 +78,16 @@ export const GET = withApiHandler(async () => {
   // NOT orphans — their history is deliberately preserved.
   const validEmployeeIds = allEmployeeIds;
 
-    // ──────── Issue 1: Employees missing department ────────
+    // ──────── Issue 1: Employees missing division/department ────────
+    // Both columns count: an employee with at least one of them set
+    // can still match required_trainings rules via the COALESCE in
+    // the compliance view. Only flag when BOTH are empty.
     const missingDepartment = employeeRows
-      .filter((e) => !e.department || !e.department.trim())
+      .filter((e) => {
+        const div = (e.division ?? "").trim();
+        const dept = (e.department ?? "").trim();
+        return div.length === 0 && dept.length === 0;
+      })
       .map((e) => ({
         id: e.id,
         name: `${e.last_name}${e.first_name ? `, ${e.first_name}` : ""}`,

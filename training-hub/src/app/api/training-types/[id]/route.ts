@@ -57,7 +57,9 @@ export const POST = withApiHandler(async (req: NextRequest, ctx) => {
       .from("training_aliases")
       .delete()
       .eq("id", body.alias_id);
-    if (error) throw error;
+    if (error) {
+      throw new ApiError(`failed to delete alias: ${error.message}`, 500, "internal");
+    }
     return { ok: true };
   }
 

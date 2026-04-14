@@ -1,5 +1,5 @@
 import { createServerClient } from "@/lib/supabase";
-import { withApiHandler } from "@/lib/api-handler";
+import { withApiHandler, ApiError } from "@/lib/api-handler";
 
 export const GET = withApiHandler(async () => {
   const supabase = createServerClient();
@@ -25,7 +25,7 @@ export const GET = withApiHandler(async () => {
       .order("completion_date", { ascending: false })
       .range(offset, offset + PAGE - 1);
 
-    if (error) throw new Error(`Failed to load training records: ${error.message}`);
+    if (error) throw new ApiError(`Failed to load training records: ${error.message}`, 500, "internal");
     if (!data || data.length === 0) break;
     all.push(...(data as unknown as typeof all));
     if (data.length < PAGE) break;

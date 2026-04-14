@@ -133,7 +133,10 @@ export const GET = withApiHandler(async (request) => {
         status: row.status ?? "needed",
         daysExpired,
         daysUntilExpiry,
-        division: row.department ?? "",
+        // Prefer the canonical division column, fall back to department
+        // for historical rows. Mirrors the compliance view + every
+        // other route that reads division.
+        division: row.division ?? row.department ?? "",
         position: row.position ?? "",
       };
     });

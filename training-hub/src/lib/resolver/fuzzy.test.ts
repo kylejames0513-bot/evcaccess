@@ -20,6 +20,7 @@ function emp(id: string, last: string, first: string): Employee {
     role: "employee",
     job_title: null,
     department: null,
+    division: null,
     program: null,
     hire_date: null,
     is_active: true,

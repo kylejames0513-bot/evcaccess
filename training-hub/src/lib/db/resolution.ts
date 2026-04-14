@@ -62,7 +62,13 @@ export async function listUnresolvedPeople(
   if (opts.source) query = query.eq("source", opts.source);
   if (opts.reason) query = query.eq("reason", opts.reason);
   if (opts.search && opts.search.trim()) {
-    const needle = `%${opts.search.trim().replace(/[%,]/g, "")}%`;
+    // PostgREST .or() takes a comma-separated condition string; embedded
+    // commas in the user search would silently break the conditions
+    // apart. Wrap the search needle in double quotes so PostgREST treats
+    // it as a single literal even when it contains commas, and escape
+    // embedded quotes so the wrapper itself can't be closed early.
+    const cleaned = opts.search.trim().replace(/"/g, "");
+    const needle = `"%${cleaned}%"`;
     query = query.or(
       `full_name.ilike.${needle},first_name.ilike.${needle},last_name.ilike.${needle},paylocity_id.ilike.${needle}`
     );
@@ -70,7 +76,9 @@ export async function listUnresolvedPeople(
   query = query.order("created_at", { ascending: false }).range(from, to);
 
   const { data, error, count } = await query;
-  if (error) throw error;
+  if (error) {
+    throw new Error(`failed to list unresolved_people: ${error.message}`);
+  }
   return { rows: data ?? [], total: count ?? 0, page, pageSize };
 }
 

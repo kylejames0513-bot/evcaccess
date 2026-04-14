@@ -49,13 +49,19 @@ export const POST = withApiHandler(async (req) => {
     if (division) {
       const { data, error } = await supabase
         .from("employees")
-        .select("id, department, position")
+        .select("id, department, division, position")
         .eq("is_active", true);
-      if (error) throw error;
+      if (error) {
+        throw new ApiError(`failed to read employees: ${error.message}`, 500, "internal");
+      }
       const divLower = division.toLowerCase();
       const posLower = position?.trim().toLowerCase() ?? "";
       employeeIds = (data ?? [])
-        .filter((e) => (e.department ?? "").toLowerCase() === divLower)
+        .filter((e) => {
+          // Prefer division, fall back to department for pre-division rows
+          const canonical = (e.division ?? e.department ?? "").toLowerCase();
+          return canonical === divLower;
+        })
         .filter((e) =>
           posLower ? (e.position ?? "").toLowerCase() === posLower : true
         )
@@ -65,12 +71,20 @@ export const POST = withApiHandler(async (req) => {
         .from("employees")
         .select("id, first_name, last_name")
         .eq("is_active", true);
-      if (error) throw error;
-      const nameSet = new Set(employeeNames.map((n) => n.toLowerCase()));
+      if (error) {
+        throw new ApiError(`failed to read employees: ${error.message}`, 500, "internal");
+      }
+      // Accept both "First Last" and "Last, First" so both the
+      // /compliance CSV export (Last, First) and the /sessions
+      // detail panel (First Last) use the same endpoint.
+      const nameSet = new Set(employeeNames.map((n) => n.toLowerCase().trim()));
       employeeIds = (data ?? [])
         .filter((e) => {
-          const full = `${e.first_name ?? ""} ${e.last_name ?? ""}`.trim().toLowerCase();
-          return nameSet.has(full);
+          const first = (e.first_name ?? "").trim().toLowerCase();
+          const last = (e.last_name ?? "").trim().toLowerCase();
+          const firstLast = `${first} ${last}`.trim();
+          const lastFirst = `${last}, ${first}`.trim();
+          return nameSet.has(firstLast) || nameSet.has(lastFirst);
         })
         .map((e) => e.id);
   } else {
@@ -89,7 +103,9 @@ export const POST = withApiHandler(async (req) => {
     const { data: trainingTypes, error: ttErr } = await supabase
       .from("training_types")
       .select("id, column_key");
-    if (ttErr) throw ttErr;
+    if (ttErr) {
+      throw new ApiError(`failed to read training_types: ${ttErr.message}`, 500, "internal");
+    }
 
     const keyToId = new Map<string, number>();
     for (const tt of trainingTypes ?? []) {
@@ -124,7 +140,9 @@ export const POST = withApiHandler(async (req) => {
       const { error: upsertErr } = await supabase
         .from("excusals")
         .upsert(batch, { onConflict: "employee_id,training_type_id" });
-      if (upsertErr) throw upsertErr;
+      if (upsertErr) {
+        throw new ApiError(`failed to upsert excusals: ${upsertErr.message}`, 500, "internal");
+      }
       excused += batch.length;
     }
 

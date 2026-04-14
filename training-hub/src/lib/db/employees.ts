@@ -54,6 +54,13 @@ export async function getEmployeeByPaylocityId(
 
 export interface ListEmployeesOptions {
   activeOnly?: boolean;
+  /**
+   * Filter by canonical division. Matches `division` first, then falls
+   * back to `department` for historical rows that have no division.
+   * Named `department` for backwards compatibility with the
+   * `/api/employees?department=…` query param even though it actually
+   * filters on the division concept (see required_trainings rules).
+   */
   department?: string;
   position?: string;
   limit?: number;
@@ -69,7 +76,12 @@ export async function listEmployees(
     query = query.eq("is_active", true);
   }
   if (opts.department) {
-    query = query.ilike("department", opts.department);
+    // Match either column case-insensitively. Use PostgREST .or() with
+    // the value embedded as a literal — opts.department is from a
+    // trusted internal caller, but still strip commas to avoid the
+    // PostgREST OR parser breaking apart on multi-word division names.
+    const safe = opts.department.replace(/[,]/g, "");
+    query = query.or(`division.ilike.${safe},department.ilike.${safe}`);
   }
   if (opts.position) {
     query = query.ilike("position", opts.position);
