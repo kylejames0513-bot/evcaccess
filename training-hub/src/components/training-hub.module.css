@@ -1,202 +1,130 @@
 .page {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 2rem 1rem 3rem;
-}
-
-.hero {
-  margin-bottom: 1rem;
-}
-
-.hero h1 {
-  font-size: 2rem;
-  margin-bottom: 0.4rem;
-}
-
-.hero p {
-  color: var(--text-muted);
-}
-
-.header {
-  margin-bottom: 1.25rem;
-}
-
-.header h1 {
-  font-size: 2rem;
-  font-weight: 700;
-  margin-bottom: 0.4rem;
-}
-
-.header p {
-  color: var(--text-muted);
-  max-width: 900px;
-}
-
-.controls {
+  min-height: 100vh;
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  grid-template-columns: 260px 1fr;
+  background: #f5f7fb;
 }
 
-.panel {
+.sidebar {
+  border-right: 1px solid var(--border);
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 1.5rem 1rem;
+}
+
+.brand {
+  margin-bottom: 1.5rem;
+}
+
+.brand h1 {
+  font-size: 1.1rem;
+  margin-bottom: 0.35rem;
+}
+
+.brand p {
+  color: #9ca3af;
+  font-size: 0.85rem;
+}
+
+.nav {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.navButton {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #cbd5e1;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.navButton:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.navButtonActive {
+  background: rgba(37, 99, 235, 0.25);
+  border-color: rgba(96, 165, 250, 0.55);
+  color: #eff6ff;
+}
+
+.main {
+  padding: 1.25rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.topbar {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 1rem;
-  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.06);
+  padding: 0.9rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
 }
 
-.panel h2 {
-  font-size: 1rem;
-  margin-bottom: 0.5rem;
+.topbar h2 {
+  font-size: 1.15rem;
+  margin-bottom: 0.2rem;
 }
 
-.panel p {
+.topbar p {
   color: var(--text-muted);
   font-size: 0.9rem;
 }
 
-.panelHint code {
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.82rem;
-}
-
-.importForm {
-  margin-top: 0.85rem;
-  display: grid;
-  gap: 0.75rem;
-}
-
-.field {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.field span {
-  font-size: 0.86rem;
-  color: var(--text-muted);
-}
-
-.field input {
-  border: 1px solid var(--border);
+.primaryButton,
+.secondaryButton {
   border-radius: 8px;
-  padding: 0.45rem;
-  background: #fff;
+  padding: 0.55rem 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .primaryButton {
   border: 1px solid var(--primary);
   background: var(--primary);
   color: #fff;
-  border-radius: 8px;
-  padding: 0.6rem 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
 }
 
-.primaryButton:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.statusInfo,
-.statusSuccess,
-.statusError {
-  margin-top: 0.75rem;
-  font-size: 0.85rem;
-}
-
-.statusInfo {
-  color: var(--text-muted);
-}
-
-.statusSuccess {
-  color: var(--success);
-}
-
-.statusError {
-  color: var(--danger);
-}
-
-.inlineActions {
-  margin-top: 0.75rem;
-}
-
-.metaList {
-  margin-top: 0.75rem;
-  margin-left: 1rem;
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  display: grid;
-  gap: 0.25rem;
-}
-
-.uploadRow {
-  margin-top: 0.85rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  align-items: center;
-}
-
-.button {
-  border: 1px solid var(--primary);
-  background: var(--primary);
-  color: white;
-  border-radius: 8px;
-  padding: 0.55rem 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.ghostButton {
+.secondaryButton {
   border: 1px solid var(--border);
   background: #fff;
   color: var(--text);
-  border-radius: 8px;
-  padding: 0.55rem 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
 }
 
-.sample {
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.75rem;
-  background: #f8fbff;
+.overviewGrid {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.card {
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.7rem;
-  margin-top: 0.75rem;
-  white-space: pre-wrap;
+  border-radius: 12px;
+  padding: 0.85rem;
 }
 
-.chips {
-  margin-top: 0.65rem;
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+.cardLabel {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  margin-bottom: 0.35rem;
 }
 
-.chip {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.25rem 0.6rem;
-  font-size: 0.75rem;
-  background: var(--surface-muted);
+.cardValue {
+  font-size: 1.5rem;
+  font-weight: 700;
 }
 
-.status {
-  margin-top: 0.75rem;
-  font-size: 0.85rem;
-}
-
-.statusOk {
+.statusGood {
   color: var(--success);
 }
 
@@ -204,125 +132,32 @@
   color: var(--warning);
 }
 
-.statusErr {
+.statusBad {
   color: var(--danger);
 }
 
-.statsGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.8rem;
-  margin-bottom: 1rem;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.8rem;
-  margin-bottom: 1rem;
-}
-
-.statCard {
+.panel {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 0.85rem;
+  border-radius: 14px;
+  padding: 1rem;
 }
 
-.metric {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 0.85rem;
+.panel h3 {
+  font-size: 1rem;
+  margin-bottom: 0.65rem;
 }
 
-.metric h3 {
+.panelHint {
   color: var(--text-muted);
-  font-size: 0.82rem;
-  margin-bottom: 0.4rem;
-}
-
-.metric p {
-  font-size: 1.5rem;
-  font-weight: 700;
-}
-
-.coverageList {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.75rem;
-}
-
-.coverageCard {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 0.75rem;
-  background: #fff;
-}
-
-.coverageCard h3 {
-  font-size: 0.92rem;
-  margin-bottom: 0.35rem;
-}
-
-.coverageCard p {
-  font-size: 1.3rem;
-  font-weight: 700;
-  margin-bottom: 0.25rem;
-}
-
-.coverageCard small {
-  color: var(--text-muted);
-}
-
-.panelHeader {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-}
-
-.inlineField {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.inlineField span {
-  font-size: 0.84rem;
-  color: var(--text-muted);
-}
-
-.inlineField select {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.35rem 0.5rem;
-}
-
-.warningList {
-  margin-left: 1rem;
-  color: var(--warning);
-  font-size: 0.88rem;
-}
-
-.statLabel {
-  color: var(--text-muted);
-  font-size: 0.82rem;
-  margin-bottom: 0.4rem;
-}
-
-.statValue {
-  font-size: 1.5rem;
-  font-weight: 700;
+  font-size: 0.9rem;
 }
 
 .tableWrap {
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: white;
+  background: #fff;
 }
 
 .table {
@@ -334,17 +169,17 @@
 .table th,
 .table td {
   border-bottom: 1px solid var(--border);
-  padding: 0.65rem;
+  padding: 0.6rem;
   text-align: left;
-  vertical-align: top;
   font-size: 0.88rem;
 }
 
 .table th {
   background: #f8fbff;
-  font-size: 0.8rem;
-  letter-spacing: 0.02em;
+  color: var(--text-muted);
   text-transform: uppercase;
+  font-size: 0.76rem;
+  letter-spacing: 0.03em;
 }
 
 .pill {
@@ -352,8 +187,8 @@
   align-items: center;
   border-radius: 999px;
   padding: 0.2rem 0.55rem;
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.74rem;
+  font-weight: 700;
 }
 
 .pillCompliant {
@@ -361,36 +196,101 @@
   color: #047857;
 }
 
-.pillAtRisk {
+.pillDueSoon {
   background: #fff7ed;
   color: #b45309;
 }
 
-.pillMissing {
+.pillOverdue {
   background: #fef2f2;
   color: #b91c1c;
 }
 
-.muted {
+.controlsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.8rem;
+}
+
+.filterGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filterGroup span {
+  font-size: 0.85rem;
   color: var(--text-muted);
 }
 
-@media (max-width: 900px) {
-  .statsGrid {
+.filterGroup select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.35rem 0.5rem;
+}
+
+.timeline {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.timelineItem {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.7rem;
+  background: #fff;
+}
+
+.timelineMeta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+
+.timelineTitle {
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+}
+
+.grid2 {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: 1.1fr 0.9fr;
+}
+
+.emptyState {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 1.2rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+@media (max-width: 1060px) {
+  .page {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .overviewGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .coverageList {
+  .grid2 {
     grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 560px) {
-  .statsGrid {
+@media (max-width: 680px) {
+  .overviewGrid {
     grid-template-columns: 1fr;
   }
 }

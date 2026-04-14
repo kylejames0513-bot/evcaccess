@@ -1,264 +1,261 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import styles from "./training-hub.module.css";
 import {
-  PRIMARY_TRAININGS,
-  REQUIRED_LOOKBACK_DAYS,
-  REQUIRED_TRAININGS,
-} from "@/lib/training/constants";
-import {
-  analyzeRecords,
-  countExpiringSoon,
-  dueStatusLabel,
-  formatDate,
-  formatPercent,
-  trainingCoverage,
-} from "@/lib/training/analysis";
-import type { HubState, TrainingFilter } from "@/lib/training/types";
-
-type StatusState = {
-  kind: "idle" | "loading" | "success" | "error";
-  message?: string;
-};
+  FRONTEND_ALERTS,
+  FRONTEND_EMPLOYEES,
+  FRONTEND_KPIS,
+  FRONTEND_NAV_ITEMS,
+  FRONTEND_SESSIONS,
+  type HubScreen,
+} from "@/lib/training/frontend-mock";
 
 export function TrainingHubApp() {
-  const [trainingFilter, setTrainingFilter] = useState<TrainingFilter>("all");
-  const [statusState, setStatusState] = useState<StatusState>({ kind: "idle" });
-  const [hubState, setHubState] = useState<HubState | null>(null);
+  const [activeView, setActiveView] = useState<HubScreen>("dashboard");
+  const [employeeQuery, setEmployeeQuery] = useState("");
+  const [employeeStatus, setEmployeeStatus] = useState<"all" | "active" | "leave" | "inactive">(
+    "all",
+  );
 
-  const metrics = useMemo(() => {
-    if (!hubState?.data) {
-      return null;
-    }
-
-    return analyzeRecords(hubState.data.employees, hubState.data.records);
-  }, [hubState]);
-
-  const filteredRows = useMemo(() => {
-    if (!metrics) {
-      return [];
-    }
-
-    return metrics.rows.filter((row) => {
-      if (trainingFilter === "all") {
-        return true;
-      }
-
-      if (trainingFilter === "due-soon") {
-        return row.isDueSoon;
-      }
-
-      if (trainingFilter === "overdue") {
-        return row.isOverdue;
-      }
-
-      return row.trainingKey === trainingFilter;
+  const filteredEmployees = useMemo(() => {
+    const query = employeeQuery.trim().toLowerCase();
+    return FRONTEND_EMPLOYEES.filter((employee) => {
+      const matchesQuery =
+        !query ||
+        employee.name.toLowerCase().includes(query) ||
+        employee.division.toLowerCase().includes(query) ||
+        employee.role.toLowerCase().includes(query) ||
+        employee.manager.toLowerCase().includes(query);
+      const matchesStatus = employeeStatus === "all" || employee.status === employeeStatus;
+      return matchesQuery && matchesStatus;
     });
-  }, [metrics, trainingFilter]);
-
-  const coverageCards = useMemo(() => {
-    if (!metrics) {
-      return [];
-    }
-
-    return REQUIRED_TRAININGS.map((trainingKey) => {
-      return {
-        trainingKey,
-        ...trainingCoverage(metrics.rows, trainingKey),
-      };
-    });
-  }, [metrics]);
-
-  const expiringSoonCount = metrics ? countExpiringSoon(metrics.rows) : 0;
-
-  const refreshHubState = useCallback(async () => {
-    try {
-      setStatusState({ kind: "loading", message: "Loading hub state..." });
-      const response = await fetch("/api/hub/state", {
-        method: "GET",
-        headers: {
-          "content-type": "application/json",
-        },
-      });
-      const body = (await response.json()) as HubState | { error: string };
-      if (!response.ok || "error" in body) {
-        throw new Error("error" in body ? body.error : "Failed to load hub state.");
-      }
-
-      setHubState(body);
-      setStatusState({
-        kind: "success",
-        message: body.data
-          ? "Hub state loaded."
-          : "Hub is ready. Push data from your Google Sheets script to begin.",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to load hub state.";
-      setStatusState({ kind: "error", message });
-    }
-  }, []);
-
-  useEffect(() => {
-    void refreshHubState();
-  }, [refreshHubState]);
+  }, [employeeQuery, employeeStatus]);
 
   return (
     <main className={styles.page}>
-      <section className={styles.hero}>
-        <h1>Training Hub v2</h1>
-        <p>
-          Rebuilt for hub-first operations. Push records from your Google Sheets script into
-          the hub API, then monitor compliance and run status in one place.
-        </p>
-      </section>
-
-      <section className={styles.panel}>
-        <h2>1) Push data into hub (one-time run)</h2>
-        <p className={styles.panelHint}>
-          POST to <code>/api/hub/push</code> from your Google Apps Script using payload
-          <code> {"{ runId, source, employees, records }"} </code>. Reusing the same
-          <code>runId</code> is blocked, so each run only executes once.
-        </p>
-
-        <div className={styles.inlineActions}>
-          <button
-            className={styles.primaryButton}
-            disabled={statusState.kind === "loading"}
-            onClick={() => void refreshHubState()}
-          >
-            {statusState.kind === "loading" ? "Refreshing..." : "Refresh Hub Status"}
-          </button>
+      <aside className={styles.sidebar}>
+        <div className={styles.brand}>
+          <h1>Training Hub</h1>
+          <p>Frontend-first rework preview</p>
         </div>
 
-        {statusState.message ? (
-          <p
-            className={
-              statusState.kind === "error"
-                ? styles.statusError
-                : statusState.kind === "success"
-                  ? styles.statusSuccess
-                  : styles.statusInfo
-            }
-          >
-            {statusState.message}
-          </p>
-        ) : null}
+        <nav className={styles.nav}>
+          {FRONTEND_NAV_ITEMS.map((item) => (
+            <button
+              key={item.key}
+              className={item.key === activeView ? styles.navButtonActive : styles.navButton}
+              onClick={() => setActiveView(item.key)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </aside>
 
-        <ul className={styles.metaList}>
-          <li>
-            Last run ID: <strong>{hubState?.sync.lastRunId ?? "none"}</strong>
-          </li>
-          <li>
-            Last source: <strong>{hubState?.sync.lastSource ?? "none"}</strong>
-          </li>
-          <li>
-            Last pushed at: <strong>{hubState?.sync.lastPushedAt ?? "never"}</strong>
-          </li>
-          <li>
-            Push count: <strong>{hubState?.sync.pushCount ?? 0}</strong>
-          </li>
-        </ul>
-      </section>
+      <section className={styles.main}>
+        <header className={styles.topbar}>
+          <div>
+            <h2>{FRONTEND_NAV_ITEMS.find((item) => item.key === activeView)?.label ?? "Dashboard"}</h2>
+            <p>
+              Product UI and flow validation mode. Backend wiring comes after front-end approval.
+            </p>
+          </div>
+          <div>
+            <button className={styles.secondaryButton}>New Session</button>
+            <button className={styles.primaryButton}>Run Sync</button>
+          </div>
+        </header>
 
-      {hubState?.data && metrics ? (
-        <>
-          <section className={styles.grid}>
-            <article className={styles.metric}>
-              <h3>Employees</h3>
-              <p>{metrics.totalEmployees}</p>
-            </article>
-            <article className={styles.metric}>
-              <h3>Records</h3>
-              <p>{metrics.totalRecords}</p>
-            </article>
-            <article className={styles.metric}>
-              <h3>Overall Compliance</h3>
-              <p>{formatPercent(metrics.complianceRate)}</p>
-            </article>
-            <article className={styles.metric}>
-              <h3>Due within {REQUIRED_LOOKBACK_DAYS} days</h3>
-              <p>{expiringSoonCount}</p>
-            </article>
-          </section>
-
-          <section className={styles.panel}>
-            <h2>2) Coverage by required training</h2>
-            <div className={styles.coverageList}>
-              {coverageCards.map((card) => (
-                <article className={styles.coverageCard} key={card.trainingKey}>
-                  <h3>{PRIMARY_TRAININGS[card.trainingKey]}</h3>
-                  <p>{formatPercent(card.rate)}</p>
-                  <small>
-                    {card.compliantCount}/{card.total} compliant
-                  </small>
+        {activeView === "dashboard" ? (
+          <>
+            <section className={styles.overviewGrid}>
+              {FRONTEND_KPIS.map((metric) => (
+                <article key={metric.label} className={styles.card}>
+                  <p className={styles.cardLabel}>{metric.label}</p>
+                  <p className={styles.cardValue}>{metric.value}</p>
+                  <p
+                    className={
+                      metric.deltaTone === "positive"
+                        ? styles.statusGood
+                        : metric.deltaTone === "warning"
+                          ? styles.statusWarn
+                          : styles.panelHint
+                    }
+                  >
+                    {metric.delta}
+                  </p>
                 </article>
               ))}
-            </div>
-          </section>
+            </section>
 
-          <section className={styles.panel}>
-            <div className={styles.panelHeader}>
-              <h2>3) Detail table</h2>
-              <label className={styles.inlineField}>
-                <span>Filter</span>
-                <select
-                  value={trainingFilter}
-                  onChange={(event) => setTrainingFilter(event.currentTarget.value as TrainingFilter)}
-                >
-                  <option value="all">All rows</option>
-                  <option value="due-soon">Due soon</option>
-                  <option value="overdue">Overdue</option>
-                  {REQUIRED_TRAININGS.map((trainingKey) => (
-                    <option key={trainingKey} value={trainingKey}>
-                      {PRIMARY_TRAININGS[trainingKey]}
-                    </option>
+            <section className={styles.grid2}>
+              <article className={styles.panel}>
+                <h3>Training Health</h3>
+                <ul className={styles.timeline}>
+                  {FRONTEND_ALERTS.map((alert) => (
+                    <li key={alert.id} className={styles.timelineItem}>
+                      <div>
+                        <p className={styles.timelineMeta}>{alert.tone.toUpperCase()}</p>
+                        <p className={styles.timelineTitle}>{alert.title}</p>
+                        <p className={styles.panelHint}>{alert.detail}</p>
+                      </div>
+                    </li>
                   ))}
+                </ul>
+              </article>
+
+              <article className={styles.panel}>
+                <h3>Upcoming Sessions</h3>
+                <div className={styles.tableWrap}>
+                  <table className={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>Training</th>
+                        <th>Date</th>
+                        <th>Location</th>
+                        <th>Instructor</th>
+                        <th>Enrollment</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {FRONTEND_SESSIONS.map((session) => (
+                        <tr key={session.id}>
+                          <td>{session.trainingName}</td>
+                          <td>{session.date}</td>
+                          <td>{session.location}</td>
+                          <td>{session.instructor}</td>
+                          <td>
+                            {session.enrolled}/{session.capacity}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            </section>
+          </>
+        ) : null}
+
+        {activeView === "employees" ? (
+          <section className={styles.panel}>
+            <div className={styles.controlsRow}>
+              <h3>Employee Roster</h3>
+              <div className={styles.filterGroup}>
+                <span>Status</span>
+                <select
+                  value={employeeStatus}
+                  onChange={(event) =>
+                    setEmployeeStatus(event.currentTarget.value as "all" | "active" | "leave" | "inactive")
+                  }
+                >
+                  <option value="all">All</option>
+                  <option value="active">Active</option>
+                  <option value="leave">Leave</option>
+                  <option value="inactive">Inactive</option>
                 </select>
-              </label>
+              </div>
             </div>
+            <input
+              className={styles.secondaryButton}
+              style={{ width: "100%", marginBottom: "0.75rem", textAlign: "left", fontWeight: 400 }}
+              placeholder="Search employee, division, role, or manager"
+              value={employeeQuery}
+              onChange={(event) => setEmployeeQuery(event.currentTarget.value)}
+            />
             <div className={styles.tableWrap}>
               <table className={styles.table}>
                 <thead>
                   <tr>
-                    <th>Employee</th>
+                    <th>Name</th>
                     <th>Division</th>
-                    <th>Training</th>
+                    <th>Role</th>
+                    <th>Manager</th>
                     <th>Status</th>
-                    <th>Completed</th>
-                    <th>Expires</th>
-                    <th>Source</th>
+                    <th>Risk</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRows.map((row) => (
-                    <tr key={row.rowKey}>
-                      <td>{row.employeeName}</td>
-                      <td>{row.division ?? "Unassigned"}</td>
-                      <td>{PRIMARY_TRAININGS[row.trainingKey]}</td>
-                      <td>{dueStatusLabel(row)}</td>
-                      <td>{formatDate(row.completedAt)}</td>
-                      <td>{formatDate(row.expiresAt)}</td>
-                      <td>{row.source ?? "manual"}</td>
+                  {filteredEmployees.map((employee) => (
+                    <tr key={employee.id}>
+                      <td>{employee.name}</td>
+                      <td>{employee.division}</td>
+                      <td>{employee.role}</td>
+                      <td>{employee.manager}</td>
+                      <td>
+                        <span
+                          className={`${styles.pill} ${
+                            employee.status === "active"
+                              ? styles.pillCompliant
+                              : employee.status === "leave"
+                                ? styles.pillDueSoon
+                                : styles.pillOverdue
+                          }`}
+                        >
+                          {employee.status}
+                        </span>
+                      </td>
+                      <td>
+                        {employee.overdueTrainings > 0
+                          ? `${employee.overdueTrainings} overdue`
+                          : employee.dueSoonTrainings > 0
+                            ? `${employee.dueSoonTrainings} due soon`
+                            : "Good standing"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           </section>
+        ) : null}
 
-          {hubState.summary?.warnings.length ? (
-            <section className={styles.panel}>
-              <h2>Import warnings</h2>
-              <ul className={styles.warningList}>
-                {hubState.summary.warnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-        </>
-      ) : null}
+        {activeView === "sessions" ? (
+          <section className={styles.panel}>
+            <h3>Session Planning Board</h3>
+            <p className={styles.panelHint}>
+              Frontend flow preview for managing capacity, instructors, and enrollment before backend wiring.
+            </p>
+          </section>
+        ) : null}
+
+        {activeView === "compliance" ? (
+          <section className={styles.panel}>
+            <h3>Compliance Review Workspace</h3>
+            <p className={styles.panelHint}>
+              This screen will host filters, exception workflows, and manager escalation actions.
+            </p>
+          </section>
+        ) : null}
+
+        {activeView === "new-hires" ? (
+          <section className={styles.panel}>
+            <h3>New Hire Ramp Tracker</h3>
+            <p className={styles.panelHint}>
+              UX scaffold for onboarding progress, completion milestones, and orientation readiness.
+            </p>
+          </section>
+        ) : null}
+
+        {activeView === "reports" ? (
+          <section className={styles.panel}>
+            <h3>Reporting Studio</h3>
+            <p className={styles.panelHint}>
+              Planned for export scheduling, saved report templates, and manager-level snapshots.
+            </p>
+          </section>
+        ) : null}
+
+        {activeView === "sync" ? (
+          <section className={styles.panel}>
+            <h3>Sync Integration Console</h3>
+            <p className={styles.panelHint}>
+              Intended for connection health, one-time push triggers, run history, and sync diagnostics.
+            </p>
+          </section>
+        ) : null}
+      </section>
     </main>
   );
 }

@@ -83,3 +83,5 @@ export interface ComplianceMetrics {
   totalRecords: number;
   complianceRate: number;
 }
+
+export type FrontendView = "dashboard" | "roster" | "compliance" | "sync";

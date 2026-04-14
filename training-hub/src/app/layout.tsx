@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Training Hub v2",
-  description: "Spreadsheet-friendly training hub for roster and compliance tracking.",
+  description: "Frontend-first redesign of the Training Hub experience.",
 };
 
 export default function RootLayout({
