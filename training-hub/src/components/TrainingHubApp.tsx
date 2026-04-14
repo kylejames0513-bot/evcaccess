@@ -215,6 +215,13 @@ interface ApiState<T> {
   error: string | null;
 }
 
+interface StatTile {
+  label: string;
+  value: string;
+  sublabel: string;
+  tone: "neutral" | "good" | "warn" | "bad";
+}
+
 const NAV_ITEMS: Array<{ key: HubScreen; label: string; hint: string }> = [
   { key: "dashboard", label: "Dashboard", hint: "Live KPI summary" },
   { key: "employees", label: "Employees", hint: "Roster + risk" },
@@ -301,6 +308,18 @@ function percentage(completed: number, total: number): string {
   return `${Math.round((completed / total) * 100)}%`;
 }
 
+function formatNumber(value: number | null | undefined): string {
+  if (value == null) return "--";
+  return value.toLocaleString();
+}
+
+function toneClass(tone: StatTile["tone"]): string {
+  if (tone === "good") return styles.statusGood;
+  if (tone === "warn") return styles.statusWarn;
+  if (tone === "bad") return styles.statusBad;
+  return styles.panelHint;
+}
+
 export function TrainingHubApp() {
   const [activeView, setActiveView] = useState<HubScreen>("dashboard");
   const [refreshToken, setRefreshToken] = useState(0);
@@ -369,6 +388,54 @@ export function TrainingHubApp() {
     });
   }, [complianceApi.data?.rows, complianceSearch]);
 
+  const topStats = useMemo<StatTile[]>(() => {
+    const d = dashboardApi.data;
+    if (!d) {
+      return [
+        { label: "Compliance Coverage", value: "--", sublabel: "Waiting for live data", tone: "neutral" },
+        { label: "Expiring Soon", value: "--", sublabel: "Window not loaded", tone: "neutral" },
+        { label: "Overdue", value: "--", sublabel: "Risk status unavailable", tone: "neutral" },
+        { label: "Upcoming Sessions", value: "--", sublabel: "Schedule not loaded", tone: "neutral" },
+      ];
+    }
+
+    const total = d.compliance.totalRows;
+    const coveragePct = total > 0 ? Math.round((d.compliance.current / total) * 100) : 0;
+    const stale = d.sync.stale;
+
+    return [
+      {
+        label: "Compliance Coverage",
+        value: `${coveragePct}%`,
+        sublabel: `${formatNumber(d.compliance.current)} of ${formatNumber(total)} current`,
+        tone: coveragePct >= 90 ? "good" : coveragePct >= 80 ? "warn" : "bad",
+      },
+      {
+        label: "Expiring Soon",
+        value: formatNumber(d.compliance.expiringSoon),
+        sublabel: "Employees entering renewal window",
+        tone: d.compliance.expiringSoon > 0 ? "warn" : "good",
+      },
+      {
+        label: "Overdue",
+        value: formatNumber(d.compliance.expired),
+        sublabel: "Requires immediate follow-up",
+        tone: d.compliance.expired > 0 ? "bad" : "good",
+      },
+      {
+        label: "Upcoming Sessions",
+        value: formatNumber(d.sessions.upcomingCount),
+        sublabel: stale ? "Sync stale, verify schedule feed" : `Next: ${formatDate(d.sessions.nextDate)}`,
+        tone: stale ? "warn" : "neutral",
+      },
+    ];
+  }, [dashboardApi.data]);
+
+  const totalEmployees = employeesApi.data?.employees.length ?? 0;
+  const activeEmployees = employeesApi.data?.employees.filter((e) => e.is_active).length ?? 0;
+  const employeeSnapshot =
+    totalEmployees > 0 ? `${formatNumber(activeEmployees)} active of ${formatNumber(totalEmployees)}` : "No employees loaded";
+
   function retryActiveView(): void {
     setRefreshToken((prev) => prev + 1);
   }
@@ -405,54 +472,76 @@ export function TrainingHubApp() {
             </p>
           </div>
           <div className={styles.topbarActions}>
+            <div className={styles.healthChip}>
+              <span className={`${styles.healthDot} ${dashboardApi.data?.sync.stale ? styles.dotWarn : styles.dotGood}`} />
+              <span>
+                {dashboardApi.data?.sync.stale ? "Sync stale" : "Sync healthy"}
+              </span>
+            </div>
             <button type="button" className={styles.secondaryButton} onClick={retryActiveView}>
               Refresh data
             </button>
           </div>
         </header>
 
-        <section className={styles.overviewGrid}>
-          <article className={styles.card}>
-            <p className={styles.cardLabel}>Fully compliant</p>
-            <p className={styles.cardValue}>
-              {dashboardApi.data
-                ? `${dashboardApi.data.compliance.current}/${dashboardApi.data.compliance.totalRows}`
-                : "--"}
+        <section className={styles.heroGrid}>
+          <article className={styles.heroCard}>
+            <p className={styles.heroEyebrow}>Training Hub</p>
+            <h3 className={styles.heroTitle}>Live operational command center</h3>
+            <p className={styles.heroText}>
+              Monitor compliance risk, training throughput, and sync health in one place. All sections below are backed by the restored backend routes.
             </p>
-            <p className={styles.statusGood}>Current employees in full standing</p>
+            <div className={styles.heroMetaRow}>
+              <span className={styles.heroMetaLabel}>Roster snapshot</span>
+              <span className={styles.heroMetaValue}>{employeeSnapshot}</span>
+            </div>
+            <div className={styles.heroMetaRow}>
+              <span className={styles.heroMetaLabel}>Last sync</span>
+              <span className={styles.heroMetaValue}>{formatDate(dashboardApi.data?.sync.lastSyncAt)}</span>
+            </div>
           </article>
-          <article className={styles.card}>
-            <p className={styles.cardLabel}>Expiring soon</p>
-            <p className={styles.cardValue}>{dashboardApi.data?.compliance.expiringSoon ?? "--"}</p>
-            <p className={styles.statusWarn}>Within the upcoming window</p>
-          </article>
-          <article className={styles.card}>
-            <p className={styles.cardLabel}>Upcoming sessions</p>
-            <p className={styles.cardValue}>{dashboardApi.data?.sessions.upcomingCount ?? "--"}</p>
-            <p className={styles.panelHint}>Next: {formatDate(dashboardApi.data?.sessions.nextDate)}</p>
-          </article>
-          <article className={styles.card}>
-            <p className={styles.cardLabel}>New hires at risk</p>
-            <p className={styles.cardValue}>{dashboardApi.data?.newHires.atRiskCount ?? "--"}</p>
-            <p className={styles.panelHint}>
-              Avg progress: {dashboardApi.data ? `${dashboardApi.data.newHires.avgProgressPct}%` : "--"}
-            </p>
-          </article>
-          <article className={styles.card}>
-            <p className={styles.cardLabel}>Separations (30d)</p>
-            <p className={styles.cardValue}>{dashboardApi.data?.separations.separatedLast30Days ?? "--"}</p>
-            <p className={styles.panelHint}>
-              Total separated: {dashboardApi.data?.separations.totalSeparated ?? "--"}
-            </p>
-          </article>
-          <article className={styles.card}>
-            <p className={styles.cardLabel}>Last sync</p>
-            <p className={styles.cardValue}>{formatDate(dashboardApi.data?.sync.lastSyncAt)}</p>
-            <p className={dashboardApi.data?.sync.stale ? styles.statusBad : styles.statusGood}>
-              {dashboardApi.data?.sync.stale ? "Stale (> 24h)" : "Fresh sync window"}
-            </p>
+          <article className={styles.metricRail}>
+            {topStats.map((stat) => (
+              <div key={stat.label} className={styles.metricRow}>
+                <div>
+                  <p className={styles.cardLabel}>{stat.label}</p>
+                  <p className={styles.metricValue}>{stat.value}</p>
+                  <p className={toneClass(stat.tone)}>{stat.sublabel}</p>
+                </div>
+              </div>
+            ))}
           </article>
         </section>
+
+        {activeView !== "dashboard" && (
+          <section className={styles.overviewGrid}>
+            <article className={styles.card}>
+              <p className={styles.cardLabel}>New hires at risk</p>
+              <p className={styles.cardValue}>{formatNumber(dashboardApi.data?.newHires.atRiskCount)}</p>
+              <p className={styles.panelHint}>
+                Avg progress: {dashboardApi.data ? `${dashboardApi.data.newHires.avgProgressPct}%` : "--"}
+              </p>
+            </article>
+            <article className={styles.card}>
+              <p className={styles.cardLabel}>Separations (30d)</p>
+              <p className={styles.cardValue}>{formatNumber(dashboardApi.data?.separations.separatedLast30Days)}</p>
+              <p className={styles.panelHint}>
+                Total separated: {formatNumber(dashboardApi.data?.separations.totalSeparated)}
+              </p>
+            </article>
+            <article className={styles.card}>
+              <p className={styles.cardLabel}>Coverage snapshot</p>
+              <p className={styles.cardValue}>
+                {dashboardApi.data
+                  ? `${formatNumber(dashboardApi.data.compliance.current)}/${formatNumber(
+                      dashboardApi.data.compliance.totalRows,
+                    )}`
+                  : "--"}
+              </p>
+              <p className={styles.panelHint}>Current vs total active employees</p>
+            </article>
+          </section>
+        )}
 
         {activeView === "dashboard" && (
           <section className={styles.grid2}>
@@ -477,6 +566,7 @@ export function TrainingHubApp() {
                   <table className={styles.table}>
                     <thead>
                       <tr>
+                        <th>Priority</th>
                         <th>Employee</th>
                         <th>Training</th>
                         <th>Status</th>
@@ -484,8 +574,11 @@ export function TrainingHubApp() {
                       </tr>
                     </thead>
                     <tbody>
-                      {dashboardApi.data?.highlights.topComplianceRisk.map((item) => (
+                      {dashboardApi.data?.highlights.topComplianceRisk.map((item, index) => (
                         <tr key={`${item.employee}-${item.training}`}>
+                          <td>
+                            <span className={styles.priorityBadge}>#{index + 1}</span>
+                          </td>
                           <td>{item.employee}</td>
                           <td>{item.training}</td>
                           <td>
@@ -524,6 +617,7 @@ export function TrainingHubApp() {
                         <th>Training</th>
                         <th>Start</th>
                         <th>Enrollment</th>
+                        <th>Capacity health</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -533,6 +627,11 @@ export function TrainingHubApp() {
                           <td>{formatDateTime(session.sessionDate, session.startTime)}</td>
                           <td>
                             {session.enrolledCount}/{session.capacity}
+                          </td>
+                          <td>
+                            {session.capacity > 0
+                              ? `${Math.round((session.enrolledCount / session.capacity) * 100)}% full`
+                              : "--"}
                           </td>
                         </tr>
                       ))}
@@ -622,7 +721,27 @@ export function TrainingHubApp() {
                               {employee.status}
                             </span>
                           </td>
-                          <td>{percentage(completed, employee.total_required)}</td>
+                        <td>
+                          <div className={styles.progressCell}>
+                            <span>{percentage(completed, employee.total_required)}</span>
+                            <div className={styles.progressTrack}>
+                              <div
+                                className={styles.progressFill}
+                                style={{
+                                  width: `${Math.max(
+                                    0,
+                                    Math.min(
+                                      100,
+                                      employee.total_required > 0
+                                        ? Math.round((completed / employee.total_required) * 100)
+                                        : 0,
+                                    ),
+                                  )}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </td>
                           <td>{employee.counts.expired}</td>
                         </tr>
                       );
@@ -805,7 +924,27 @@ export function TrainingHubApp() {
                         <td>{hire.division || "--"}</td>
                         <td>{hire.hireDate}</td>
                         <td>{hire.daysEmployed}</td>
-                        <td>{percentage(hire.completedTrainings, hire.totalTrainings)}</td>
+                        <td>
+                          <div className={styles.progressCell}>
+                            <span>{percentage(hire.completedTrainings, hire.totalTrainings)}</span>
+                            <div className={styles.progressTrack}>
+                              <div
+                                className={styles.progressFill}
+                                style={{
+                                  width: `${Math.max(
+                                    0,
+                                    Math.min(
+                                      100,
+                                      hire.totalTrainings > 0
+                                        ? Math.round((hire.completedTrainings / hire.totalTrainings) * 100)
+                                        : 0,
+                                    ),
+                                  )}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </td>
                         <td>{hire.missingTrainings.slice(0, 3).join(", ") || "--"}</td>
                       </tr>
                     ))}
