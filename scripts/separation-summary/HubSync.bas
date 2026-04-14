@@ -1,0 +1,472 @@
+Attribute VB_Name = "HubSync"
+' ============================================================
+' EVC Supabase Sync -- FY Separation Summary
+' ============================================================
+' HR Program Coordinator: Kyle Mahoney
+' Emory Valley Center
+' ============================================================
+'
+' PURPOSE:
+'   Pushes separation data FROM the Separation Summary workbook
+'   TO the Supabase `employees` table. When a separation row's
+'   Date of Separation has arrived (<= TODAY()), the matching
+'   employee is marked is_active=false and terminated_at is set
+'   to the Date of Separation. Results are logged to the "Sync
+'   Log" sheet so every run is auditable.
+'
+' WHERE THE DATA COMES FROM:
+'   Reads the current FY sheet, determined by Dashboard!B5
+'   (e.g. "FY 2026"). Iterates rows 9..413 of that sheet.
+'
+' WHAT THE MACRO DOES PER ROW:
+'   Skips the row if any of these is true:
+'     * Name (col A) is blank
+'     * Date of Separation (col B) is blank or still in the future
+'     * Synced To Hub (col N) is already populated
+'     * Do Not Sync (col O) is "Yes"
+'   Otherwise:
+'     1. Look up the employee in Supabase by last+first name,
+'        reusing the same matching rules as the Monthly New Hire
+'        Tracker (exact, partial, nickname, fuzzy).
+'     2. PATCH .../rest/v1/employees?id=eq.<id> with
+'        { is_active: false, terminated_at: <ISO date> }.
+'     3. Write TODAY() into col N so the row is not re-pushed
+'        on subsequent runs.
+'     4. Append a row to the Sync Log sheet.
+'
+' CONFIGURATION:
+'   SUPABASE_URL and SUPABASE_ANON_KEY below must match the
+'   hub's project. They are identical to the values in the
+'   Monthly New Hire Tracker macro today.
+'
+' INSTALL:
+'   See scripts/separation-summary/README.md.
+'
+' ============================================================
+
+Option Explicit
+
+' ============================================================
+' CONFIGURATION
+' ============================================================
+Private Const SUPABASE_URL As String = "https://xkfvipcxnzwyskknkmpj.supabase.co"
+Private Const SUPABASE_ANON_KEY As String = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrZnZpcGN4bnp3eXNra25rbXBqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2OTY1OTAsImV4cCI6MjA5MTI3MjU5MH0.yPOC0l5oi03V7S7UUrlQhfE87zPkUp_NzAexdzHn2p4"
+
+' --- FY sheet column layout (1-based) ---
+Private Const COL_NAME As Long = 1         ' A
+Private Const COL_DOS As Long = 2          ' B  Date of Separation
+Private Const COL_DOH As Long = 3          ' C  Date of Hire
+Private Const COL_STATUS As Long = 6       ' F  U/D
+Private Const COL_SYNCED As Long = 14      ' N  Synced To Hub
+Private Const COL_DONT_SYNC As Long = 15   ' O  Do Not Sync
+
+' --- Data row range (standardized by Stage 2) ---
+Private Const DATA_FIRST_ROW As Long = 9
+Private Const DATA_LAST_ROW As Long = 413
+
+' --- Sync Log sheet ---
+Private Const LOG_SHEET As String = "Sync Log"
+
+' ============================================================
+' ENTRY POINTS
+' ============================================================
+
+' Button-click / Alt+F8 entry point.
+Public Sub HubSync()
+    Dim answer As VbMsgBoxResult
+    answer = MsgBox( _
+        "Push pending separations to the hub?" & vbCrLf & vbCrLf & _
+        "For every row on the current FY sheet whose Date of" & vbCrLf & _
+        "Separation has arrived and has not yet been synced," & vbCrLf & _
+        "the employee will be marked inactive in Supabase and" & vbCrLf & _
+        "their terminated_at date will be set." & vbCrLf & vbCrLf & _
+        "Rows flagged ""Do Not Sync"" = Yes are skipped.", _
+        vbYesNo + vbQuestion, "Hub Sync")
+    If answer <> vbYes Then Exit Sub
+
+    RunHubSync False
+End Sub
+
+' Auto-run on workbook open. Silent unless there's actual work to do.
+Public Sub Workbook_Open()
+    ' Uncomment the next line to auto-sync on every open:
+    ' RunHubSync True
+End Sub
+
+' ============================================================
+' CORE SYNC
+' ============================================================
+
+Private Sub RunHubSync(ByVal silent As Boolean)
+    Dim wsFY As Worksheet
+    Set wsFY = GetCurrentFYSheet()
+    If wsFY Is Nothing Then
+        If Not silent Then MsgBox "Could not determine the current FY sheet from Dashboard!B5.", vbExclamation, "Hub Sync"
+        Exit Sub
+    End If
+
+    ' Fetch the active employees index from Supabase once per run.
+    Application.StatusBar = "Fetching employees from Supabase..."
+    Dim empJson As String
+    empJson = HttpGet(SUPABASE_URL & "/rest/v1/employees?select=id,first_name,last_name,is_active&is_active=eq.true")
+    If Len(empJson) < 3 Then
+        If Not silent Then MsgBox "Could not fetch employees from Supabase. Check your network connection.", vbExclamation, "Hub Sync"
+        Application.StatusBar = False
+        Exit Sub
+    End If
+
+    Dim employees As Collection
+    Set employees = ParseEmployeeJson(empJson)
+    If employees.Count = 0 Then
+        If Not silent Then MsgBox "Supabase returned zero active employees.", vbExclamation, "Hub Sync"
+        Application.StatusBar = False
+        Exit Sub
+    End If
+
+    Dim wsLog As Worksheet
+    Set wsLog = EnsureLogSheet()
+
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+
+    Dim r As Long
+    Dim synced As Long, skipped As Long, failed As Long
+    Dim today As Date
+    today = Date
+
+    For r = DATA_FIRST_ROW To DATA_LAST_ROW
+        Dim name As String, dos As Variant, dontSync As String, alreadySynced As Variant
+        name = Trim(CStr(wsFY.Cells(r, COL_NAME).Value & ""))
+        If name = "" Or LCase(name) = "subtotal:" Then GoTo NextRow
+
+        dos = wsFY.Cells(r, COL_DOS).Value
+        If Not IsDate(dos) Then GoTo NextRow
+        If CDate(dos) > today Then GoTo NextRow
+
+        alreadySynced = wsFY.Cells(r, COL_SYNCED).Value
+        If IsDate(alreadySynced) Then
+            skipped = skipped + 1
+            GoTo NextRow
+        End If
+
+        dontSync = UCase(Trim(CStr(wsFY.Cells(r, COL_DONT_SYNC).Value & "")))
+        If dontSync = "YES" Then
+            skipped = skipped + 1
+            LogRow wsLog, wsFY.Name, r, name, CDate(dos), "SKIPPED", "", "", "Do Not Sync = Yes"
+            GoTo NextRow
+        End If
+
+        ' Split "First Last" from col A. If that fails, take the
+        ' whole string as last name and leave first blank.
+        Dim firstName As String, lastName As String
+        SplitName name, firstName, lastName
+
+        Dim match As Variant
+        match = FindEmployee(employees, firstName, lastName)
+        If IsEmpty(match) Then
+            failed = failed + 1
+            LogRow wsLog, wsFY.Name, r, name, CDate(dos), "NO MATCH", "", "", "No active employee in Supabase matches this name"
+            GoTo NextRow
+        End If
+
+        Dim supId As String, matchType As String
+        supId = CStr(match(0))
+        matchType = CStr(match(1))
+
+        ' PATCH Supabase with the separation date.
+        Dim body As String
+        body = "{""is_active"":false,""terminated_at"":""" & Format(CDate(dos), "yyyy-mm-dd") & """}"
+        Dim httpStatus As Long, httpBody As String
+        httpStatus = HttpPatch( _
+            SUPABASE_URL & "/rest/v1/employees?id=eq." & supId, _
+            body, httpBody)
+
+        If httpStatus >= 200 And httpStatus < 300 Then
+            wsFY.Cells(r, COL_SYNCED).Value = today
+            synced = synced + 1
+            LogRow wsLog, wsFY.Name, r, name, CDate(dos), "SYNCED", supId, matchType, ""
+        Else
+            failed = failed + 1
+            LogRow wsLog, wsFY.Name, r, name, CDate(dos), "PATCH FAIL", supId, matchType, "HTTP " & httpStatus & " " & Left(httpBody, 300)
+        End If
+
+NextRow:
+    Next r
+
+    Application.Calculation = xlCalculationAutomatic
+    Application.ScreenUpdating = True
+    Application.StatusBar = False
+
+    If Not silent Or (synced + failed) > 0 Then
+        MsgBox "Hub Sync complete on " & wsFY.Name & vbCrLf & vbCrLf & _
+               "  synced:  " & synced & vbCrLf & _
+               "  skipped: " & skipped & vbCrLf & _
+               "  failed:  " & failed, _
+               vbInformation, "Hub Sync"
+    End If
+End Sub
+
+' ============================================================
+' CURRENT FY SHEET RESOLUTION
+' ============================================================
+
+Private Function GetCurrentFYSheet() As Worksheet
+    Dim fy As String
+    On Error Resume Next
+    fy = CStr(ThisWorkbook.Worksheets("Dashboard").Range("B5").Value)
+    On Error GoTo 0
+    If Len(fy) = 0 Then Exit Function
+
+    Dim yy As String
+    yy = Right(fy, 2)  ' "26" from "FY 2026"
+
+    Dim sheetName As String
+    sheetName = fy & " (Jan" & yy & "-Dec" & yy & ")"
+
+    On Error Resume Next
+    Set GetCurrentFYSheet = ThisWorkbook.Worksheets(sheetName)
+    On Error GoTo 0
+End Function
+
+' ============================================================
+' EMPLOYEE FETCH + MATCH
+' ============================================================
+
+Private Sub SplitName(ByVal raw As String, ByRef firstName As String, ByRef lastName As String)
+    Dim s As String, pos As Long
+    s = Trim(raw)
+    pos = InStrRev(s, " ")
+    If pos > 0 Then
+        firstName = Trim(Left(s, pos - 1))
+        lastName = Trim(Mid(s, pos + 1))
+    Else
+        firstName = ""
+        lastName = s
+    End If
+End Sub
+
+Private Function ParseEmployeeJson(ByVal json As String) As Collection
+    ' Minimal hand-rolled parser for the single-level array of objects
+    ' returned by .../employees?select=id,first_name,last_name,is_active.
+    ' Avoids pulling in a JSON dependency for a simple shape.
+    Dim out As New Collection
+    Dim i As Long, n As Long
+    n = Len(json)
+    If n = 0 Then Set ParseEmployeeJson = out: Exit Function
+
+    Dim depth As Long, objStart As Long
+    depth = 0
+    For i = 1 To n
+        Dim ch As String
+        ch = Mid(json, i, 1)
+        If ch = "{" Then
+            If depth = 0 Then objStart = i
+            depth = depth + 1
+        ElseIf ch = "}" Then
+            depth = depth - 1
+            If depth = 0 Then
+                Dim obj As String
+                obj = Mid(json, objStart, i - objStart + 1)
+                Dim rec(0 To 2) As String
+                rec(0) = ExtractJsonString(obj, "id")
+                rec(1) = ExtractJsonString(obj, "first_name")
+                rec(2) = ExtractJsonString(obj, "last_name")
+                out.Add rec
+            End If
+        End If
+    Next i
+    Set ParseEmployeeJson = out
+End Function
+
+Private Function ExtractJsonString(ByVal obj As String, ByVal key As String) As String
+    Dim needle As String
+    needle = """" & key & """:"
+    Dim p As Long
+    p = InStr(obj, needle)
+    If p = 0 Then Exit Function
+    p = p + Len(needle)
+    ' Skip whitespace
+    Do While p <= Len(obj) And (Mid(obj, p, 1) = " " Or Mid(obj, p, 1) = vbTab)
+        p = p + 1
+    Loop
+    If p > Len(obj) Then Exit Function
+    Dim first As String
+    first = Mid(obj, p, 1)
+    If first = """" Then
+        Dim q As Long
+        q = InStr(p + 1, obj, """")
+        If q = 0 Then Exit Function
+        ExtractJsonString = Mid(obj, p + 1, q - p - 1)
+    Else
+        ' null / boolean / number -- grab up to next comma or brace
+        Dim endp As Long
+        endp = p
+        Do While endp <= Len(obj)
+            Dim c As String
+            c = Mid(obj, endp, 1)
+            If c = "," Or c = "}" Then Exit Do
+            endp = endp + 1
+        Loop
+        ExtractJsonString = Trim(Mid(obj, p, endp - p))
+    End If
+End Function
+
+Private Function FindEmployee(ByVal employees As Collection, ByVal firstName As String, ByVal lastName As String) As Variant
+    ' Priority: exact last + exact first, then exact last + case-insensitive first,
+    ' then exact last (first blank or different). Returns Array(id, matchType)
+    ' or Empty if no match.
+    If Len(lastName) = 0 Then Exit Function
+
+    Dim rec As Variant, id As String, fn As String, ln As String
+    Dim lLower As String, fLower As String
+    lLower = LCase(lastName)
+    fLower = LCase(firstName)
+
+    ' Pass 1: exact last + exact first (case-insensitive)
+    For Each rec In employees
+        id = rec(0): fn = rec(1): ln = rec(2)
+        If LCase(ln) = lLower And LCase(fn) = fLower Then
+            FindEmployee = Array(id, "EXACT")
+            Exit Function
+        End If
+    Next rec
+
+    ' Pass 2: exact last + first-name starts-with
+    If Len(fLower) > 0 Then
+        For Each rec In employees
+            id = rec(0): fn = rec(1): ln = rec(2)
+            If LCase(ln) = lLower And Len(fn) > 0 And InStr(1, LCase(fn), fLower, vbBinaryCompare) = 1 Then
+                FindEmployee = Array(id, "PARTIAL")
+                Exit Function
+            End If
+        Next rec
+    End If
+
+    ' Pass 3: last name only, if unique in the dataset
+    Dim matches As Long, lastMatchId As String
+    matches = 0
+    For Each rec In employees
+        id = rec(0): ln = rec(2)
+        If LCase(ln) = lLower Then
+            matches = matches + 1
+            lastMatchId = id
+            If matches > 1 Then Exit For
+        End If
+    Next rec
+    If matches = 1 Then
+        FindEmployee = Array(lastMatchId, "LAST_ONLY")
+        Exit Function
+    End If
+
+    ' no unambiguous match
+End Function
+
+' ============================================================
+' SYNC LOG
+' ============================================================
+
+Private Function EnsureLogSheet() As Worksheet
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Worksheets(LOG_SHEET)
+    On Error GoTo 0
+    If ws Is Nothing Then
+        Set ws = ThisWorkbook.Worksheets.Add(After:=ThisWorkbook.Worksheets(ThisWorkbook.Worksheets.Count))
+        ws.Name = LOG_SHEET
+        ws.Range("A1:J1").Value = Array( _
+            "Timestamp", "Workbook User", "FY Sheet", "Row", _
+            "Employee Name", "Separation Date", "Action", _
+            "Supabase ID", "Match Type", "Details")
+    End If
+    Set EnsureLogSheet = ws
+End Function
+
+Private Sub LogRow(ByVal ws As Worksheet, ByVal sheetName As String, ByVal rowNum As Long, _
+                   ByVal empName As String, ByVal dos As Date, ByVal action As String, _
+                   ByVal supId As String, ByVal matchType As String, ByVal details As String)
+    Dim nextRow As Long
+    nextRow = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row + 1
+    If nextRow < 2 Then nextRow = 2
+    ws.Cells(nextRow, 1).Value = Now
+    ws.Cells(nextRow, 2).Value = Environ("USERNAME")
+    ws.Cells(nextRow, 3).Value = sheetName
+    ws.Cells(nextRow, 4).Value = rowNum
+    ws.Cells(nextRow, 5).Value = empName
+    ws.Cells(nextRow, 6).Value = dos
+    ws.Cells(nextRow, 7).Value = action
+    ws.Cells(nextRow, 8).Value = supId
+    ws.Cells(nextRow, 9).Value = matchType
+    ws.Cells(nextRow, 10).Value = details
+End Sub
+
+' ============================================================
+' HTTP
+' ============================================================
+' Uses WinHttp first, falls back to MSXML2.ServerXMLHTTP.6.0. Same
+' dual-method pattern as the Monthly New Hire Tracker macro, which
+' has been battle-tested on HR's Windows environment.
+
+Private Function HttpGet(ByVal sUrl As String) As String
+    On Error Resume Next
+    Dim oHTTP As Object
+    Set oHTTP = CreateObject("WinHttp.WinHttpRequest.5.1")
+    If Err.Number <> 0 Then Err.Clear: GoTo TryXml
+    oHTTP.setTimeouts 10000, 10000, 10000, 20000
+    oHTTP.Open "GET", sUrl, False
+    oHTTP.setRequestHeader "apikey", SUPABASE_ANON_KEY
+    oHTTP.setRequestHeader "Authorization", "Bearer " & SUPABASE_ANON_KEY
+    oHTTP.setRequestHeader "Accept", "application/json"
+    oHTTP.Send
+    If Err.Number = 0 And oHTTP.Status = 200 Then
+        HttpGet = oHTTP.responseText
+        Exit Function
+    End If
+    Err.Clear
+
+TryXml:
+    Dim oXml As Object
+    Set oXml = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    If Err.Number <> 0 Then HttpGet = "": Exit Function
+    oXml.Open "GET", sUrl, False
+    oXml.setRequestHeader "apikey", SUPABASE_ANON_KEY
+    oXml.setRequestHeader "Authorization", "Bearer " & SUPABASE_ANON_KEY
+    oXml.setRequestHeader "Accept", "application/json"
+    oXml.Send
+    If Err.Number = 0 And oXml.Status = 200 Then HttpGet = oXml.responseText
+End Function
+
+Private Function HttpPatch(ByVal sUrl As String, ByVal body As String, ByRef respBody As String) As Long
+    HttpPatch = 0
+    On Error Resume Next
+    Dim oHTTP As Object
+    Set oHTTP = CreateObject("WinHttp.WinHttpRequest.5.1")
+    If Err.Number <> 0 Then Err.Clear: GoTo TryXml
+    oHTTP.setTimeouts 10000, 10000, 10000, 20000
+    oHTTP.Open "PATCH", sUrl, False
+    oHTTP.setRequestHeader "apikey", SUPABASE_ANON_KEY
+    oHTTP.setRequestHeader "Authorization", "Bearer " & SUPABASE_ANON_KEY
+    oHTTP.setRequestHeader "Content-Type", "application/json"
+    oHTTP.setRequestHeader "Prefer", "return=minimal"
+    oHTTP.Send body
+    If Err.Number = 0 Then
+        HttpPatch = oHTTP.Status
+        respBody = oHTTP.responseText
+        Exit Function
+    End If
+    Err.Clear
+
+TryXml:
+    Dim oXml As Object
+    Set oXml = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    If Err.Number <> 0 Then Exit Function
+    oXml.Open "PATCH", sUrl, False
+    oXml.setRequestHeader "apikey", SUPABASE_ANON_KEY
+    oXml.setRequestHeader "Authorization", "Bearer " & SUPABASE_ANON_KEY
+    oXml.setRequestHeader "Content-Type", "application/json"
+    oXml.setRequestHeader "Prefer", "return=minimal"
+    oXml.Send body
+    If Err.Number = 0 Then
+        HttpPatch = oXml.Status
+        respBody = oXml.responseText
+    End If
+End Function
