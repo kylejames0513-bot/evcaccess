@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactElement } from "react";
 import styles from "./training-hub.module.css";
 
 type HubScreen = "dashboard" | "employees" | "sessions" | "compliance" | "new-hires" | "reports" | "sync";
@@ -222,6 +223,13 @@ interface StatTile {
   tone: "neutral" | "good" | "warn" | "bad";
 }
 
+interface MiniStat {
+  label: string;
+  value: string;
+  note?: string;
+  tone?: StatTile["tone"];
+}
+
 const NAV_ITEMS: Array<{ key: HubScreen; label: string; hint: string }> = [
   { key: "dashboard", label: "Dashboard", hint: "Live KPI summary" },
   { key: "employees", label: "Employees", hint: "Roster + risk" },
@@ -318,6 +326,17 @@ function toneClass(tone: StatTile["tone"]): string {
   if (tone === "warn") return styles.statusWarn;
   if (tone === "bad") return styles.statusBad;
   return styles.panelHint;
+}
+
+function average(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function progressWidth(completed: number, total: number): string {
+  if (total <= 0) return "0%";
+  const pct = Math.round((completed / total) * 100);
+  return `${Math.max(0, Math.min(100, pct))}%`;
 }
 
 export function TrainingHubApp() {
@@ -435,6 +454,223 @@ export function TrainingHubApp() {
   const activeEmployees = employeesApi.data?.employees.filter((e) => e.is_active).length ?? 0;
   const employeeSnapshot =
     totalEmployees > 0 ? `${formatNumber(activeEmployees)} active of ${formatNumber(totalEmployees)}` : "No employees loaded";
+
+  const employeeMiniStats = useMemo<MiniStat[]>(() => {
+    const rows = employeesApi.data?.employees ?? [];
+    const active = rows.filter((row) => row.is_active).length;
+    const expired = rows.filter((row) => row.status === "expired").length;
+    const expiring = rows.filter((row) => row.status === "expiring_soon").length;
+    const completionRates = rows.map((row) => {
+      const completed = row.counts.current + row.counts.excused;
+      return row.total_required > 0 ? (completed / row.total_required) * 100 : 0;
+    });
+    const avgCompletion = Math.round(average(completionRates));
+
+    return [
+      {
+        label: "Roster Size",
+        value: formatNumber(rows.length),
+        note: `${formatNumber(active)} active`,
+      },
+      {
+        label: "Expired Risk",
+        value: formatNumber(expired),
+        note: "Employees with overdue items",
+        tone: expired > 0 ? "bad" : "good",
+      },
+      {
+        label: "Expiring Soon",
+        value: formatNumber(expiring),
+        note: "Needs scheduling soon",
+        tone: expiring > 0 ? "warn" : "good",
+      },
+      {
+        label: "Avg Completion",
+        value: `${avgCompletion}%`,
+        note: "Across required trainings",
+        tone: avgCompletion >= 85 ? "good" : "warn",
+      },
+    ];
+  }, [employeesApi.data?.employees]);
+
+  const sessionMiniStats = useMemo<MiniStat[]>(() => {
+    const sessions = scheduleApi.data?.sessions ?? [];
+    const total = sessions.length;
+    const full = sessions.filter((session) => session.capacity > 0 && session.enrolled.length >= session.capacity).length;
+    const noShows = sessions.reduce((sum, session) => sum + session.noShows.length, 0);
+    const fillRates = sessions
+      .filter((session) => session.capacity > 0)
+      .map((session) => (session.enrolled.length / session.capacity) * 100);
+    const avgFill = Math.round(average(fillRates));
+
+    return [
+      { label: "Upcoming Sessions", value: formatNumber(total), note: "Scheduled / in-progress" },
+      { label: "Average Fill Rate", value: `${avgFill}%`, note: "Enrollment utilization" },
+      {
+        label: "Full Sessions",
+        value: formatNumber(full),
+        note: "At or above capacity",
+        tone: full > 0 ? "warn" : "good",
+      },
+      {
+        label: "No-Show Flags",
+        value: formatNumber(noShows),
+        note: "Marked across loaded sessions",
+        tone: noShows > 0 ? "warn" : "neutral",
+      },
+    ];
+  }, [scheduleApi.data?.sessions]);
+
+  const complianceMiniStats = useMemo<MiniStat[]>(() => {
+    const summary = complianceApi.data?.summary.status_counts;
+    if (!summary) {
+      return [
+        { label: "Current", value: "--" },
+        { label: "Expiring Soon", value: "--" },
+        { label: "Expired", value: "--" },
+        { label: "Needed", value: "--" },
+      ];
+    }
+    return [
+      { label: "Current", value: formatNumber(summary.current), tone: "good" },
+      { label: "Expiring Soon", value: formatNumber(summary.expiring_soon), tone: "warn" },
+      { label: "Expired", value: formatNumber(summary.expired), tone: summary.expired > 0 ? "bad" : "good" },
+      { label: "Needed", value: formatNumber(summary.needed), tone: summary.needed > 0 ? "warn" : "neutral" },
+    ];
+  }, [complianceApi.data?.summary.status_counts]);
+
+  const newHireMiniStats = useMemo<MiniStat[]>(() => {
+    const hires = newHiresApi.data?.newHires ?? [];
+    const atRisk = hires.filter((hire) => hire.missingTrainings.length > 0).length;
+    const avgProgress = Math.round(
+      average(
+        hires.map((hire) =>
+          hire.totalTrainings > 0 ? (hire.completedTrainings / hire.totalTrainings) * 100 : 0,
+        ),
+      ),
+    );
+    const under30Days = hires.filter((hire) => hire.daysEmployed <= 30).length;
+    return [
+      { label: "New Hires", value: formatNumber(hires.length), note: "In 90-day onboarding range" },
+      { label: "At Risk", value: formatNumber(atRisk), note: "Missing one or more trainings", tone: atRisk > 0 ? "warn" : "good" },
+      { label: "Avg Progress", value: `${avgProgress}%`, note: "Completion toward requirements" },
+      { label: "First 30 Days", value: formatNumber(under30Days), note: "Needs close onboarding support" },
+    ];
+  }, [newHiresApi.data?.newHires]);
+
+  const reportMiniStats = useMemo<MiniStat[]>(() => {
+    const data = reportsApi.data;
+    if (!data) return [{ label: "Report Summary", value: "--", note: "Loading report data" }];
+
+    if (data.departments) {
+      const avgRate = Math.round(average(data.departments.map((row) => row.complianceRate)));
+      const highestRisk = data.departments[0];
+      return [
+        { label: "Divisions", value: formatNumber(data.departments.length), note: "Included in report" },
+        { label: "Average Compliance", value: `${avgRate}%`, note: "Across all divisions" },
+        {
+          label: "Highest Risk Division",
+          value: highestRisk?.division ?? "--",
+          note: highestRisk ? `${highestRisk.complianceRate}% compliance` : "No division data",
+          tone: highestRisk && highestRisk.complianceRate < 80 ? "bad" : "warn",
+        },
+      ];
+    }
+
+    if (data.trainings) {
+      const avgRate = Math.round(average(data.trainings.map((row) => row.completionRate)));
+      const weakest = data.trainings[0];
+      return [
+        { label: "Training Types", value: formatNumber(data.trainings.length), note: "Included in report" },
+        { label: "Average Completion", value: `${avgRate}%`, note: "Across all training types" },
+        {
+          label: "Lowest Completion",
+          value: weakest?.name ?? "--",
+          note: weakest ? `${weakest.completionRate}% completion` : "No training data",
+          tone: weakest && weakest.completionRate < 75 ? "bad" : "warn",
+        },
+      ];
+    }
+
+    if (data.months) {
+      const total = data.months.reduce((sum, month) => sum + month.count, 0);
+      const peak = [...data.months].sort((a, b) => b.count - a.count)[0];
+      return [
+        { label: "12-Month Forecast", value: formatNumber(total), note: "Projected expirations" },
+        { label: "Overdue Today", value: formatNumber(data.overdue?.count ?? 0), note: "Currently overdue records", tone: (data.overdue?.count ?? 0) > 0 ? "bad" : "good" },
+        {
+          label: "Peak Month",
+          value: peak ? `${peak.month} ${peak.year}` : "--",
+          note: peak ? `${peak.count} projected expirations` : "No month data",
+          tone: peak && peak.count > 0 ? "warn" : "neutral",
+        },
+      ];
+    }
+
+    if (data.summary) {
+      return [
+        { label: "Total Separated", value: formatNumber(data.summary.totalSeparated ?? 0), note: "All-time in current dataset" },
+        { label: "Separated This Month", value: formatNumber(data.summary.separatedThisMonth ?? 0), note: "Current calendar month" },
+        { label: "Separated (30 Days)", value: formatNumber(data.summary.separatedLast30Days ?? 0), note: "Rolling 30-day total" },
+      ];
+    }
+
+    if (data.employees) {
+      const topMissing = [...data.employees].sort((a, b) => (b.missing?.length ?? 0) - (a.missing?.length ?? 0))[0];
+      return [
+        { label: "Employees With Gaps", value: formatNumber(data.employees.length), note: "Who-needs-what matrix" },
+        {
+          label: "Highest Gap",
+          value: topMissing?.employee ?? "--",
+          note: topMissing ? `${topMissing.missing?.length ?? 0} missing trainings` : "No employee data",
+          tone: topMissing && (topMissing.missing?.length ?? 0) > 0 ? "warn" : "neutral",
+        },
+      ];
+    }
+
+    return [{ label: "Report Summary", value: "--", note: "No rows returned" }];
+  }, [reportsApi.data]);
+
+  const syncMiniStats = useMemo<MiniStat[]>(() => {
+    const data = syncApi.data;
+    if (!data) {
+      return [
+        { label: "Active Employees", value: "--" },
+        { label: "Training Records", value: "--" },
+        { label: "Recent Sync Errors", value: "--" },
+      ];
+    }
+    const recentErrorCount = data.recentSyncs.reduce((sum, row) => sum + row.errors, 0);
+    return [
+      { label: "Active Employees", value: formatNumber(data.counts.activeEmployees), note: "Current active roster" },
+      { label: "Training Records", value: formatNumber(data.counts.trainingRecords), note: "Stored completion records" },
+      {
+        label: "Recent Sync Errors",
+        value: formatNumber(recentErrorCount),
+        note: "Across latest sync log entries",
+        tone: recentErrorCount > 0 ? "bad" : "good",
+      },
+      {
+        label: "Last Sync Source",
+        value: data.lastSync?.source ?? "--",
+        note: data.lastSync ? formatDate(data.lastSync.timestamp) : "No syncs logged yet",
+      },
+    ];
+  }, [syncApi.data]);
+
+  function renderMiniStats(stats: MiniStat[]): ReactElement {
+    return (
+      <section className={styles.miniStatsGrid}>
+        {stats.map((stat) => (
+          <article key={`${stat.label}-${stat.value}`} className={styles.miniStatCard}>
+            <p className={styles.miniStatLabel}>{stat.label}</p>
+            <p className={styles.miniStatValue}>{stat.value}</p>
+            {stat.note ? <p className={stat.tone ? toneClass(stat.tone) : styles.panelHint}>{stat.note}</p> : null}
+          </article>
+        ))}
+      </section>
+    );
+  }
 
   function retryActiveView(): void {
     setRefreshToken((prev) => prev + 1);
@@ -649,6 +885,7 @@ export function TrainingHubApp() {
               <h3 className={styles.panelTitle}>Employee roster and compliance rollup</h3>
               <p className={styles.panelHint}>Search by name, division, job title, or Paylocity ID.</p>
             </div>
+            {renderMiniStats(employeeMiniStats)}
             <div className={styles.controlsRow}>
               <input
                 className={styles.searchInput}
@@ -721,27 +958,17 @@ export function TrainingHubApp() {
                               {employee.status}
                             </span>
                           </td>
-                        <td>
-                          <div className={styles.progressCell}>
-                            <span>{percentage(completed, employee.total_required)}</span>
-                            <div className={styles.progressTrack}>
-                              <div
-                                className={styles.progressFill}
-                                style={{
-                                  width: `${Math.max(
-                                    0,
-                                    Math.min(
-                                      100,
-                                      employee.total_required > 0
-                                        ? Math.round((completed / employee.total_required) * 100)
-                                        : 0,
-                                    ),
-                                  )}%`,
-                                }}
-                              />
+                          <td>
+                            <div className={styles.progressCell}>
+                              <span>{percentage(completed, employee.total_required)}</span>
+                              <div className={styles.progressTrack}>
+                                <div
+                                  className={styles.progressFill}
+                                  style={{ width: progressWidth(completed, employee.total_required) }}
+                                />
+                              </div>
                             </div>
-                          </div>
-                        </td>
+                          </td>
                           <td>{employee.counts.expired}</td>
                         </tr>
                       );
@@ -759,6 +986,7 @@ export function TrainingHubApp() {
               <h3 className={styles.panelTitle}>Session schedule</h3>
               <p className={styles.panelHint}>Live class roster with enrollment and no-show visibility.</p>
             </div>
+            {renderMiniStats(sessionMiniStats)}
 
             {scheduleApi.loading ? (
               <div className={styles.loadingPanel}>Loading schedule...</div>
@@ -814,6 +1042,7 @@ export function TrainingHubApp() {
               <h3 className={styles.panelTitle}>Compliance line items</h3>
               <p className={styles.panelHint}>Direct read from employee_compliance with shared-key fixes.</p>
             </div>
+            {renderMiniStats(complianceMiniStats)}
             <div className={styles.controlsRow}>
               <input
                 className={styles.searchInput}
@@ -893,6 +1122,7 @@ export function TrainingHubApp() {
               <h3 className={styles.panelTitle}>New hire onboarding</h3>
               <p className={styles.panelHint}>Employees hired in the last 90 days with training progress.</p>
             </div>
+            {renderMiniStats(newHireMiniStats)}
             {newHiresApi.loading ? (
               <div className={styles.loadingPanel}>Loading new hire progress...</div>
             ) : newHiresApi.error ? (
@@ -930,17 +1160,7 @@ export function TrainingHubApp() {
                             <div className={styles.progressTrack}>
                               <div
                                 className={styles.progressFill}
-                                style={{
-                                  width: `${Math.max(
-                                    0,
-                                    Math.min(
-                                      100,
-                                      hire.totalTrainings > 0
-                                        ? Math.round((hire.completedTrainings / hire.totalTrainings) * 100)
-                                        : 0,
-                                    ),
-                                  )}%`,
-                                }}
+                                style={{ width: progressWidth(hire.completedTrainings, hire.totalTrainings) }}
                               />
                             </div>
                           </div>
@@ -961,6 +1181,7 @@ export function TrainingHubApp() {
               <h3 className={styles.panelTitle}>Reports and forecasting</h3>
               <p className={styles.panelHint}>Choose a report type to inspect backend analytics.</p>
             </div>
+            {renderMiniStats(reportMiniStats)}
             <div className={styles.controlsRow}>
               <div className={styles.filterGroup}>
                 <span>Type</span>
@@ -1133,6 +1354,7 @@ export function TrainingHubApp() {
               <h3 className={styles.panelTitle}>Sync health</h3>
               <p className={styles.panelHint}>Status from sync log and live record counters.</p>
             </div>
+            {renderMiniStats(syncMiniStats)}
             {syncApi.loading ? (
               <div className={styles.loadingPanel}>Loading sync status...</div>
             ) : syncApi.error ? (
