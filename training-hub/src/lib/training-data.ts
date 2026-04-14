@@ -3,7 +3,7 @@
 // instead. The @ts-nocheck that used to sit at the top was removed once
 // the helpers below were tightened up.
 import { createServerClient } from "./supabase";
-import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { TRAINING_DEFINITIONS, EXPIRING_SOON_DAYS } from "@/config/trainings";
 import { toFirstLast as toFirstLastUtil, namesMatch } from "@/lib/name-utils";
 import type { ComplianceStatus } from "@/types/database";
 import { dropEnrollmentsForExcusedPairs } from "@/lib/db/excusals";
@@ -167,10 +167,12 @@ export async function getTrainingData(): Promise<EmployeeTrainingRow[]> {
     excusalMap.set(`${exc.employee_id}|${exc.training_type_id}`, exc.reason);
   }
 
-  // Compute compliance in TypeScript
+  // Compute compliance in TypeScript. expiring_soon = within 90 days,
+  // matching the compliance view v3 (migration 20260414000200) and the
+  // EXPIRING_SOON_DAYS constant in src/config/trainings.ts.
   const now = new Date();
   const soonThreshold = new Date();
-  soonThreshold.setDate(soonThreshold.getDate() + 60);
+  soonThreshold.setDate(soonThreshold.getDate() + EXPIRING_SOON_DAYS);
   const trackedDefs = TRAINING_DEFINITIONS;
   const employeeMap = new Map<string, EmployeeTrainingRow>();
 

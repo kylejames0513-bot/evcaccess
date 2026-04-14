@@ -245,9 +245,11 @@ export async function fixSharedColumnKeyCompliance(
       if (newExpiration < today) {
         newStatus = "expired";
       } else {
-        const thirtyDays = new Date();
-        thirtyDays.setDate(thirtyDays.getDate() + 30);
-        if (newExpiration <= thirtyDays.toISOString().slice(0, 10)) {
+        // expiring_soon = within 90 days, matches compliance view v3
+        // (migration 20260414000200_compliance_view_expiring_90_days).
+        const ninetyDays = new Date();
+        ninetyDays.setDate(ninetyDays.getDate() + 90);
+        if (newExpiration <= ninetyDays.toISOString().slice(0, 10)) {
           newStatus = "expiring_soon";
         } else {
           newStatus = "current";

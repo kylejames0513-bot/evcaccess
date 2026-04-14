@@ -337,4 +337,8 @@ export const EXCUSAL_CODES = [
   "TRAINER", "LP", "NS", "LLL",
 ] as const;
 
-export const EXPIRING_SOON_DAYS = 60;
+// expiring_soon = within 90 days. Matches the compliance view v3
+// (migration 20260414000200_compliance_view_expiring_90_days). Used by
+// the legacy lib/training-data.ts and the report generator. Keep this
+// in sync with the view's CASE branch and the per-row TS computations.
+export const EXPIRING_SOON_DAYS = 90;

@@ -154,7 +154,9 @@ export const GET = withApiHandler(async (req) => {
           const now = new Date();
           const daysUntil = Math.ceil((exp.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
           if (daysUntil < 0) status = "expired";
-          else if (daysUntil <= 30) status = "expiring_soon";
+          // expiring_soon = within 90 days, matches compliance view v3
+          // (migration 20260414000200_compliance_view_expiring_90_days).
+          else if (daysUntil <= 90) status = "expiring_soon";
           else status = "current";
         } else {
           status = "current";
