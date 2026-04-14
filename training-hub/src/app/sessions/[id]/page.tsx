@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { CheckCircle, XCircle, AlertTriangle, UserX, Archive, RotateCcw, UserPlus, FileText } from "lucide-react";
 import ClassMemoModal from "@/components/ClassMemoModal";
@@ -63,12 +63,7 @@ export default function SessionReviewPage({ params }: { params: Promise<{ id: st
   const [saved, setSaved] = useState(false);
   const [memoOpen, setMemoOpen] = useState(false);
 
-  useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const r = await fetch(`/api/sessions/${id}`);
       const j = await r.json();
@@ -85,7 +80,11 @@ export default function SessionReviewPage({ params }: { params: Promise<{ id: st
       }
       setStatuses(initial);
     } catch (e) { setError(e instanceof Error ? e.message : "Load failed"); }
-  }
+  }, [id]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   async function saveReview() {
     if (!data) return;

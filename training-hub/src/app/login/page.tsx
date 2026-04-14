@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, Loader2, GraduationCap, Mail } from "lucide-react";
 
@@ -10,7 +10,28 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<"email" | "legacy">("email");
+  const [legacyEnabled, setLegacyEnabled] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth");
+        const data = await res.json();
+        if (!cancelled) {
+          setLegacyEnabled(Boolean(data.legacyLoginEnabled));
+        }
+      } catch {
+        if (!cancelled) {
+          setLegacyEnabled(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -105,13 +126,15 @@ export default function LoginPage() {
             {loading ? "Checking..." : "Sign In"}
           </button>
 
-          <button
-            type="button"
-            onClick={() => { setMode(mode === "email" ? "legacy" : "email"); setError(""); }}
-            className="w-full text-xs text-slate-400 hover:text-slate-600 transition-colors"
-          >
-            {mode === "email" ? "Use shared password instead" : "Sign in with email"}
-          </button>
+          {legacyEnabled && (
+            <button
+              type="button"
+              onClick={() => { setMode(mode === "email" ? "legacy" : "email"); setError(""); }}
+              className="w-full text-xs text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              {mode === "email" ? "Use shared password instead" : "Sign in with email"}
+            </button>
+          )}
         </form>
       </div>
     </div>

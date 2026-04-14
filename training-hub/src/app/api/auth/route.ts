@@ -5,11 +5,14 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 export const POST = withApiHandler(async (request) => {
   const body = await request.json();
   const { email, password } = body;
+  const legacyPassword = process.env.HR_PASSWORD?.trim();
 
   // Support legacy password-only login during transition
   if (!email && password) {
-    const correctPassword = process.env.HR_PASSWORD;
-    if (correctPassword && password === correctPassword) {
+    if (!legacyPassword) {
+      throw new ApiError("Shared password login is disabled", 403, "forbidden");
+    }
+    if (password === legacyPassword) {
       const cookieStore = await cookies();
       cookieStore.set("hr_session", "authenticated", {
         httpOnly: true,
@@ -77,6 +80,7 @@ export const GET = withApiHandler(async () => {
   return {
     authenticated: session?.value === "authenticated",
     hasSupabaseSession: !!sbToken?.value,
+    legacyLoginEnabled: Boolean(process.env.HR_PASSWORD?.trim()),
   };
 });
 

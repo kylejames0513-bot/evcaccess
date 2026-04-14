@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
@@ -53,14 +53,7 @@ export default function CompliancePage() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    void load();
-    // load is stable (declared in component scope) — exhaustive-deps is
-    // suppressed so we don't re-run on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [department, position, status]);
-
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -78,7 +71,11 @@ export default function CompliancePage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [department, position, status]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   // Group rows by employee
   const employees = useMemo(() => {

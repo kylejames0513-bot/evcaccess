@@ -42,7 +42,7 @@ Single HR admin user for now. Create in the Supabase dashboard:
 
 The `/login` page uses `signInWithPassword` and the existing `AuthGuard` wrapper redirects unauthenticated users back to `/login`.
 
-The legacy shared `HR_PASSWORD` env var is still accepted as a fallback during transition; remove it from Vercel once the Supabase Auth user works.
+The legacy shared `HR_PASSWORD` env var is still accepted as a fallback during transition. If `HR_PASSWORD` is unset/blank, shared-password login is disabled and only Supabase email/password login is allowed.
 
 ## Imports workflow
 
