@@ -51,7 +51,9 @@ Writes into previously empty cells only:
 - `Dashboard!A51,C51` — "Avg Tenure at Separation" (new stat, returns `N/A` for FY 2023/2024/2025 which pre-date the DOH column being populated).
 
 **Stage 4** — HubSync macro.
-Zero workbook changes. The macro manages its own state in a "Sync Log" sheet that it creates on first run.
+Zero workbook changes. The macro manages its own state in two sheets it creates on first run:
+- `Sync Log` (per-row outcome history and idempotency)
+- `Headcount Ledger` (rolling active-employee snapshots and inferred hire movement)
 
 ## One-time macro install (Excel, Windows)
 
@@ -68,13 +70,14 @@ Zero workbook changes. The macro manages its own state in a "Sync Log" sheet tha
 
 ## Running the sync
 
-Two separate macros live in `HubSync.bas`:
+Three macros live in `HubSync.bas`:
 
-- **`HubSync.HubSync`** — pushes pending separations to Supabase (marks terminated, sets `terminated_at`). Run this when you've entered new separations on the current FY sheet.
-- **`HubSync.PullHireDates`** — pulls `hire_date` from Supabase for any FY-sheet row that has a name but a blank `DOH` cell. Useful for backfilling historical FY 2023/2024/2025 rows where Date of Hire was never recorded. Never overwrites an existing DOH value.
+- **`HubSync.HubSync`** — pushes pending separations through the hub (`POST /api/sync/separations`), which marks employees inactive and sets `terminated_at` in Supabase.
+- **`HubSync.PullHireDates`** — pulls `hire_date` through the hub (`GET /api/sync/roster?include_inactive=true`) for any FY-sheet row that has a name but a blank `DOH` cell. Never overwrites an existing DOH value.
+- **`HubSync.SnapshotHeadcount`** — appends a manual active-headcount snapshot to `Headcount Ledger` (useful after major new-hire imports).
 
-- **Manually**: click a button on the Dashboard, or `Alt+F8 → HubSync.HubSync → Run` / `HubSync.PullHireDates → Run`.
-- **On open (sync)**: uncomment the `RunHubSync True` line inside `Workbook_Open` in `HubSync.bas`, re-import, save.
+- **Manually**: click a button on the Dashboard, or `Alt+F8 → HubSync.HubSync → Run` / `HubSync.PullHireDates → Run` / `HubSync.SnapshotHeadcount → Run`.
+- **On open (optional)**: in the VBA editor, open `ThisWorkbook`, add a `Workbook_Open()` handler, and call `HubSync.HubSync` from it.
 
 ## What the macro does
 
@@ -84,11 +87,29 @@ For every row on the currently selected FY sheet (determined by `Dashboard!B5`):
     - Column A (Name) is blank or `SUBTOTAL:`.
     - Column B (Date of Separation) is blank or still in the future.
     - The Sync Log already has a `SYNCED` entry for the same `(sheet, row, name, dos)` key — this is how the idempotency works. Nothing is ever pushed twice.
-2. Looks up the employee in Supabase via `/rest/v1/employees?is_active=eq.true`, cached once per run. Match priority: exact last+exact first, exact last + first-name starts-with, exact last if unique.
-3. `PATCH`s `/rest/v1/employees?id=eq.<id>` with `{ "is_active": false, "terminated_at": "<yyyy-mm-dd>" }`.
-4. Appends a `SYNCED` row to the Sync Log. On the next run, that key is in the idempotency dict and the row is skipped.
+2. Builds a batch payload and sends it to the hub endpoint `/api/sync/separations` (token auth via `x-hub-sync-token`).
+3. Hub returns per-row statuses (`synced`, `already_inactive`, `no_match`, `ambiguous`, `failed`).
+4. Appends each result into `Sync Log`. Rows with `SYNCED` and `ALREADY_INACTIVE` are considered complete for idempotency and skipped next run.
+5. Appends a `Headcount Ledger` snapshot:
+   - current active employees (from `/api/sync/roster`)
+   - delta vs prior snapshot
+   - separations synced this run
+   - inferred hire movement since prior snapshot (`delta + separations`)
 
-At the end, a summary message shows `synced / skipped / failed`.
+At the end, a summary message shows `queued / skipped / synced / already inactive / no match / ambiguous / failed`.
+
+## Rolling active count and "new-hire effect"
+
+`Headcount Ledger` gives you a running active count anchored to hub/Supabase, not workbook formulas.  
+Each row stores:
+
+- Event timestamp and source event (`SEPARATION_SYNC`, `PULL_HIRE_DATES`, `MANUAL_SNAPSHOT`)
+- Active employee count at that moment
+- Delta vs prior snapshot
+- Separation outcomes from this run
+- **Estimated New Hires Since Prior** = `delta + separations synced`
+
+This lets you monitor active headcount movement even though separations and new hires originate from separate workbooks.
 
 ## Skipping a specific row (the "Do Not Sync" workflow)
 
@@ -96,6 +117,8 @@ The old plan added a `Do Not Sync` column to every FY sheet. We dropped it to ke
 
 ## Troubleshooting
 
-- **"Could not fetch employees from Supabase"** — network block, VPN, or expired anon key. The URL/key match the Monthly New Hire Tracker macro; if one works and the other doesn't, check your corporate proxy.
-- **"NO MATCH" rows in the log** — the name on the Separation sheet doesn't resolve to any active employee. Most common causes: the employee is already inactive in Supabase (someone marked them manually), or a misspelling on the sheet. Fix, remove the `NO MATCH` log entry, re-run.
-- **"PATCH FAIL" rows** — look at the Details column; it has the HTTP status and response body. 401/403 = auth, 400 = bad body, 404 = the id disappeared between fetch and PATCH.
+- **"Hub sync failed: HTTP 401/403"** — wrong `HUB_SYNC_TOKEN` in `HubSync.bas` vs Vercel `HUB_SYNC_TOKEN`.
+- **"Hub sync failed: HTTP 503"** — server missing `HUB_SYNC_TOKEN` env var.
+- **"NO_MATCH" rows in Sync Log** — the name doesn't resolve to any active employee in hub/Supabase; verify spelling and whether they are already inactive.
+- **"AMBIGUOUS" rows in Sync Log** — multiple candidates matched; resolve in hub before retrying.
+- **Headcount snapshot missing** — `/api/sync/roster` call failed (network/token/config); rerun `HubSync` or `SnapshotHeadcount` after connectivity is restored.
