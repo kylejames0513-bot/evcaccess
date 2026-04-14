@@ -1,4 +1,0 @@
-{
-  "install": "cd training-hub && npm ci",
-  "start": "node -v && npm -v"
-}

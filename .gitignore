@@ -1,5 +1,5 @@
-.claude/worktrees/
-*.xlsx
 __pycache__/
 *.pyc
-node_modules/
+*.pyo
+*.pyd
+.DS_Store
