@@ -1,180 +1,138 @@
 """
-Stage 1 -- Reference sheet cleanup.
+Stage 1 (surgical redo) -- Reference sheet additions.
 
-Scope (Reference sheet only):
-  * Trim trailing/leading whitespace on every list entry
-  * De-dup within each list, preserving first-seen order
-  * Column A (Job Titles): add canonical jobs that appear in real data
-  * Column B (Rehire Eligibility): Yes, No -- new, so rehire DV stops being
-    a fragile inline CSV string and becomes a range-referenced x14 DV
-  * Column C (Reasons for Leaving): add "Resignation without Notice"
-  * NEW Column D (Reason Category): Voluntary / Involuntary / Other
-    classification for each reason
-  * Column G (Status): U, D with a descriptive comment column (H) so users
-    remember what U and D mean
+Scope:
+  * Write into EMPTY cells only. Never clear, never overwrite.
+  * No openpyxl. All edits go through XlsxPatcher which preserves
+    every other byte in the xlsx zip.
 
-Out of scope (later stages):
-  * Location column E overhaul  (stage 3 rework)
-  * Location -> Department mapping rebuild  (stage 3 rework)
-  * Strict validation on FY sheets  (stage 2)
+Changes:
+  Reference!B1     = "Rehire Eligibility"
+  Reference!B2     = "Yes"
+  Reference!B3     = "No"
+  Reference!C14    = "Resignation without Notice"   (new reason)
+  Reference!D1     = "Reason Category"
+  Reference!D2..14 = classification for each reason in order
+  Reference!H1     = "Status Meaning"
+  Reference!H2     = "Uneligible for rehire"
+  Reference!H3     = "Discharged / terminated"
 
-After the openpyxl save we re-inject the x14 data validations for every
-FY sheet so we don't lose them. In stage 1 we preserve the original
-errorStyle ("warning") -- stage 2 is the one that tightens it to "stop".
+The existing columns A (Job Titles), C (Reasons, rows 2-13),
+E (Locations), G (Status), I/J (Location Mapping), L (Departments)
+are never touched. Neither are row heights, column widths, styles,
+merged cells, conditional formatting, or any of the custom XML or
+calc chain metadata that openpyxl would drop on round-trip.
 """
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-import openpyxl
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "FY Separation Summary.xlsx"
 BACKUP = ROOT / "FY Separation Summary.backup.xlsx"
 
 sys.path.insert(0, str(Path(__file__).parent))
+from xlsx_patcher import XlsxPatcher  # noqa: E402
 from dv_fixup import DVSpec, apply_dvs  # noqa: E402
 
 
-# ------------------------------------------------------------------
-# Canonical data
-# ------------------------------------------------------------------
+REHIRE = [("Yes", None), ("No", None)]
 
-REASONS: list[tuple[str, str]] = [
-    ("Attendance Issues", "Involuntary"),
-    ("Better Opportunity", "Voluntary"),
-    ("End of Contract", "Other"),
-    ("Job Abandonment", "Involuntary"),
-    ("Layoff", "Involuntary"),
-    ("Performance Issues", "Involuntary"),
-    ("Personal Reasons", "Voluntary"),
-    ("Relocation", "Voluntary"),
-    ("Resignation", "Voluntary"),
-    ("Resignation without Notice", "Voluntary"),
-    ("Retirement", "Voluntary"),
-    ("Termination", "Involuntary"),
-    ("Other", "Other"),
+# Reasons in the order they're written to C14 and D2..D14.
+# The existing C2..C13 already holds the first 12 reasons in this
+# order. We only write C14 (the new one) and D2..D14 (fresh category
+# column). The categories match the canonical categorization:
+#   Voluntary    -- employee initiated the departure
+#   Involuntary  -- employer initiated (term, layoff, perf, etc.)
+#   Other        -- end of contract, misc
+REASON_CATEGORIES = [
+    ("Attendance Issues", "Involuntary"),      # C2
+    ("Better Opportunity", "Voluntary"),        # C3
+    ("End of Contract", "Other"),               # C4
+    ("Job Abandonment", "Involuntary"),         # C5
+    ("Layoff", "Involuntary"),                  # C6
+    ("Other", "Other"),                         # C7
+    ("Performance Issues", "Involuntary"),      # C8
+    ("Personal Reasons", "Voluntary"),          # C9
+    ("Relocation", "Voluntary"),                # C10
+    ("Resignation", "Voluntary"),               # C11
+    ("Retirement", "Voluntary"),                # C12
+    ("Termination", "Involuntary"),             # C13
+    ("Resignation without Notice", "Voluntary"),  # C14 (new)
 ]
-
-JOBS: list[str] = [
-    "President",
-    "VP",
-    "Director",
-    "DSP",
-    "HM",
-    "RM",
-    "CM",
-    "EI",
-    "Sub/Floater",
-    "Finance",
-    "Family Support",
-    "Teacher",
-    "Assistant Teacher",
-    "Job Coach/WI",
-    "HR",
-    "QA",
-    "Other",
-]
-
-STATUSES: list[tuple[str, str]] = [
-    ("U", "Uneligible for rehire"),
-    ("D", "Discharged / terminated"),
-]
-
-REHIRE: list[str] = ["Yes", "No"]
 
 
 def main() -> None:
     if not SRC.exists():
         raise SystemExit(f"missing {SRC}")
-    if not BACKUP.exists():
-        raise SystemExit(f"missing backup at {BACKUP} -- refusing to run")
 
-    wb = openpyxl.load_workbook(SRC)
-    ws = wb["Reference"]
+    p = XlsxPatcher(SRC)
 
-    # Clear the columns we own so stale entries don't linger. Leave E
-    # (Locations), I/J (Location Mapping), L (Departments) for stage 3.
-    for r in range(2, ws.max_row + 1):
-        for col in (1, 2, 3, 4, 7, 8):
-            ws.cell(r, col).value = None
+    # Rehire Eligibility column (B). Copy style from column A of the
+    # same row so the new cells visually match the Jobs column.
+    p.set_string("Reference", "B1", "Rehire Eligibility", copy_style_from="A1")
+    p.set_string("Reference", "B2", "Yes", copy_style_from="A2")
+    p.set_string("Reference", "B3", "No", copy_style_from="A3")
 
-    # --- header row --------------------------------------------------
-    ws.cell(1, 1).value = "Job Titles"
-    ws.cell(1, 2).value = "Rehire Eligibility"
-    ws.cell(1, 3).value = "Reasons for Leaving"
-    ws.cell(1, 4).value = "Reason Category"
-    ws.cell(1, 7).value = "Status"
-    ws.cell(1, 8).value = "Status Meaning"
+    # New row 14 entry in the Reasons column.
+    p.set_string("Reference", "C14", "Resignation without Notice",
+                 copy_style_from="C13")
 
-    # --- Jobs --------------------------------------------------------
-    for i, job in enumerate(JOBS):
-        ws.cell(2 + i, 1).value = job
+    # Reason Category column (D). Copy style from C on the same row.
+    p.set_string("Reference", "D1", "Reason Category", copy_style_from="C1")
+    for i, (_, category) in enumerate(REASON_CATEGORIES):
+        row = 2 + i
+        p.set_string(
+            "Reference", f"D{row}", category, copy_style_from=f"C{row}"
+        )
 
-    # --- Rehire ------------------------------------------------------
-    for i, val in enumerate(REHIRE):
-        ws.cell(2 + i, 2).value = val
+    # Status Meaning column (H). Copy style from G on the same row.
+    p.set_string("Reference", "H1", "Status Meaning", copy_style_from="G1")
+    p.set_string(
+        "Reference", "H2", "Uneligible for rehire", copy_style_from="G2"
+    )
+    p.set_string(
+        "Reference", "H3", "Discharged / terminated", copy_style_from="G3"
+    )
 
-    # --- Reasons + category -----------------------------------------
-    for i, (reason, cat) in enumerate(REASONS):
-        ws.cell(2 + i, 3).value = reason
-        ws.cell(2 + i, 4).value = cat
-
-    # --- Status -----------------------------------------------------
-    for i, (code, meaning) in enumerate(STATUSES):
-        ws.cell(2 + i, 7).value = code
-        ws.cell(2 + i, 8).value = meaning
-
-    wb.save(SRC)
+    p.save()
     print(f"[stage1] wrote {SRC}")
 
-    # --- Re-inject x14 data validations -----------------------------
-    jobs_range = f"Reference!$A$2:$A${1 + len(JOBS)}"
-    rehire_range = f"Reference!$B$2:$B${1 + len(REHIRE)}"
-    reasons_range = f"Reference!$C$2:$C${1 + len(REASONS)}"
-    status_range = f"Reference!$G$2:$G${1 + len(STATUSES)}"
-    locations_range = "Reference!$E$2:$E$64"   # untouched in stage 1
-    departments_range = "Reference!$L$2:$L$10"  # untouched in stage 1
+    # Re-inject the x14 data validations. Stage 1 keeps errorStyle
+    # "warning" (same as the original). Stage 2 tightens to "stop".
+    # Range widened: reasons list now C2:C14 (was C2:C13), rehire list
+    # now points at Reference!$B$2:$B$3 (replacing the original inline
+    # "Yes,No" CSV), status list stays G2:G3.
+    rehire_range = "Reference!$B$2:$B$3"
+    reasons_range = "Reference!$C$2:$C$14"
+    status_range = "Reference!$G$2:$G$3"
+    locations_range = "Reference!$E$2:$E$64"
+    jobs_range = "Reference!$A$2:$A$18"
+    departments_range = "Reference!$L$2:$L$10"
 
     def fy_specs(last_row: int) -> list[DVSpec]:
         return [
-            DVSpec(
-                formula=rehire_range,
-                sqref=f"E9:E{last_row}",
-                style="warning",
-                error_title="Invalid Rehire",
-                error="Rehire Eligibility must be Yes or No.",
-            ),
-            DVSpec(
-                formula=status_range,
-                sqref=f"F9:F{last_row}",
-                style="warning",
-                error_title="Invalid Status",
-                error="Status must be U (uneligible) or D (discharged).",
-            ),
-            DVSpec(
-                formula=locations_range,
-                sqref=f"G9:G{last_row}",
-                style="warning",
-            ),
-            DVSpec(
-                formula=reasons_range,
-                sqref=f"H9:H{last_row}",
-                style="warning",
-            ),
-            DVSpec(
-                formula=jobs_range,
-                sqref=f"K9:K{last_row}",
-                style="warning",
-            ),
-            DVSpec(
-                formula=departments_range,
-                sqref=f"M9:M{last_row}",
-                style="warning",
-            ),
+            DVSpec(formula=rehire_range, sqref=f"E9:E{last_row}",
+                   style="warning",
+                   error_title="Invalid Rehire",
+                   error="Rehire Eligibility must be Yes or No."),
+            DVSpec(formula=status_range, sqref=f"F9:F{last_row}",
+                   style="warning",
+                   error_title="Invalid Status",
+                   error="Status must be U (uneligible) or D (discharged)."),
+            DVSpec(formula=locations_range, sqref=f"G9:G{last_row}",
+                   style="warning"),
+            DVSpec(formula=reasons_range, sqref=f"H9:H{last_row}",
+                   style="warning"),
+            DVSpec(formula=jobs_range, sqref=f"K9:K{last_row}",
+                   style="warning"),
+            DVSpec(formula=departments_range, sqref=f"M9:M{last_row}",
+                   style="warning"),
         ]
 
+    # FY 2026 uses its ORIGINAL irregular layout (rows 9..357).
+    # The others use 9..413. Stage 2 does not restructure.
     specs = {
         "FY 2023 (Jan23-Dec23)": fy_specs(413),
         "FY 2024 (Jan24-Dec24)": fy_specs(413),

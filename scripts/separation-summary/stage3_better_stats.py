@@ -1,77 +1,49 @@
 """
-Stage 3 -- Better statistics.
+Stage 3 (surgical redo) -- better statistics.
 
-Surgical fixes to the math that drives the Dashboard, without
-restructuring the existing layout (it's elaborate and the user has
-invested in it -- the right call is to make it correct, not to
-redesign it).
+Every change is via XlsxPatcher so the file stays byte-identical
+outside the specific cells we touch. Reference and Data are both
+hidden sheets so cosmetic styling on them is low stakes; all
+visible-sheet touches are write-to-empty-cell (with style copied
+from a donor) so the Dashboard never sees a style drift.
 
-Scope:
-  1. Centralize the hard-coded "Active Employees" headcount.
-     - New table on Reference!N1:O6 keyed by FY year.
-     - Each FY sheet's B5 now pulls from that table.
-     - Data!B2:B6 unchanged in shape (still points at each FY sheet's
-       B5) but now indirectly resolves via Reference.
-     This unblocks the Stage 4 VBA macro, which will update the
-     current FY row with a live count from Supabase.
+Changes:
 
-  2. Fix the voluntary / involuntary / other classification on the
-     Data sheet. Previously Data!F2:H6 used hard-coded COUNTIF chains
-     over specific reason strings -- adding "Resignation without
-     Notice" in Stage 1 broke that silently. Rewrites to SUMPRODUCT
-     over the Data reason table (A55:G67) filtered by the Category
-     column, which is itself driven by Reference!D. New reasons added
-     to the Reference list are picked up automatically.
+  Reference (hidden sheet):
+    N1..N6 = "FY", "FY 2023", .. "FY 2027"
+    O1..O6 = "Active Emp (FY start)", 339, 339, 346, 366, 364
 
-  3. Add "Resignation without Notice" to the Data reason table
-     (Data!A68) so the count appears in the vol/invol aggregation.
+  Data (hidden sheet):
+    B2..B6 -> VLOOKUP Reference!$N$2:$O$6
+               (centralized Active Employee count)
+    E2..E6 -> months-elapsed average instead of months-with-data
+    F2..F6 -> SUMPRODUCT over reason category = "Voluntary"
+    G2..G6 -> SUMPRODUCT over reason category = "Involuntary"
+    H2..H6 -> SUMPRODUCT over reason category = "Other"
+    B56..B68 -> VLOOKUP Reference!$C$2:$D$14 for Category
+                (pulls category from the single source of truth
+                instead of hand-typing it here)
+    A68 "Resignation without Notice" + C68..G68 per-FY COUNTIFs
+    new row so the vol/invol rollup picks up the new reason.
 
-  4. Fix the "Avg Monthly Separations" formula (Data!E2:E6). Used to
-     be total / months-with-data, which quietly lied about slow months
-     because empty months were excluded from the denominator. Now uses
-     months-elapsed (12 for completed years, current month for the
-     in-progress year, 0 for future years).
-
-  5. Add two new rows to the Dashboard's "Additional Statistics"
-     section:
-         C50 = rolling 12-month turnover rate (as of TODAY())
-         C51 = avg tenure at separation for the selected FY (FY 2026+
-               only, since 2023/2024/2025 have no DOH data)
-     A50 / A51 get matching labels. These use SUMPRODUCT across the
-     5 FY sheets so the rolling window naturally spans year boundaries.
-
-What this deliberately does NOT touch:
-  - The hard-coded EVC Fiscal Year block (Data!B88:M91, A98:I101,
-    A111:J114). Those are manual entries spanning two calendar years
-    and don't have a clean formulaic fix without a larger rework.
-  - The Dashboard's Separations-by-Job and Separations-by-Reason
-    tables. They keep using their existing INDEX/MATCH patterns,
-    which now resolve correctly because Stage 2 standardized the row
-    ranges.
+  Dashboard (visible sheet):
+    A50, C50 = "Rolling 12-month Turnover:" + formula
+    A51, C51 = "Avg Tenure at Separation:"  + formula
+    These rows were empty in columns A..C on the original file
+    (only G-J had content from the job breakdown on the right).
+    Both cells copy style from A48/C48 (the existing "Eligible for
+    Rehire Rate:" row) so they render identically.
 """
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-import openpyxl
-
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "FY Separation Summary.xlsx"
-BACKUP = ROOT / "FY Separation Summary.backup.xlsx"
 
 sys.path.insert(0, str(Path(__file__).parent))
-from dv_fixup import DVSpec, apply_dvs  # noqa: E402
-
-# The active-employee counts that were hard-coded in each FY sheet's B5
-# on the original workbook. Moving them into one table here.
-ACTIVE_EMPLOYEES: list[tuple[str, int]] = [
-    ("FY 2023", 339),
-    ("FY 2024", 339),
-    ("FY 2025", 346),
-    ("FY 2026", 366),
-    ("FY 2027", 364),
-]
+from xlsx_patcher import XlsxPatcher  # noqa: E402
 
 FY_SHEETS: list[tuple[str, str]] = [
     ("FY 2023", "FY 2023 (Jan23-Dec23)"),
@@ -81,164 +53,182 @@ FY_SHEETS: list[tuple[str, str]] = [
     ("FY 2027", "FY 2027 (Jan27-Dec27)"),
 ]
 
+ACTIVE_EMPLOYEES: list[tuple[str, int]] = [
+    ("FY 2023", 339),
+    ("FY 2024", 339),
+    ("FY 2025", 346),
+    ("FY 2026", 366),
+    ("FY 2027", 364),
+]
+
+# The reasons table at Data!A56..A67 in the original file, plus the
+# new row 68 we're adding for "Resignation without Notice". Both the
+# existing and new rows get their B column rewritten as VLOOKUP.
+DATA_REASON_ROWS = list(range(56, 69))  # 56..68 inclusive
+
+# Reasons whose row 68 is new. A68..G68 are currently empty (the
+# original reason table ends at row 67). We add the row in full.
+NEW_REASON_ROW = 68
+NEW_REASON_LABEL = "Resignation without Notice"
+
 
 def main() -> None:
     if not SRC.exists():
         raise SystemExit(f"missing {SRC}")
-    if not BACKUP.exists():
-        raise SystemExit(f"missing backup at {BACKUP}")
 
-    wb = openpyxl.load_workbook(SRC)
+    p = XlsxPatcher(SRC)
 
     # ------------------------------------------------------------------
-    # 1. Reference!N:O -- Active Employees by FY, centralized
+    # Reference!N:O -- active employees by FY
     # ------------------------------------------------------------------
-    ref = wb["Reference"]
-    ref.cell(1, 14).value = "FY"                 # N1
-    ref.cell(1, 15).value = "Active Emp (FY start)"  # O1
+    p.set_string("Reference", "N1", "FY", copy_style_from="A1")
+    p.set_string("Reference", "O1", "Active Emp (FY start)", copy_style_from="A1")
     for i, (fy, count) in enumerate(ACTIVE_EMPLOYEES):
-        ref.cell(2 + i, 14).value = fy
-        ref.cell(2 + i, 15).value = count
-    print(f"[stage3] Reference!N:O populated with {len(ACTIVE_EMPLOYEES)} FY rows")
+        row = 2 + i
+        p.set_string("Reference", f"N{row}", fy, copy_style_from="A2")
+        p.set_number("Reference", f"O{row}", count, copy_style_from="A2")
+    print("[stage3] Reference!N1:O6 populated")
 
     # ------------------------------------------------------------------
-    # 2. FY sheet B5 cells -> VLOOKUP into the Reference table
-    #    (previously hard-coded integers)
+    # Data!B2:B6 -- Active Employees via VLOOKUP
     # ------------------------------------------------------------------
-    for fy_label, sheet_name in FY_SHEETS:
-        ws = wb[sheet_name]
-        ws.cell(5, 2).value = (
-            f'=IFERROR(VLOOKUP("{fy_label}",Reference!$N$2:$O$6,2,FALSE),0)'
+    # Formerly pointed at 'FY XXXX'!B5 which was a hard-coded integer.
+    for i, (fy, _) in enumerate(FY_SHEETS):
+        row = 2 + i
+        p.set_formula(
+            "Data", f"B{row}",
+            f'=IFERROR(VLOOKUP("{fy}",Reference!$N$2:$O$6,2,FALSE),0)',
         )
-    print("[stage3] FY sheet B5 cells now VLOOKUP Reference!$N$2:$O$6")
+    print("[stage3] Data!B2:B6 rewritten as VLOOKUP into Reference!N:O")
 
     # ------------------------------------------------------------------
-    # 3. Data sheet fixes
+    # Data!E2:E6 -- Avg Monthly Separations (months-elapsed)
     # ------------------------------------------------------------------
-    d = wb["Data"]
-
-    # 3a. Add "Resignation without Notice" to Data!A68 so its count
-    #     appears in the FY columns. Rows 68-74 are empty today so
-    #     appending at A68 is safe.
-    d.cell(68, 1).value = "Resignation without Notice"
-    for i, (_, sheet_name) in enumerate(FY_SHEETS):
-        col = 3 + i  # C..G
-        d.cell(68, col).value = (
-            f"=COUNTIF('{sheet_name}'!H9:H412,\"Resignation without Notice\")"
-        )
-    print("[stage3] added 'Resignation without Notice' row at Data!A68")
-
-    # 3a.1 Make Data!B56:B68 (the reason Category column) resolve from
-    #      Reference!C:D via VLOOKUP. Previously those were hand-typed
-    #      categories that drifted from the canonical Stage 1 list --
-    #      Attendance Issues / Job Abandonment / Performance Issues
-    #      were all "Other" here but "Involuntary" in Reference. Making
-    #      this a lookup means the category is defined in exactly one
-    #      place (Reference!D) and every Dashboard stat derived from
-    #      this column updates in lockstep.
-    for r in range(56, 69):
-        d.cell(r, 2).value = (
-            f'=IFERROR(VLOOKUP(A{r},Reference!$C$2:$D$14,2,FALSE),"Other")'
-        )
-    print("[stage3] Data!B56:B68 (reason Category) now VLOOKUPs Reference!$C:$D")
-
-    # 3b. Vol / Invol / Other aggregation via SUMPRODUCT over the
-    #     reason table (A56:G68), filtered by category in column B.
-    #     Range widened to include the new row.
-    for i, (_, _sheet_name) in enumerate(FY_SHEETS):
-        data_row = 2 + i  # rows 2..6
-        reason_col = chr(ord("C") + i)  # C..G
-        d.cell(data_row, 6).value = (
-            f'=SUMPRODUCT((Data!$B$56:$B$68="Voluntary")'
-            f'*Data!${reason_col}$56:${reason_col}$68)'
-        )
-        d.cell(data_row, 7).value = (
-            f'=SUMPRODUCT((Data!$B$56:$B$68="Involuntary")'
-            f'*Data!${reason_col}$56:${reason_col}$68)'
-        )
-        d.cell(data_row, 8).value = (
-            f'=SUMPRODUCT((Data!$B$56:$B$68="Other")'
-            f'*Data!${reason_col}$56:${reason_col}$68)'
-        )
-    print("[stage3] Data!F2:H6 rewritten as SUMPRODUCT over reason categories")
-
-    # 3c. Avg Monthly Separations uses months-elapsed, not months-with-data.
-    #     For each FY: 0 if future, 12 if past, MONTH(TODAY()) if current.
-    #     FY year is extracted from the A column text "FY 2023" -> 2023.
+    # Old formula divided by months-with-data (COUNTIF(">0")), which
+    # hid slow months. New formula divides by months elapsed:
+    #   * 12 for completed years
+    #   * MONTH(TODAY()) for the in-progress year
+    #   * NA() for future years
     for i in range(5):
-        data_row = 2 + i
-        d.cell(data_row, 5).value = (
-            f"=IFERROR(C{data_row}/IF(VALUE(RIGHT(A{data_row},4))<YEAR(TODAY()),12,"
-            f"IF(VALUE(RIGHT(A{data_row},4))>YEAR(TODAY()),NA(),MONTH(TODAY()))),0)"
+        row = 2 + i
+        p.set_formula(
+            "Data", f"E{row}",
+            f"=IFERROR(C{row}/IF(VALUE(RIGHT(A{row},4))<YEAR(TODAY()),12,"
+            f"IF(VALUE(RIGHT(A{row},4))>YEAR(TODAY()),NA(),MONTH(TODAY()))),0)",
         )
-    print("[stage3] Data!E2:E6 rewritten to use months-elapsed")
+    print("[stage3] Data!E2:E6 avg monthly now uses months-elapsed")
 
     # ------------------------------------------------------------------
-    # 4. Dashboard -- new rows in Additional Statistics section
+    # Data!F2:H6 -- Vol / Invol / Other via SUMPRODUCT
     # ------------------------------------------------------------------
-    dash = wb["Dashboard"]
-    # Row 46: section header "ADDITIONAL STATISTICS"
-    # Row 48: Eligible for Rehire Rate
-    # Row 49: Exit Interview Completion Rate
-    # Rows 50-52: empty -> available for new stats
-    dash.cell(50, 1).value = "Rolling 12-month Turnover:"
-    # Separations in last 365 days summed across every FY sheet, divided
-    # by current-FY active headcount. Wrapped in IFERROR so a missing
-    # headcount doesn't break the cell.
+    # Old formula was a hand-wired COUNTIF chain over specific reason
+    # strings. New formula loops over the Data reason table (now with
+    # Resignation without Notice included at row 68) filtered by the
+    # B column category.
+    for i in range(5):
+        row = 2 + i
+        reason_col = chr(ord("C") + i)  # C..G -- per-FY counts table
+        p.set_formula(
+            "Data", f"F{row}",
+            f'=SUMPRODUCT((Data!$B$56:$B$68="Voluntary")'
+            f'*Data!${reason_col}$56:${reason_col}$68)',
+        )
+        p.set_formula(
+            "Data", f"G{row}",
+            f'=SUMPRODUCT((Data!$B$56:$B$68="Involuntary")'
+            f'*Data!${reason_col}$56:${reason_col}$68)',
+        )
+        p.set_formula(
+            "Data", f"H{row}",
+            f'=SUMPRODUCT((Data!$B$56:$B$68="Other")'
+            f'*Data!${reason_col}$56:${reason_col}$68)',
+        )
+    print("[stage3] Data!F2:H6 rewritten as category SUMPRODUCT")
+
+    # ------------------------------------------------------------------
+    # Data!A68 + C68..G68 -- new reason row
+    # ------------------------------------------------------------------
+    p.set_string("Data", f"A{NEW_REASON_ROW}", NEW_REASON_LABEL)
+    for i, (_, sheet_name) in enumerate(FY_SHEETS):
+        col = chr(ord("C") + i)  # C..G
+        p.set_formula(
+            "Data", f"{col}{NEW_REASON_ROW}",
+            f"=COUNTIF('{sheet_name}'!H9:H412,\"{NEW_REASON_LABEL}\")",
+        )
+    print(f"[stage3] Data row {NEW_REASON_ROW} added for '{NEW_REASON_LABEL}'")
+
+    # ------------------------------------------------------------------
+    # Data!B56:B68 -- category column pulled from Reference!C:D
+    # ------------------------------------------------------------------
+    # Before: hand-typed "Voluntary"/"Involuntary"/"Other" that had
+    # drifted from the canonical list (Attendance Issues / Job
+    # Abandonment / Performance Issues were "Other" here but
+    # "Involuntary" in the new Reference!D). Routing through the
+    # Reference means the category is defined in exactly one place.
+    for r in DATA_REASON_ROWS:
+        p.set_formula(
+            "Data", f"B{r}",
+            f'=IFERROR(VLOOKUP(A{r},Reference!$C$2:$D$14,2,FALSE),"Other")',
+        )
+    print("[stage3] Data!B56:B68 rewritten as Reference!C:D VLOOKUP")
+
+    # ------------------------------------------------------------------
+    # Dashboard rows 50, 51 -- new stats in empty cells
+    # ------------------------------------------------------------------
+    # Column A is empty for these rows (right-side job breakdown lives
+    # on cols G..J). Copy style from A48 so the labels render the
+    # same as the existing "Eligible for Rehire Rate:" row.
+    p.set_string(
+        "Dashboard", "A50",
+        "Rolling 12-month Turnover:",
+        copy_style_from="A48",
+    )
+    # Rolling 12-month = separations in last 365 days across every FY,
+    # divided by the currently-selected FY's active headcount.
     fy_terms = []
     for _, sheet_name in FY_SHEETS:
         fy_terms.append(
-            f'SUMPRODUCT((ISNUMBER(\'{sheet_name}\'!$B$9:$B$412))'
-            f'*((\'{sheet_name}\'!$B$9:$B$412>=TODAY()-365)'
-            f'*(\'{sheet_name}\'!$B$9:$B$412<=TODAY())))'
+            f"SUMPRODUCT((ISNUMBER('{sheet_name}'!$B$9:$B$412))"
+            f"*(('{sheet_name}'!$B$9:$B$412>=TODAY()-365)"
+            f"*('{sheet_name}'!$B$9:$B$412<=TODAY())))"
         )
     sum_expr = "+".join(fy_terms)
-    dash.cell(50, 3).value = (
-        f"=IFERROR(({sum_expr})/VLOOKUP($B$5,Data!$A$2:$K$6,2,FALSE),0)"
+    p.set_formula(
+        "Dashboard", "C50",
+        f"=IFERROR(({sum_expr})/VLOOKUP($B$5,Data!$A$2:$K$6,2,FALSE),0)",
+        copy_style_from="C48",
     )
 
-    dash.cell(51, 1).value = "Avg Tenure at Separation:"
-    # FY 2026 is the first year with DoH dates, so avg tenure only
-    # works for FY 2026 onwards. INDIRECT lets the formula follow the
-    # currently selected FY ($B$5). Returns "N/A" rather than 0 when
-    # no tenure data exists.
+    p.set_string(
+        "Dashboard", "A51",
+        "Avg Tenure at Separation:",
+        copy_style_from="A48",
+    )
+    # For the selected FY, averages (DateOfSeparation - DateOfHire) in
+    # years across every row with both dates. FY 2026 is the first
+    # year with DoH so returns "N/A" for older years.
     sheet_b = (
-        'INDIRECT("\'"&$B$5&" (Jan"&RIGHT($B$5,2)&"-Dec"&RIGHT($B$5,2)&")\'!B9:B412")'
+        'INDIRECT("\'"&$B$5&" (Jan"&RIGHT($B$5,2)'
+        '&"-Dec"&RIGHT($B$5,2)&")\'!B9:B412")'
     )
     sheet_c = (
-        'INDIRECT("\'"&$B$5&" (Jan"&RIGHT($B$5,2)&"-Dec"&RIGHT($B$5,2)&")\'!C9:C412")'
+        'INDIRECT("\'"&$B$5&" (Jan"&RIGHT($B$5,2)'
+        '&"-Dec"&RIGHT($B$5,2)&")\'!C9:C412")'
     )
     count_expr = f'SUMPRODUCT(({sheet_b}<>"")*({sheet_c}<>""))'
-    sum_expr = (
+    avg_expr = (
         f'SUMPRODUCT(({sheet_b}<>"")*({sheet_c}<>"")*({sheet_b}-{sheet_c}))'
     )
-    dash.cell(51, 3).value = (
+    p.set_formula(
+        "Dashboard", "C51",
         f'=IFERROR(IF({count_expr}=0,"N/A (no DOH data)",'
-        f'({sum_expr})/{count_expr}/365.25),"N/A (no DOH data)")'
+        f'({avg_expr})/{count_expr}/365.25),"N/A (no DOH data)")',
+        copy_style_from="C48",
     )
-    print("[stage3] Dashboard rows 50-51 added (rolling 12mo TOR, avg tenure)")
+    print("[stage3] Dashboard rows 50-51 added (Rolling 12mo TOR, Avg Tenure)")
 
-    wb.save(SRC)
+    p.save()
     print(f"[stage3] wrote {SRC}")
-
-    # Re-inject DVs (unchanged from Stage 2 -- still strict)
-    strict = lambda last: [
-        DVSpec(formula="Reference!$B$2:$B$3", sqref=f"E9:E{last}", style="stop",
-               error_title="Invalid Rehire", error="Rehire Eligibility must be Yes or No."),
-        DVSpec(formula="Reference!$G$2:$G$3", sqref=f"F9:F{last}", style="stop",
-               error_title="Invalid Status", error="Status must be U or D."),
-        DVSpec(formula="Reference!$E$2:$E$64", sqref=f"G9:G{last}", style="stop",
-               error_title="Invalid Location", error="Pick a location from the Reference list."),
-        DVSpec(formula="Reference!$C$2:$C$14", sqref=f"H9:H{last}", style="stop",
-               error_title="Invalid Reason", error="Pick a reason from the Reference list."),
-        DVSpec(formula="Reference!$A$2:$A$18", sqref=f"K9:K{last}", style="stop",
-               error_title="Invalid Job", error="Pick a job from the Reference list."),
-        DVSpec(formula="Reference!$L$2:$L$10", sqref=f"M9:M{last}", style="stop",
-               error_title="Invalid Department", error="Pick a department from the Reference list."),
-    ]
-    specs = {name: strict(413) for _, name in FY_SHEETS}
-    apply_dvs(SRC, specs)
-    print("[stage3] re-applied strict x14 data validations")
 
 
 if __name__ == "__main__":
