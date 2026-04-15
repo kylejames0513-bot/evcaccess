@@ -3,6 +3,8 @@
 // instead. The @ts-nocheck that used to sit at the top was removed once
 // the helpers below were tightened up.
 import { createServerClient } from "./supabase";
+import { toLocalYmd } from "@/lib/date-ymd";
+import { isAutoRosterLockWithin14Days, isRosterAutomationLocked } from "@/lib/roster-lock";
 import { TRAINING_DEFINITIONS, EXPIRING_SOON_DAYS } from "@/config/trainings";
 import { toFirstLast as toFirstLastUtil, namesMatch } from "@/lib/name-utils";
 import type { ComplianceStatus } from "@/types/database";
@@ -356,6 +358,12 @@ export interface ScheduledSession {
   noShows: string[];
   capacity: number;
   status: "scheduled" | "completed";
+  /** HR-set: prestaged / do not run auto-fill or auto-prune on this session. */
+  manualRosterLock: boolean;
+  /** True when session_date is within the two-week notice window (same as automation off). */
+  autoRosterLock14d: boolean;
+  /** True when either manual lock or two-week auto lock applies. */
+  rosterAutomationLocked: boolean;
 }
 
 /**
@@ -367,7 +375,7 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
   const { data: sessions, error } = await supabase
     .from("training_sessions")
     .select(`
-      id, session_date, start_time, end_time, location, capacity, status,
+      id, session_date, start_time, end_time, location, capacity, status, roster_manual_lock,
       training_types ( name ),
       enrollments ( status, employees ( first_name, last_name ) )
     `)
@@ -386,12 +394,15 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
     location: string | null;
     capacity: number;
     status: string;
+    roster_manual_lock?: boolean | null;
     training_types: { name: string } | null;
     enrollments: Array<{
       status: string;
       employees: { first_name: string | null; last_name: string | null } | null;
     }>;
   };
+
+  const todayYmd = toLocalYmd(new Date());
 
   return (sessions as unknown as SessionJoin[]).map((s) => {
     const trainingName = s.training_types?.name || "Unknown";
@@ -417,6 +428,11 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
       }
     }
 
+    const sessionYmd = String(s.session_date);
+    const manual = Boolean(s.roster_manual_lock);
+    const auto14 = isAutoRosterLockWithin14Days(todayYmd, sessionYmd);
+    const locked = isRosterAutomationLocked(todayYmd, sessionYmd, manual);
+
     return {
       id: s.id,
       training: trainingName,
@@ -429,6 +445,9 @@ export async function getScheduledSessions(): Promise<ScheduledSession[]> {
       noShows: noShowNames,
       capacity: s.capacity,
       status: s.status === "completed" ? "completed" as const : "scheduled" as const,
+      manualRosterLock: manual,
+      autoRosterLock14d: auto14,
+      rosterAutomationLocked: locked,
     };
   });
 }

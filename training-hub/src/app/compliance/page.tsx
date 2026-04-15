@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown, ChevronRight, Download } from "lucide-react";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import type { NotificationTier } from "@/lib/notifications/tiers";
@@ -61,7 +62,11 @@ interface TrainingTypeOption {
   name: string;
 }
 
+type DueWindowKey = "" | "overdue" | "14" | "30" | "60" | "90";
+
 export default function CompliancePage() {
+  const router = useRouter();
+  const pathname = usePathname();
   const [rows, setRows] = useState<ComplianceRow[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [department, setDepartment] = useState("");
@@ -69,12 +74,36 @@ export default function CompliancePage() {
   const [status, setStatus] = useState("");
   const [trainingTypeId, setTrainingTypeId] = useState("");
   const [employeeId, setEmployeeId] = useState("");
+  const [dueWindow, setDueWindow] = useState<DueWindowKey>("");
+  const skipFirstUrlSync = useRef(true);
   const [trainingTypes, setTrainingTypes] = useState<TrainingTypeOption[]>([]);
   const [compact, setCompact] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const d = new URLSearchParams(window.location.search).get("due_window");
+    if (d === "overdue" || d === "14" || d === "30" || d === "60" || d === "90") setDueWindow(d);
+  }, []);
+
+  useEffect(() => {
+    if (skipFirstUrlSync.current) {
+      skipFirstUrlSync.current = false;
+      return;
+    }
+    const p = new URLSearchParams();
+    if (department) p.set("department", department);
+    if (position) p.set("position", position);
+    if (status) p.set("status", status);
+    if (trainingTypeId) p.set("training_type_id", trainingTypeId);
+    if (employeeId.trim()) p.set("employee_id", employeeId.trim());
+    if (dueWindow) p.set("due_window", dueWindow);
+    const qs = p.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [department, position, status, trainingTypeId, employeeId, dueWindow, pathname, router]);
 
   useEffect(() => {
     void (async () => {
@@ -100,6 +129,7 @@ export default function CompliancePage() {
       if (status) params.set("status", status);
       if (trainingTypeId) params.set("training_type_id", trainingTypeId);
       if (employeeId.trim()) params.set("employee_id", employeeId.trim());
+      if (dueWindow) params.set("due_window", dueWindow);
       const r = await fetch(`/api/compliance?${params.toString()}`);
       const j = await r.json();
       if (j.error) throw new Error(j.error);
@@ -110,7 +140,7 @@ export default function CompliancePage() {
     } finally {
       setLoading(false);
     }
-  }, [department, position, status, trainingTypeId, employeeId]);
+  }, [department, position, status, trainingTypeId, employeeId, dueWindow]);
 
   useEffect(() => {
     void load();
@@ -158,7 +188,12 @@ export default function CompliancePage() {
   }, [rows]);
 
   const hasActiveFilters =
-    Boolean(department) || Boolean(position) || Boolean(status) || Boolean(trainingTypeId) || Boolean(employeeId.trim());
+    Boolean(department) ||
+    Boolean(position) ||
+    Boolean(status) ||
+    Boolean(trainingTypeId) ||
+    Boolean(employeeId.trim()) ||
+    Boolean(dueWindow);
 
   function toggleExpanded(eid: string) {
     const next = new Set(expanded);
@@ -176,6 +211,7 @@ export default function CompliancePage() {
       if (status) params.set("status", status);
       if (trainingTypeId) params.set("training_type_id", trainingTypeId);
       if (employeeId.trim()) params.set("employee_id", employeeId.trim());
+      if (dueWindow) params.set("due_window", dueWindow);
       params.set("format", "csv");
       const r = await fetch(`/api/compliance?${params.toString()}`);
       if (!r.ok) {
@@ -233,7 +269,7 @@ export default function CompliancePage() {
 
       {summary && (
         <div>
-          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Due windows (employees)</h2>
+          <h2 className="text-xs font-semibold text-slate-500 tracking-wide mb-2">Due windows (employees)</h2>
           <p className="text-xs text-slate-400 mb-3">
             Counts reflect how many employees have at least one training in each window (same ladder as notifications: overdue,
             then 1–30, 31–60, 61–90 days to expiration).
@@ -244,13 +280,44 @@ export default function CompliancePage() {
             <Stat label="Due in 31–60 days" value={summary.tier_counts.due_60} color="yellow" />
             <Stat label="Due in 61–90 days" value={summary.tier_counts.due_90} color="blue" />
           </div>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold text-slate-500 tracking-wide">Scheduler presets</span>
+            {(
+              [
+                { key: "overdue" as const, label: "Overdue rows" },
+                { key: "14" as const, label: "2-week notice (exp)" },
+                { key: "30" as const, label: "Due in 30d" },
+                { key: "60" as const, label: "Due in 31–60d" },
+                { key: "90" as const, label: "Due in 61–90d" },
+              ] as const
+            ).map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => setDueWindow(dueWindow === p.key ? "" : p.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                  dueWindow === p.key
+                    ? "bg-blue-600 text-white border-blue-600"
+                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+            <Link
+              href="/schedule"
+              className="ml-auto text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline"
+            >
+              Open schedule
+            </Link>
+          </div>
         </div>
       )}
 
       <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 space-y-3">
         <div className="flex flex-wrap gap-4 items-end">
           <label className="block min-w-[140px] flex-1 sm:flex-none">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Department / division</span>
+            <span className="text-[11px] font-semibold text-slate-500 tracking-wide">Department / division</span>
             <select
               value={department}
               onChange={(e) => setDepartment(e.target.value)}
@@ -265,7 +332,7 @@ export default function CompliancePage() {
             </select>
           </label>
           <label className="block min-w-[120px] flex-1 sm:flex-none">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Position</span>
+            <span className="text-[11px] font-semibold text-slate-500 tracking-wide">Position</span>
             <input
               type="text"
               value={position}
@@ -275,7 +342,7 @@ export default function CompliancePage() {
             />
           </label>
           <label className="block min-w-[120px] flex-1 sm:flex-none">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Status</span>
+            <span className="text-[11px] font-semibold text-slate-500 tracking-wide">Status</span>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value)}
@@ -290,7 +357,7 @@ export default function CompliancePage() {
             </select>
           </label>
           <label className="block min-w-[180px] flex-1 sm:flex-none">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Training</span>
+            <span className="text-[11px] font-semibold text-slate-500 tracking-wide">Training</span>
             <select
               value={trainingTypeId}
               onChange={(e) => setTrainingTypeId(e.target.value)}
@@ -305,7 +372,7 @@ export default function CompliancePage() {
             </select>
           </label>
           <label className="block min-w-[200px] flex-1 sm:flex-none">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Employee ID</span>
+            <span className="text-[11px] font-semibold text-slate-500 tracking-wide">Employee ID</span>
             <input
               type="text"
               value={employeeId}
@@ -332,25 +399,25 @@ export default function CompliancePage() {
       {loading && !error && <Loading message="Loading compliance…" />}
 
       {!loading && !error && (
-        <div className="-mx-4 sm:mx-0 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="-mx-4 sm:mx-0 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm max-h-[min(70vh,720px)] overflow-y-auto">
           <table className="min-w-[720px] w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-100 bg-slate-50/80">
-                <th className={`${cell} text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 w-8`} />
-                <th className={`${cell} text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400`}>
+            <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur-sm shadow-sm">
+              <tr className="border-b border-slate-200">
+                <th className={`${cell} text-left text-[11px] font-semibold tracking-wide text-slate-500 w-8`} />
+                <th className={`${cell} text-left text-[11px] font-semibold tracking-wide text-slate-500`}>
                   Employee
                 </th>
-                <th className={`${cell} text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 hidden md:table-cell`}>
+                <th className={`${cell} text-left text-[11px] font-semibold tracking-wide text-slate-500 hidden md:table-cell`}>
                   Job title
                 </th>
-                <th className={`${cell} text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400`}>
+                <th className={`${cell} text-left text-[11px] font-semibold tracking-wide text-slate-500`}>
                   Dept
                 </th>
-                <th className={`${cell} text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 hidden lg:table-cell`}>
+                <th className={`${cell} text-left text-[11px] font-semibold tracking-wide text-slate-500 hidden lg:table-cell`}>
                   Position
                 </th>
-                <th className={`${cell} text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400`}>Status</th>
-                <th className={`${cell} text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400`}>Done</th>
+                <th className={`${cell} text-left text-[11px] font-semibold tracking-wide text-slate-500`}>Status</th>
+                <th className={`${cell} text-right text-[11px] font-semibold tracking-wide text-slate-500`}>Done</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -495,7 +562,7 @@ function Stat({ label, value, color }: { label: string; value: number; color: st
       </div>
       <div className="min-w-0">
         <div className="text-2xl font-bold text-slate-900 leading-tight">{value}</div>
-        <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5">{label}</div>
+        <div className="text-[11px] font-semibold text-slate-500 tracking-wide mt-0.5">{label}</div>
       </div>
     </div>
   );

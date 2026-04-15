@@ -3,6 +3,8 @@ import { createServerClient } from "@/lib/supabase";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import { endOfNextCalendarQuarter } from "@/lib/quarter";
 import { withApiHandler } from "@/lib/api-handler";
+import { toLocalYmd } from "@/lib/date-ymd";
+import { isRosterAutomationLocked } from "@/lib/roster-lock";
 
 /**
  * Auto-prune enrolled people who no longer need the training.
@@ -11,14 +13,18 @@ import { withApiHandler } from "@/lib/api-handler";
  * Someone whose CPR expires 45 days after the session date stays
  * enrolled (they need the class). Someone whose CPR expires 2 years
  * after the session date gets removed (they don't need it).
+ *
+ * Sessions are skipped when {@link isRosterAutomationLocked} is true: either
+ * `roster_manual_lock` on the row, or session_date within the two-week window.
  */
 async function pruneCurrentEnrollees() {
   const supabase = createServerClient();
+  const todayYmd = toLocalYmd(new Date());
 
   // Get all upcoming scheduled sessions with their dates and training types
   const { data: sessions, error: sessErr } = await supabase
     .from("training_sessions")
-    .select("id, training_type_id, session_date")
+    .select("id, training_type_id, session_date, roster_manual_lock")
     .eq("status", "scheduled");
   if (sessErr || !sessions || sessions.length === 0) return 0;
 
@@ -75,6 +81,10 @@ async function pruneCurrentEnrollees() {
   for (const enrollment of enrollments) {
     const session = sessions.find((s) => s.id === enrollment.session_id);
     if (!session) continue;
+    const manual = Boolean((session as { roster_manual_lock?: boolean }).roster_manual_lock);
+    if (isRosterAutomationLocked(todayYmd, session.session_date as string, manual)) {
+      continue;
+    }
     const trainingType = typeById.get(session.training_type_id);
     if (!trainingType) continue;
 

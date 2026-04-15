@@ -1,7 +1,28 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Plus, UserPlus, X, Loader2, Check, AlertTriangle, Clock, XCircle, Printer, ClipboardCheck, Trash2, Zap, Archive, RefreshCw, Pencil, Copy, CalendarDays } from "lucide-react";
+import Link from "next/link";
+import {
+  Plus,
+  UserPlus,
+  X,
+  Loader2,
+  Check,
+  AlertTriangle,
+  Clock,
+  XCircle,
+  Printer,
+  ClipboardCheck,
+  Trash2,
+  Zap,
+  Archive,
+  RefreshCw,
+  Pencil,
+  Copy,
+  CalendarDays,
+  Lock,
+  ChevronRight,
+} from "lucide-react";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 import { useFetch } from "@/lib/use-fetch";
@@ -9,6 +30,7 @@ import { PRIMARY_TRAININGS } from "@/config/primary-trainings";
 import { namesMatch, normalizeNameForCompare } from "@/lib/name-utils";
 import { trainingMatchesAny } from "@/lib/training-match";
 import { EXCUSAL_REASONS } from "@/config/excusal-reasons";
+import { ROSTER_AUTOMATION_FREEZE_DAYS } from "@/lib/training-constants";
 
 interface SessionData {
   id: string;
@@ -22,6 +44,9 @@ interface SessionData {
   noShows: string[];
   capacity: number;
   status: "scheduled" | "completed";
+  manualRosterLock: boolean;
+  autoRosterLock14d: boolean;
+  rosterAutomationLocked: boolean;
 }
 
 async function fetchMemoPayload(
@@ -111,6 +136,11 @@ export default function SchedulePage() {
   const { data: freshData } = useFetch<ScheduleData>(`/api/schedule?r=${refreshKey}`);
   const displayData = freshData || data;
 
+  const { data: fillData } = useFetch<{
+    sessions: Array<{ days_until_session: number; needs_attention: boolean; training_name: string; session_date: string; enrolled: number; capacity: number }>;
+    totals: { session_count: number; underfilled_count: number; total_enrolled: number; total_capacity: number };
+  }>(`/api/session-fill-summary?horizon=60&r=${refreshKey}`);
+
   if (loading && !displayData) return <Loading />;
   if (error) return <ErrorState message={error} />;
   if (!displayData) return null;
@@ -133,6 +163,20 @@ export default function SchedulePage() {
   }
 
   async function handleAutoFill(session: SessionData) {
+    if (session.rosterAutomationLocked) {
+      const reasons: string[] = [];
+      if (session.manualRosterLock) reasons.push("roster automation is locked for this session (Edit → checkbox)");
+      if (session.autoRosterLock14d) {
+        reasons.push(
+          `the class date is within the next ${ROSTER_AUTOMATION_FREEZE_DAYS} days (minimum notice window)`
+        );
+      }
+      alert(
+        `Auto-fill is disabled: ${reasons.join(" and ")}. Add or remove enrollments manually.`
+      );
+      return;
+    }
+
     setAutoFilling(session.id);
     try {
       // Get employees who need this training
@@ -219,39 +263,126 @@ export default function SchedulePage() {
   }
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Class Scheduler</h1>
-          <p className="text-slate-500 mt-1">
-            {upcoming.length} upcoming — from Scheduled sheet
-          </p>
+    <div className="max-w-5xl mx-auto space-y-8">
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="w-11 h-11 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-sm shrink-0">
+            <CalendarDays className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Schedule</h1>
+            <p className="text-sm text-slate-500 mt-0.5 max-w-xl">
+              {upcoming.length} upcoming session{upcoming.length !== 1 ? "s" : ""}. Rows sync from the Scheduled sheet;
+              enroll people here and open each class for attendance.
+            </p>
+          </div>
         </div>
-        <div className="flex gap-3 items-center">
+        <div className="flex flex-wrap gap-2 items-center shrink-0">
           <button
+            type="button"
             onClick={handleRefresh}
             disabled={refreshing}
-            className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-slate-600 hover:border-slate-200 transition-colors"
-            title="Refresh data"
+            className="p-2 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-slate-600 hover:border-slate-300 transition-colors"
+            title="Refresh data from Google Sheets"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
           </button>
-          <a
+          <Link
             href="/schedule/print"
-            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-white bg-slate-50/80 transition-colors"
           >
             <Printer className="h-4 w-4" />
-            Print Roster
-          </a>
+            Print roster
+          </Link>
           <button
+            type="button"
             onClick={() => setShowCreateForm(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
           >
             <Plus className="h-4 w-4" />
-            New Session
+            New session
           </button>
         </div>
       </div>
+
+      {fillData?.totals && fillData.totals.session_count > 0 && (
+        <section className="rounded-xl border border-slate-200 bg-white p-4 space-y-3 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-900">Roster fill (next 60 days)</h2>
+            <Link
+              href="/operations"
+              className="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
+            >
+              Operations overview
+              <ChevronRight className="h-4 w-4" />
+            </Link>
+          </div>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Same window as Today / Operations. Sessions below 80% enrolled need a top-off. Auto-fill and auto-prune stay off
+            within <strong>{ROSTER_AUTOMATION_FREEZE_DAYS} days</strong> of class and when a session is manually locked (Edit).
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+            <div className="rounded-lg bg-slate-50 py-2 px-2">
+              <p className="text-lg font-bold text-slate-900">{fillData.totals.session_count}</p>
+              <p className="text-[11px] text-slate-500">Sessions</p>
+            </div>
+            <div
+              className={`rounded-lg py-2 px-2 ${
+                fillData.totals.underfilled_count > 0 ? "bg-amber-50" : "bg-emerald-50"
+              }`}
+            >
+              <p
+                className={`text-lg font-bold ${
+                  fillData.totals.underfilled_count > 0 ? "text-amber-800" : "text-emerald-800"
+                }`}
+              >
+                {fillData.totals.underfilled_count}
+              </p>
+              <p className={`text-[11px] ${fillData.totals.underfilled_count > 0 ? "text-amber-700" : "text-emerald-700"}`}>
+                Below 80% fill
+              </p>
+            </div>
+            <div className="rounded-lg bg-slate-50 py-2 px-2">
+              <p className="text-lg font-bold text-slate-900">{fillData.totals.total_enrolled}</p>
+              <p className="text-[11px] text-slate-500">Enrolled seats</p>
+            </div>
+            <div className="rounded-lg bg-slate-50 py-2 px-2">
+              <p className="text-lg font-bold text-slate-900">{fillData.totals.total_capacity}</p>
+              <p className="text-[11px] text-slate-500">Total capacity</p>
+            </div>
+          </div>
+          {fillData.totals.underfilled_count > 0 ? (
+            <p className="text-sm text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              {fillData.totals.underfilled_count} session{fillData.totals.underfilled_count !== 1 ? "s" : ""} still under 80%
+              fill — enroll manually, from Compliance, or use Auto-fill when not locked.
+            </p>
+          ) : (
+            <p className="text-sm text-emerald-900 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+              All sessions in this window are at or above 80% fill.
+            </p>
+          )}
+          {(() => {
+            const soon = (fillData.sessions ?? []).filter(
+              (s) => s.days_until_session >= 0 && s.days_until_session <= ROSTER_AUTOMATION_FREEZE_DAYS
+            );
+            if (soon.length === 0) return null;
+            const need = soon.filter((s) => s.needs_attention).length;
+            return (
+              <div className="rounded-lg border border-blue-100 bg-blue-50/80 p-3 space-y-1.5">
+                <p className="text-sm font-semibold text-slate-800">
+                  Two-week window (next {ROSTER_AUTOMATION_FREEZE_DAYS} calendar days)
+                </p>
+                <p className="text-xs text-slate-600">
+                  {soon.length} class day{soon.length !== 1 ? "s" : ""} in range — roster automation is frozen.
+                  {need > 0
+                    ? ` ${need} still under 80% fill; send notices and adjust rosters by hand.`
+                    : " All of these dates are at least 80% full."}
+                </p>
+              </div>
+            );
+          })()}
+        </section>
+      )}
 
       {/* Create Session Modal */}
       {showCreateForm && (
@@ -273,7 +404,7 @@ export default function SchedulePage() {
       {/* Enroll Modal */}
       {enrollingSession !== null && (
         <EnrollModal
-          session={sessions.find((s) => s.id ===enrollingSession)!}
+          session={sessions.find((s) => s.id === enrollingSession)!}
           allSessions={sessions}
           onClose={() => setEnrollingSession(null)}
           onEnrolled={() => { setEnrollingSession(null); refresh(); }}
@@ -310,6 +441,25 @@ export default function SchedulePage() {
                   <div className="flex items-center justify-between mb-2">
                     <div>
                       <span className="font-semibold text-slate-900 text-lg">{session.training}</span>
+                      {session.rosterAutomationLocked && (
+                        <span
+                          className="ml-2 inline-flex items-center gap-0.5 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600"
+                          title={
+                            session.manualRosterLock && session.autoRosterLock14d
+                              ? "Manual roster lock and two-week auto lock"
+                              : session.manualRosterLock
+                                ? "Manual roster lock — auto-fill and auto-prune skipped"
+                                : `Within ${ROSTER_AUTOMATION_FREEZE_DAYS} days of class — auto-fill and auto-prune skipped`
+                          }
+                        >
+                          <Lock className="h-3 w-3" />
+                          {session.manualRosterLock && session.autoRosterLock14d
+                            ? "Locked"
+                            : session.manualRosterLock
+                              ? "Locked (manual)"
+                              : "2-week lock"}
+                        </span>
+                      )}
                       <span className="ml-3 text-sm text-slate-500">
                         {session.date}{session.time ? ` at ${session.time}` : ""}
                       </span>
@@ -383,13 +533,17 @@ export default function SchedulePage() {
                       </button>
                       <button
                         onClick={() => handleAutoFill(session)}
-                        disabled={isFull || autoFilling === session.id}
+                        disabled={isFull || autoFilling === session.id || session.rosterAutomationLocked}
                         className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md transition-colors ${
-                          isFull
+                          isFull || session.rosterAutomationLocked
                             ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                             : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                         }`}
-                        title="Auto-fill with employees who need this training"
+                        title={
+                          session.rosterAutomationLocked
+                            ? "Roster automation locked — use manual enroll"
+                            : "Auto-fill with employees who need this training"
+                        }
                       >
                         {autoFilling === session.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
                         Auto-Fill
@@ -1407,6 +1561,7 @@ function EditSessionModal({
   const [date, setDate] = useState(session.date);
   const [time, setTime] = useState(session.time);
   const [location, setLocation] = useState(session.location);
+  const [rosterManualLock, setRosterManualLock] = useState(session.manualRosterLock);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState("");
 
@@ -1424,6 +1579,7 @@ function EditSessionModal({
           date,
           time,
           location,
+          rosterManualLock,
         }),
       });
       const data = await res.json();
@@ -1494,6 +1650,27 @@ function EditSessionModal({
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
+          <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+            <input
+              type="checkbox"
+              checked={rosterManualLock}
+              onChange={(e) => setRosterManualLock(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className="text-sm text-slate-800 leading-snug">
+              <span className="font-medium">Lock roster automation</span>
+              <span className="block text-xs text-slate-500 mt-1">
+                Skips auto-fill and auto-prune for this session (for example prestaged dates). Classes within{" "}
+                {ROSTER_AUTOMATION_FREEZE_DAYS} days of the session date are also locked automatically.
+              </span>
+            </span>
+          </label>
+          {session.autoRosterLock14d && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              This session is already inside the {ROSTER_AUTOMATION_FREEZE_DAYS}-day notice window, so roster automation
+              stays off even if you clear the checkbox above.
+            </p>
+          )}
           {editError && <p className="text-sm text-red-600">{editError}</p>}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">

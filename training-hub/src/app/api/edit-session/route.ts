@@ -6,6 +6,7 @@ type SessionUpdate = {
   start_time?: string | null;
   location?: string | null;
   training_type_id?: number;
+  roster_manual_lock?: boolean;
 };
 
 type ExistingSession = {
@@ -19,7 +20,7 @@ type ExistingSession = {
 
 export const POST = withApiHandler(async (request) => {
   const body = await request.json();
-  const { sessionId, training, date, time, location } = body;
+  const { sessionId, training, date, time, location, rosterManualLock } = body;
 
   if (!sessionId) {
     throw new ApiError("Missing sessionId", 400, "missing_field");
@@ -42,6 +43,13 @@ export const POST = withApiHandler(async (request) => {
   if (date !== undefined) updates.session_date = date;
   if (time !== undefined) updates.start_time = time || null;
   if (location !== undefined) updates.location = location || null;
+
+  if (rosterManualLock !== undefined) {
+    if (typeof rosterManualLock !== "boolean") {
+      throw new ApiError("rosterManualLock must be a boolean", 400, "invalid_field");
+    }
+    updates.roster_manual_lock = rosterManualLock;
+  }
 
   if (training !== undefined) {
     // Two separate queries instead of .or() to avoid PostgREST OR

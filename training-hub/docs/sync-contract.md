@@ -4,10 +4,15 @@ All sync routes require header **`x-hub-sync-token`** matching environment varia
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/sync/new-hires` | Monthly New Hire Tracker — push rows (`new_hires[]`) |
+| `POST` | `/api/sync/new-hires` | Monthly New Hire Tracker — push rows (`new_hires[]`). Returns **202** with `{ queued, pending_id }` when `HUB_ROSTER_SYNC_GATED=true` (no employee writes until `/roster-queue` approval). |
 | `POST` | `/api/sync/training-status` | Pull training cells for active names |
-| `POST` | `/api/sync/separations` | FY Separation Summary — push terminations (`separations[]`) |
+| `POST` | `/api/sync/separations` | FY Separation Summary workbook — push terminations (`separations[]`). Same **202** gated behavior as new-hires when `HUB_ROSTER_SYNC_GATED=true`. |
 | `GET` | `/api/sync/roster` | Active roster; `?include_inactive=true` for hire-date backfill |
+| `GET` | `/api/sync/separation-audit` | Recent `separation_tracker_rows` for Excel reconciliation (`?limit=` default 200). |
+
+### Gated roster (optional)
+
+Set environment variable **`HUB_ROSTER_SYNC_GATED=true`** on the hub to enqueue Excel sync batches in table **`pending_roster_events`**. HR approves or denies from **`/roster-queue`** (browser session). VBA macros receive **HTTP 202** with `pending_id` instead of the usual results payload—see [`operations-roster-queue.md`](operations-roster-queue.md).
 
 VBA modules live in the reference repo:
 
@@ -21,7 +26,9 @@ Update **`HUB_BASE_URL`** and **`HUB_SYNC_TOKEN`** in each module after deploy.
 1. Deploy the hub (e.g. Vercel) and set **`HUB_SYNC_TOKEN`** in project env; never commit it.
 2. In each `.bas` module, set **`HUB_BASE_URL`** to the production origin only (no trailing slash on paths; macros append `/api/sync/...`).
 3. Set **`HUB_SYNC_TOKEN`** in VBA to the same value as the server env var. Prefer storing the token in a dedicated module or obfuscated constant; rotate by updating Vercel + both workbooks together.
-4. Re-import or paste-updated modules into **Monthly New Hire Tracker.xlsm** and **FY Separation Summary.xlsx**, save, and test one row against staging before production.
+4. Re-import or paste-updated modules into **Monthly New Hire Tracker.xlsm** and the separation workbook HR ships (repo root: **`FY Separation Summary (3).xlsx`** — older docs may say `FY Separation Summary.xlsx`), save, and test one row against staging before production.
+
+Full tab and row layout notes: [`workbook-inventory.md`](workbook-inventory.md).
 
 ### Tracker audit rows (hub UI)
 

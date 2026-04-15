@@ -1,5 +1,13 @@
 # Training hub — session notes
 
+## Done (Phase 8 — plan rollout)
+
+- **60-day session fill** — `GET /api/session-fill-summary`, cards on [`/operations`](../src/app/operations/page.tsx), banner on [`/schedule`](../src/app/schedule/page.tsx).
+- **Compliance** — `due_window` query param + scheduler presets; URL sync; sticky table header.
+- **Gated roster (Option B)** — `pending_roster_events`, [`/roster-queue`](../src/app/roster-queue/page.tsx), approve/deny APIs; opt-in `HUB_ROSTER_SYNC_GATED`.
+- **Excel** — `GET /api/sync/separation-audit`; VBA `PullSeparationAuditFromHub`; `HubNewHireSync` discovers month sheets + header-based name columns + `NH Hub Log`.
+- **Docs** — [`operating-cadence-8-weeks.md`](operating-cadence-8-weeks.md), sync contract + workbook inventory + roster queue updates.
+
 ## Done (Phase 7)
 
 - **Compliance** — Tier KPI cards (`due_30` / `due_60` / `due_90` / `overdue`), filters for training type and employee UUID, compact row toggle, scrollable table for small screens, `DataState` loading/error, clearer empty states, CSV via `GET /api/compliance?...&format=csv` (columns match `complianceRowToCsv`, including `job_title`).
@@ -12,6 +20,11 @@
 - **Merged sheet pipeline** — [`docs/google-sheet-pipeline.md`](google-sheet-pipeline.md) and Apps Script stub [`docs/examples/merged-sheet-apps-script.gs`](examples/merged-sheet-apps-script.gs).
 - **Excel tab drift** — Extra section in [`docs/sync-contract.md`](sync-contract.md).
 - **Approve/deny strategy** — Option A (reconcile via audit + imports gate) vs Option B (future gated queue) in [`docs/operations-roster-queue.md`](operations-roster-queue.md).
+
+## New agent briefing
+
+- **[`docs/AGENT_HANDOFF_NAV_AND_EXCEL.md`](AGENT_HANDOFF_NAV_AND_EXCEL.md)** — navigation + workbook docs (completed: Core-first nav, Title Case labels, [`workbook-inventory.md`](workbook-inventory.md), attendance strategy **A** on `/operations`).
+- **[`docs/operating-cadence-8-weeks.md`](operating-cadence-8-weeks.md)** — weekly/monthly HR rhythm: compliance triage, 60-day session fill, schedule top-off, Excel reconcile, optional gated roster queue.
 
 ## Repo context
 
@@ -27,7 +40,7 @@
 | Tracker DB + sync upsert | [`src/lib/db/trackers.ts`](../src/lib/db/trackers.ts) |
 | Sync handlers | [`src/app/api/sync/new-hires/route.ts`](../src/app/api/sync/new-hires/route.ts), [`src/app/api/sync/separations/route.ts`](../src/app/api/sync/separations/route.ts) |
 | Compliance | [`src/app/compliance/page.tsx`](../src/app/compliance/page.tsx), [`src/app/api/compliance/route.ts`](../src/app/api/compliance/route.ts), [`src/lib/db/compliance.ts`](../src/lib/db/compliance.ts) |
-| Excel contract | [`docs/sync-contract.md`](sync-contract.md) |
+| Excel contract | [`docs/sync-contract.md`](sync-contract.md), [`docs/workbook-inventory.md`](workbook-inventory.md) |
 | One-stop entry | [`src/app/operations/page.tsx`](../src/app/operations/page.tsx), [`src/components/Sidebar.tsx`](../src/components/Sidebar.tsx) |
 | Merged Google Sheet | [`docs/google-sheet-pipeline.md`](google-sheet-pipeline.md) |
 | Roster queue strategy | [`docs/operations-roster-queue.md`](operations-roster-queue.md) |

@@ -105,7 +105,7 @@ export default function DashboardPage() {
     }
   }
 
-  if (loading) return <Loading message="Loading hub overview..." />;
+  if (loading) return <Loading message="Loading Hub Overview…" />;
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
 
@@ -178,9 +178,9 @@ export default function DashboardPage() {
               <Briefcase className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold">Daily operations</h2>
+              <h2 className="text-lg font-bold">Daily Operations</h2>
               <p className="text-sm text-blue-100 mt-1 max-w-xl">
-                Attendance, merged-sheet imports, new hire and separation views, schedule, and Excel sync audit—everything
+                Attendance, merged-sheet imports, new hire and separation views, schedule, and Excel workbook audit rows—everything
                 routes through this hub into Supabase.
               </p>
             </div>
@@ -197,8 +197,8 @@ export default function DashboardPage() {
           {[
             { href: "/attendance", label: "Attendance" },
             { href: "/imports", label: "Imports" },
-            { href: "/new-hires", label: "New hires" },
-            { href: "/reports", label: "Separations" },
+            { href: "/new-hires", label: "New Hire Training" },
+            { href: "/reports", label: "Separation Summary" },
             { href: "/schedule", label: "Schedule" },
             { href: "/compliance", label: "Compliance" },
           ].map((q) => (

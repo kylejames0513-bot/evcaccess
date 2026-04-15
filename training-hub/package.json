@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "workbook:sheets": "node scripts/list-workbook-sheets.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.103.0",

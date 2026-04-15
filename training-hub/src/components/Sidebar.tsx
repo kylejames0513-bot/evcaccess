@@ -20,35 +20,41 @@ import {
   Settings,
   Briefcase,
   BarChart3,
+  Inbox,
 } from "lucide-react";
 
-const operationsNav = [
-  { href: "/operations", label: "Today / Operations", icon: Briefcase },
-  { href: "/attendance", label: "Attendance", icon: UserCheck },
-  { href: "/imports", label: "Imports (merged sheet)", icon: Upload },
-  { href: "/new-hires", label: "New hire training", icon: UserPlus },
-  { href: "/reports", label: "Separation summary", icon: BarChart3 },
-  { href: "/schedule", label: "Schedule", icon: CalendarPlus },
-];
-
 const coreNav = [
-  { href: "/", label: "Hub overview", icon: LayoutDashboard },
+  { href: "/", label: "Hub Overview", icon: LayoutDashboard },
   { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
-  { href: "/review", label: "Review queue", icon: ListChecks },
+  { href: "/review", label: "Review Queue", icon: ListChecks },
   { href: "/employees", label: "Employees", icon: Users },
 ];
 
+const operationsNav = [
+  { href: "/operations", label: "Today / Operations", icon: Briefcase },
+  { href: "/roster-queue", label: "Roster queue", icon: Inbox },
+  { href: "/attendance", label: "Attendance", icon: UserCheck },
+  { href: "/imports", label: "Imports (Merged Sheet)", icon: Upload },
+  { href: "/new-hires", label: "New Hire Training", icon: UserPlus },
+  { href: "/reports", label: "Separation Summary", icon: BarChart3 },
+  { href: "/schedule", label: "Schedule", icon: CalendarPlus },
+];
+
 const trackerNav = [
-  { href: "/tracker/new-hires", label: "NH workbook audit", icon: ClipboardList },
-  { href: "/tracker/separations", label: "Sep workbook audit", icon: UserMinus },
+  { href: "/tracker/new-hires", label: "New Hire Workbook (Excel)", icon: ClipboardList },
+  { href: "/tracker/separations", label: "Separation Workbook (Excel)", icon: UserMinus },
 ];
 
 const systemNav = [
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/sync", label: "Google Sheets Sync", icon: RefreshCw },
   { href: "/data-health", label: "Data Quality", icon: ShieldCheck },
-  { href: "/signin", label: "Public Sign In", icon: PenLine },
+  { href: "/signin", label: "Public Sign-In", icon: PenLine },
 ];
+
+function sectionTitleClass() {
+  return "px-3 mb-1.5 text-[11px] font-semibold tracking-wide text-slate-500";
+}
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -87,33 +93,25 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Navigation */}
+      {/* Navigation — Core first, then daily ops, Excel workbooks, system */}
       <nav className="flex-1 px-3 overflow-y-auto space-y-5 pb-4">
         <div>
-          <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Daily operations
-          </p>
-          <div className="space-y-0.5">{operationsNav.map(navLink)}</div>
-        </div>
-
-        <div>
-          <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Core
-          </p>
+          <p className={sectionTitleClass()}>Core</p>
           <div className="space-y-0.5">{coreNav.map(navLink)}</div>
         </div>
 
         <div>
-          <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Excel sync audit
-          </p>
+          <p className={sectionTitleClass()}>Daily Operations</p>
+          <div className="space-y-0.5">{operationsNav.map(navLink)}</div>
+        </div>
+
+        <div>
+          <p className={sectionTitleClass()}>Excel Workbooks</p>
           <div className="space-y-0.5">{trackerNav.map(navLink)}</div>
         </div>
 
         <div>
-          <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            System
-          </p>
+          <p className={sectionTitleClass()}>System</p>
           <div className="space-y-0.5">{systemNav.map(navLink)}</div>
         </div>
       </nav>

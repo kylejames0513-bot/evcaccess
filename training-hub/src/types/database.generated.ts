@@ -283,6 +283,42 @@ export type Database = {
         }
         Relationships: []
       }
+      pending_roster_events: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          id: string
+          kind: string
+          payload: Json
+          resolution_note: string | null
+          resolved_at: string | null
+          source: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          kind: string
+          payload: Json
+          resolution_note?: string | null
+          resolved_at?: string | null
+          source?: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          kind?: string
+          payload?: Json
+          resolution_note?: string | null
+          resolved_at?: string | null
+          source?: string
+          status?: string
+        }
+        Relationships: []
+      }
       nicknames: {
         Row: {
           alias: string
@@ -427,6 +463,7 @@ export type Database = {
           instructor: string | null
           location: string | null
           notes: string | null
+          roster_manual_lock: boolean
           session_date: string
           start_time: string | null
           status: Database["public"]["Enums"]["session_status"]
@@ -441,6 +478,7 @@ export type Database = {
           instructor?: string | null
           location?: string | null
           notes?: string | null
+          roster_manual_lock?: boolean
           session_date: string
           start_time?: string | null
           status?: Database["public"]["Enums"]["session_status"]
@@ -455,6 +493,7 @@ export type Database = {
           instructor?: string | null
           location?: string | null
           notes?: string | null
+          roster_manual_lock?: boolean
           session_date?: string
           start_time?: string | null
           status?: Database["public"]["Enums"]["session_status"]

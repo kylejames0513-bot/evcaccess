@@ -14,6 +14,7 @@
 import { createServerClient, type DbClient } from "@/lib/supabase";
 import type { EmployeeCompliance, ComplianceStatus } from "@/types/database";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
+import { addDaysLocalYmd, toLocalYmd } from "@/lib/date-ymd";
 
 function db(): DbClient {
   return createServerClient();
@@ -276,12 +277,16 @@ export async function fixSharedColumnKeyCompliance(
   });
 }
 
+export type ComplianceDueWindow = "overdue" | "14" | "30" | "60" | "90";
+
 export interface ComplianceFilters {
   department?: string;
   position?: string;
   status?: ComplianceStatus;
   trainingTypeId?: number;
   employeeId?: string;
+  /** Narrow to expiration ladder buckets from employee_compliance view. */
+  dueWindow?: ComplianceDueWindow;
 }
 
 export async function listCompliance(
@@ -303,6 +308,22 @@ export async function listCompliance(
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.trainingTypeId != null) query = query.eq("training_type_id", filters.trainingTypeId);
   if (filters.employeeId) query = query.eq("employee_id", filters.employeeId);
+
+  if (filters.dueWindow === "overdue") {
+    query = query.gt("days_overdue", 0);
+  } else if (filters.dueWindow === "14") {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = toLocalYmd(today);
+    const end = addDaysLocalYmd(today, 14);
+    query = query.not("expiration_date", "is", null).gte("expiration_date", start).lte("expiration_date", end);
+  } else if (filters.dueWindow === "30") {
+    query = query.eq("due_in_30", true);
+  } else if (filters.dueWindow === "60") {
+    query = query.eq("due_in_60", true);
+  } else if (filters.dueWindow === "90") {
+    query = query.eq("due_in_90", true);
+  }
 
   query = query.order("last_name", { nullsFirst: false }).order("first_name", { nullsFirst: false });
 

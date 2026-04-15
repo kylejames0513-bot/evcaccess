@@ -3,6 +3,7 @@ import {
   getComplianceSummary,
   fixSharedColumnKeyCompliance,
   complianceRowsToCsvText,
+  type ComplianceDueWindow,
 } from "@/lib/db/compliance";
 import { classifyTier } from "@/lib/notifications/tiers";
 import { withApiHandler } from "@/lib/api-handler";
@@ -12,6 +13,7 @@ import { withApiHandler } from "@/lib/api-handler";
  *
  * Query params:
  *   department, position, status, training_type_id, employee_id
+ *   due_window=overdue|14|30|60|90 — `14` = expiration in the next 14 calendar days (not overdue); others match view ladder
  *   format=csv — same filters; returns text/csv with columns matching `complianceRowToCsv`.
  *
  * Returns (JSON default):
@@ -25,6 +27,10 @@ import { withApiHandler } from "@/lib/api-handler";
  */
 export const GET = withApiHandler(async (req) => {
   const params = req.nextUrl.searchParams;
+  const dw = params.get("due_window");
+  const dueWindow: ComplianceDueWindow | undefined =
+    dw === "overdue" || dw === "14" || dw === "30" || dw === "60" || dw === "90" ? dw : undefined;
+
   const filters = {
     department: params.get("department") ?? undefined,
     position: params.get("position") ?? undefined,
@@ -33,6 +39,7 @@ export const GET = withApiHandler(async (req) => {
       ? parseInt(params.get("training_type_id") ?? "", 10) || undefined
       : undefined,
     employeeId: params.get("employee_id") ?? undefined,
+    dueWindow,
   };
 
   if (params.get("format") === "csv") {
