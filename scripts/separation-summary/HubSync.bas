@@ -11,7 +11,7 @@ Option Explicit
 '   2) Set HUB_SYNC_TOKEN to the same value as server env HUB_SYNC_TOKEN
 ' -----------------------------------------------------------------------------
 
-Private Const HUB_BASE_URL As String = "https://your-hub-domain.vercel.app"
+Private Const HUB_BASE_URL As String = "https://evcaccess.vercel.app"
 Private Const HUB_SYNC_TOKEN As String = "REPLACE_WITH_SYNC_TOKEN"
 
 Private Const API_SYNC_SEPARATIONS As String = "/api/sync/separations"
