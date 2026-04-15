@@ -2,6 +2,9 @@
 
 All sync routes require header **`x-hub-sync-token`** matching environment variable **`HUB_SYNC_TOKEN`**. Only these paths accept the token (allowlist); they use the Supabase **service role** server-side.
 
+> **Fail-closed security:** there is no fallback sync token in app code.  
+> If `HUB_SYNC_TOKEN` is missing or blank, `/api/sync/*` returns `503` and denies all sync traffic until the environment variable is set.
+
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/api/sync/new-hires` | Monthly New Hire Tracker — push rows (`new_hires[]`). Returns **202** with `{ queued, pending_id }` when `HUB_ROSTER_SYNC_GATED=true` (no employee writes until `/roster-queue` approval). |
@@ -21,11 +24,13 @@ Import-ready VBA modules are tracked in this repo:
 
 Update **`HUB_BASE_URL`** and **`HUB_SYNC_TOKEN`** in each module after deploy. Full import steps are in [`vba-sync-setup.md`](vba-sync-setup.md).
 
+> Security note: the app no longer supports a fallback sync token. If `HUB_SYNC_TOKEN` is missing in runtime env, `/api/sync/*` returns **503** until configured.
+
 ### Production cutover (VBA)
 
 1. Deploy the hub (e.g. Vercel) and set **`HUB_SYNC_TOKEN`** in project env; never commit it.
 2. In each `.bas` module, set **`HUB_BASE_URL`** to the production origin only (no trailing slash on paths; macros append `/api/sync/...`).
-3. Set **`HUB_SYNC_TOKEN`** in VBA to the same value as the server env var. Prefer storing the token in a dedicated module or obfuscated constant; rotate by updating Vercel + both workbooks together.
+3. Set **`HUB_SYNC_TOKEN`** in VBA to the same value as the server env var. Prefer loading the token from a private named range / hidden config sheet instead of hardcoding in a distributed macro; rotate by updating Vercel + both workbooks together.
 4. Re-import or paste-updated modules into **Monthly New Hire Tracker.xlsm** and the separation workbook HR ships (repo root: **`FY Separation Summary (3).xlsx`** — older docs may say `FY Separation Summary.xlsx`), save, and test one row against staging before production.
 
 Full tab and row layout notes: [`workbook-inventory.md`](workbook-inventory.md).

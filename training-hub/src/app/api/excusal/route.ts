@@ -1,6 +1,7 @@
 import { setExcusal } from "@/lib/training-data";
 import { listAllExcusalsWithDetails } from "@/lib/db/excusals";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 
 /**
  * GET /api/excusal
@@ -15,6 +16,7 @@ export const GET = withApiHandler(async () => {
 });
 
 export const POST = withApiHandler(async (request) => {
+  await requireHrCookie();
   const body = await request.json();
   const { employeeName, trainingColumnKey, excused, reason } = body;
 

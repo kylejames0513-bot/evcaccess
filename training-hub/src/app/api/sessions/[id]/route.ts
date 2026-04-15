@@ -1,5 +1,6 @@
 import { createServerClient } from "@/lib/supabase";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 import type { NextRequest } from "next/server";
 
 /**
@@ -136,6 +137,7 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
  *     - Enrolls a no-show into the next available session
  */
 export const POST = withApiHandler(async (req: NextRequest, ctx) => {
+  await requireHrCookie();
   const params = await ctx!.params;
   const id = params.id;
   const body = await req.json();

@@ -1,5 +1,6 @@
 import { createServerClient } from "@/lib/supabase";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 
 // ============================================================
 // Data Quality fix actions — Supabase-native, UUID-based
@@ -35,6 +36,7 @@ type FixPayload =
 type ExistingRecord = { training_type_id: number };
 
 export const POST = withApiHandler(async (request) => {
+  await requireHrCookie();
   const body: FixPayload = await request.json();
   const supabase = createServerClient();
 

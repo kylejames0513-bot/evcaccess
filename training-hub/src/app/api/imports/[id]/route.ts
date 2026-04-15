@@ -1,5 +1,6 @@
 import { getImport, commitPreview, deletePreview, failImport } from "@/lib/db/imports";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 import type { NextRequest } from "next/server";
 
 /**
@@ -23,6 +24,7 @@ export const GET = withApiHandler(async (_req: NextRequest, ctx) => {
  *            crashed during preview)
  */
 export const POST = withApiHandler(async (req: NextRequest, ctx) => {
+  await requireHrCookie();
   const params = await ctx!.params;
   const body = (await req.json()) as { action: string; error?: string };
   if (body.action === "commit") {
@@ -41,6 +43,7 @@ export const POST = withApiHandler(async (req: NextRequest, ctx) => {
  * Removes a preview-status import. Committed imports cannot be deleted.
  */
 export const DELETE = withApiHandler(async (_req: NextRequest, ctx) => {
+  await requireHrCookie();
   const params = await ctx!.params;
   await deletePreview(params.id);
   return { ok: true };

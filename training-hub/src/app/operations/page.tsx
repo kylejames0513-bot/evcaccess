@@ -336,13 +336,33 @@ export default function OperationsPage() {
                 <p className="text-xs text-slate-500 mt-2 font-mono">{w.sync}</p>
               </div>
               <div className="flex flex-col gap-2 shrink-0 sm:items-end">
-                <Link
-                  href={w.hubHref}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium px-3 py-2 hover:bg-blue-700"
-                >
-                  {w.hubLabel}
-                  <ChevronRight className="h-4 w-4" />
-                </Link>
+                <div className="flex flex-col gap-1.5">
+                  <Link
+                    href={w.hubHref}
+                    className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium px-3 py-2 hover:bg-blue-700"
+                  >
+                    {w.hubLabel}
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
+                  {w.filename === "Monthly New Hire Tracker.xlsm" ? (
+                    <Link
+                      href="/workflows/new-hire"
+                      className="inline-flex items-center justify-center gap-1.5 text-xs font-medium text-blue-700 border border-blue-200 rounded-lg px-3 py-1.5 bg-blue-50 hover:bg-blue-100"
+                    >
+                      Open New Hire Workflow
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Link>
+                  ) : null}
+                  {w.filename === "FY Separation Summary (3).xlsx" ? (
+                    <Link
+                      href="/workflows/separation"
+                      className="inline-flex items-center justify-center gap-1.5 text-xs font-medium text-blue-700 border border-blue-200 rounded-lg px-3 py-1.5 bg-blue-50 hover:bg-blue-100"
+                    >
+                      Open Separation Workflow
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </Link>
+                  ) : null}
+                </div>
                 <a
                   href={w.githubHref}
                   target="_blank"

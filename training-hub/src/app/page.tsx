@@ -14,6 +14,7 @@ import {
   Clock,
   ChevronRight,
   Briefcase,
+  Workflow,
 } from "lucide-react";
 import { useFetch } from "@/lib/use-fetch";
 import { Loading, ErrorState } from "@/components/ui/DataState";
@@ -210,6 +211,55 @@ export default function DashboardPage() {
               {q.label}
             </Link>
           ))}
+        </div>
+      </section>
+
+      <section className="bg-white border border-slate-200 rounded-xl p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+              <Workflow className="h-4 w-4 text-blue-600" />
+              Workflow Hub
+            </h2>
+            <p className="text-sm text-slate-500 mt-1">
+              Use workflow-first views to run New Hire and Separation operations with fewer tab switches.
+            </p>
+          </div>
+          <Link
+            href="/workflows"
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Open Workflow Hub
+            <ChevronRight className="h-4 w-4" />
+          </Link>
+        </div>
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Link
+            href="/workflows/new-hire"
+            className="group rounded-xl border border-slate-200 p-4 hover:border-blue-200 hover:bg-blue-50/30 transition-colors"
+          >
+            <p className="text-sm font-semibold text-slate-900">New Hire Workflow</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Intake status, imports/review queue, and workbook row audit in one page.
+            </p>
+            <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-600">
+              Open
+              <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+            </span>
+          </Link>
+          <Link
+            href="/workflows/separation"
+            className="group rounded-xl border border-slate-200 p-4 hover:border-blue-200 hover:bg-blue-50/30 transition-colors"
+          >
+            <p className="text-sm font-semibold text-slate-900">Separation Workflow</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Separation audit rows, queue checks, and reporting shortcuts aligned to the workbook process.
+            </p>
+            <span className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-600">
+              Open
+              <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+            </span>
+          </Link>
         </div>
       </section>
 

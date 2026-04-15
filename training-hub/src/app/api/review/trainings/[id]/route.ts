@@ -1,5 +1,6 @@
 import { resolveUnknownTraining } from "@/lib/db/resolution";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 import type { NextRequest } from "next/server";
 
 /**
@@ -11,6 +12,7 @@ import type { NextRequest } from "next/server";
  * pick it up automatically. See db/resolution.ts.
  */
 export const POST = withApiHandler(async (req: NextRequest, ctx) => {
+  await requireHrCookie();
   const params = await ctx!.params;
   const body = (await req.json()) as {
     resolved_to_training_type_id?: number;

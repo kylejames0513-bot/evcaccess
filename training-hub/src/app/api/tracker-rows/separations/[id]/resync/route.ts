@@ -2,8 +2,10 @@ import type { NextRequest } from "next/server";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { getSeparationTrackerRowById } from "@/lib/db/trackers";
 import { processSeparationSyncBatch } from "@/lib/sync/process-separations-sync";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 
 export const POST = withApiHandler(async (_req: NextRequest, ctx) => {
+  await requireHrCookie();
   const params = await ctx?.params;
   const id = params?.id;
   if (!id) throw new ApiError("missing id", 400, "missing_field");

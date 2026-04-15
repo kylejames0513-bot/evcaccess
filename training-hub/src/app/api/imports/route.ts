@@ -4,6 +4,7 @@ import {
 } from "@/lib/resolver";
 import { listImports } from "@/lib/db/imports";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 
 // ── Upload guardrails ──────────────────────────────────────────────────
 // Enforce limits at the API boundary so a runaway file can't waste memory
@@ -45,6 +46,7 @@ export const GET = withApiHandler(async (req) => {
  * Returns the import id and a summary so the UI can render the diff.
  */
 export const POST = withApiHandler(async (req) => {
+  await requireHrCookie();
   const body = (await req.json()) as CreateImportInput;
 
   if (!isAllowedSource(body.source)) {

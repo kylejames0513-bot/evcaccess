@@ -13,9 +13,11 @@
 // ============================================================
 
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 import { archiveSession } from "@/lib/training-data";
 
 export const POST = withApiHandler(async (req) => {
+  await requireHrCookie();
   const body = (await req.json().catch(() => ({}))) as { sessionId?: unknown };
 
   if (typeof body.sessionId !== "string" || body.sessionId.length === 0) {

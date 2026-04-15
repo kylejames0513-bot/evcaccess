@@ -3,5 +3,9 @@
 // invalidation is gone (the new db layer is stateless) so there is
 // nothing to actually refresh.
 import { withApiHandler } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 
-export const POST = withApiHandler(async () => ({ ok: true }));
+export const POST = withApiHandler(async () => {
+  await requireHrCookie();
+  return { ok: true };
+});

@@ -1,7 +1,9 @@
 import { recordCompletion } from "@/lib/training-data";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 
 export const POST = withApiHandler(async (request) => {
+  await requireHrCookie();
   const body = await request.json();
   const { employeeName, trainingColumnKey, completionDate } = body;
 

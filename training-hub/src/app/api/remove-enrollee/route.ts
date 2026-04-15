@@ -1,7 +1,9 @@
 import { removeEnrollee } from "@/lib/training-data";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 
 export const POST = withApiHandler(async (request) => {
+  await requireHrCookie();
   const body = await request.json();
   const { sessionId, name, terminate } = body;
 

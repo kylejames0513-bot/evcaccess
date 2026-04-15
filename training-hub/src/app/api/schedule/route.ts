@@ -3,6 +3,7 @@ import { createServerClient } from "@/lib/supabase";
 import { TRAINING_DEFINITIONS } from "@/config/trainings";
 import { endOfNextCalendarQuarter } from "@/lib/quarter";
 import { withApiHandler } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 import { toLocalYmd } from "@/lib/date-ymd";
 import { isRosterAutomationLocked } from "@/lib/roster-lock";
 
@@ -139,6 +140,7 @@ async function pruneCurrentEnrollees() {
 }
 
 export const GET = withApiHandler(async () => {
+  await requireHrCookie();
   // Prune people who completed their training before loading
   await pruneCurrentEnrollees();
 

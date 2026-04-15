@@ -1,9 +1,11 @@
 import type { NextRequest } from "next/server";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 import { deleteNewHireTrackerRow, updateNewHireTrackerRow } from "@/lib/db/trackers";
 import type { NewHireTrackerRowUpdate } from "@/types/database";
 
 export const PATCH = withApiHandler(async (req: NextRequest, ctx) => {
+  await requireHrCookie();
   const params = await ctx!.params;
   const id = params.id;
   if (!id) throw new ApiError("missing id", 400, "missing_field");
@@ -13,6 +15,7 @@ export const PATCH = withApiHandler(async (req: NextRequest, ctx) => {
 });
 
 export const DELETE = withApiHandler(async (_req: NextRequest, ctx) => {
+  await requireHrCookie();
   const params = await ctx!.params;
   const id = params.id;
   if (!id) throw new ApiError("missing id", 400, "missing_field");

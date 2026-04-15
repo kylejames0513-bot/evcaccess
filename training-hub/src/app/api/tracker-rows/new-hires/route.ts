@@ -1,4 +1,5 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 import {
   insertNewHireTrackerRow,
   listNewHireTrackerRows,
@@ -12,6 +13,7 @@ export const GET = withApiHandler(async () => {
 });
 
 export const POST = withApiHandler(async (req) => {
+  await requireHrCookie();
   const body = (await req.json().catch(() => ({}))) as {
     action?: string;
     id?: string;

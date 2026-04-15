@@ -5,6 +5,7 @@ import {
 } from "@/lib/db/resolution";
 import { addEmployeeAlias } from "@/lib/db/employees";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 import type { NextRequest } from "next/server";
 
 /**
@@ -16,6 +17,7 @@ import type { NextRequest } from "next/server";
  * full_name as an employee alias so future imports match automatically.
  */
 export const POST = withApiHandler(async (req: NextRequest, ctx) => {
+  await requireHrCookie();
   const params = await ctx!.params;
   const body = (await req.json()) as {
     resolved_to_employee_id?: string;

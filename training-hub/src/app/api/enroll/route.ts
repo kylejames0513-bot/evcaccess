@@ -1,8 +1,10 @@
 import { addEnrollees } from "@/lib/training-data";
 import { createServerClient } from "@/lib/supabase";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 
 export const POST = withApiHandler(async (request) => {
+  await requireHrCookie();
   const body = await request.json();
   const { sessionId, names, action, force, allowExcused } = body as {
     sessionId?: string;

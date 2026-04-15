@@ -1,5 +1,6 @@
 import { createServerClient } from "@/lib/supabase";
 import { withApiHandler, ApiError } from "@/lib/api-handler";
+import { requireHrCookie } from "@/lib/auth/hr-session";
 
 /**
  * POST /api/excusal/remove
@@ -8,6 +9,7 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
  * Deletes the excusal for a specific employee + training.
  */
 export const POST = withApiHandler(async (request) => {
+  await requireHrCookie();
   const body = await request.json();
   const { employee_id, training_type_id } = body;
 

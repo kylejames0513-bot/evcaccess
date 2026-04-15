@@ -12,7 +12,7 @@ Option Explicit
 ' -----------------------------------------------------------------------------
 
 Private Const HUB_BASE_URL As String = "https://evcaccess.vercel.app"
-Private Const HUB_SYNC_TOKEN As String = "uMY1tgIYL1GObgknFYmzaC2vVt7KiNKn3Q9C9-qlm-8"
+Private Const HUB_SYNC_TOKEN As String = "REPLACE_WITH_HUB_SYNC_TOKEN"
 
 Private Const API_SYNC_NEW_HIRES As String = "/api/sync/new-hires"
 Private Const LOG_SHEET_NAME As String = "NH Hub Log"
