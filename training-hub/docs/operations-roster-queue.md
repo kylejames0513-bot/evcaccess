@@ -14,7 +14,7 @@ This matches a **“trust but verify”** model: Excel stays fast for daily oper
 
 When **`HUB_ROSTER_SYNC_GATED=true`** on the server:
 
-1. Table **`pending_roster_events`** stores `kind` (`new_hires_batch` | `separations_batch`), JSON **`payload`**, and **`status`** (`pending` → `approved` | `denied` | `failed`).
+1. Table **`pending_roster_events`** stores `kind` (`new_hires_batch` | `separations_batch`), JSON **`payload`**, and **`status`** (`pending` → `processing` → `approved` | `denied` | `failed`).
 2. **`POST /api/sync/new-hires`** and **`POST /api/sync/separations`** enqueue one row and return **HTTP 202** with `{ queued, pending_id, row_count }` instead of mutating `employees` immediately.
 3. Authenticated HR operators use **`GET /api/roster-queue`**, **`POST /api/roster-queue/:id/approve`**, and **`POST /api/roster-queue/:id/deny`** (shared `hr_session` cookie). Approve replays the stored payload through the same processors as direct sync.
 4. UI: **`/roster-queue`** (linked from sidebar under Daily Operations).

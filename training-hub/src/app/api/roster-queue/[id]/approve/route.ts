@@ -1,6 +1,7 @@
 import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { requireHrCookie } from "@/lib/auth/hr-session";
 import {
+  claimPendingRosterEvent,
   getPendingRosterEventById,
   updatePendingRosterEvent,
 } from "@/lib/db/pending-roster";
@@ -18,10 +19,11 @@ export const POST = withApiHandler(async (_req, ctx) => {
   const id = (await ctx?.params)?.id;
   if (!id) throw new ApiError("missing id", 400, "missing_field");
 
-  const row = await getPendingRosterEventById(id);
-  if (!row) throw new ApiError("not found", 404, "not_found");
-  if (row.status !== "pending") {
-    throw new ApiError("only pending events can be approved", 400, "conflict");
+  const row = await claimPendingRosterEvent(id);
+  if (!row) {
+    const existing = await getPendingRosterEventById(id);
+    if (!existing) throw new ApiError("not found", 404, "not_found");
+    throw new ApiError(`event is already ${existing.status}`, 409, "conflict");
   }
 
   try {
@@ -42,10 +44,14 @@ export const POST = withApiHandler(async (_req, ctx) => {
     throw new ApiError(`unknown kind: ${row.kind}`, 400, "invalid_field");
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown error";
-    await updatePendingRosterEvent(id, {
-      status: "failed",
-      error_message: msg.slice(0, 4000),
-    });
+    try {
+      await updatePendingRosterEvent(id, {
+        status: "failed",
+        error_message: msg.slice(0, 4000),
+      });
+    } catch {
+      // Preserve the original processing error when fail-state write also fails.
+    }
     throw e;
   }
 });
