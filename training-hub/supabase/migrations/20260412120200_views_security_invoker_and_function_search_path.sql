@@ -22,4 +22,4 @@ ALTER FUNCTION public.add_employee_alias(emp_id uuid, new_alias text)          S
 ALTER FUNCTION public.apply_auto_fill()                                        SET search_path = public, pg_catalog;
 ALTER FUNCTION public.upsert_employees_from_sheet(emps jsonb)                  SET search_path = public, pg_catalog;
 ALTER FUNCTION public.reactivate_employee_with_paylocity_id(orphan_id uuid, new_paylocity_id text) SET search_path = public, pg_catalog;
-ALTER FUNCTION public.commit_import(p_import_id uuid)                          SET search_path = public, pg_catalog;
+ALTER FUNCTION public.commit_import(import_id uuid)                            SET search_path = public, pg_catalog;
