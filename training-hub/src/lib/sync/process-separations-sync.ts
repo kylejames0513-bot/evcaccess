@@ -44,6 +44,10 @@ type SeparationMatchOutcome =
   | { kind: "single"; employee: SeparationRosterEmployee; matchType: "exact" }
   | { kind: "ambiguous"; matchType: "exact"; candidates: SeparationRosterEmployee[] }
   | { kind: "none" };
+interface SimilarNameCandidate {
+  display: string;
+  score: number;
+}
 
 function isYmd(s: unknown): s is string {
   return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -57,6 +61,32 @@ function normalize(value: string): string {
     .replace(/[.\-']/g, "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function levenshteinDistance(aRaw: string, bRaw: string): number {
+  const a = aRaw.trim();
+  const b = bRaw.trim();
+  if (a === b) return 0;
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+
+  const prev = new Array<number>(b.length + 1);
+  const curr = new Array<number>(b.length + 1);
+  for (let j = 0; j <= b.length; j += 1) prev[j] = j;
+
+  for (let i = 1; i <= a.length; i += 1) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(
+        prev[j] + 1,
+        curr[j - 1] + 1,
+        prev[j - 1] + cost
+      );
+    }
+    for (let j = 0; j <= b.length; j += 1) prev[j] = curr[j];
+  }
+  return prev[b.length];
 }
 
 function resolveCandidateMatch(
@@ -106,6 +136,46 @@ export function resolveSeparationMatch(
     return normalize(emp.first_name) === first || hasExactAliasFirstNameMatch(emp, last, first);
   });
   return resolveCandidateMatch(exact);
+}
+
+export function suggestSimilarSeparationNames(
+  roster: Roster,
+  lastName: string,
+  firstName: string,
+  maxSuggestions: number = 3
+): string[] {
+  const last = normalize(lastName);
+  const first = normalize(firstName);
+  if (!last || !first || maxSuggestions < 1) return [];
+
+  const candidates: SimilarNameCandidate[] = [];
+  const seen = new Set<string>();
+
+  for (const emp of roster) {
+    const empLast = normalize(emp.last_name);
+    const empFirst = normalize(emp.first_name);
+    if (!empLast || !empFirst) continue;
+
+    const lastDist = levenshteinDistance(last, empLast);
+    const firstDist = levenshteinDistance(first, empFirst);
+    const firstPrefix =
+      empFirst.startsWith(first) || first.startsWith(empFirst);
+
+    // Suggest nearby names, but do not broaden actual sync matching.
+    if (lastDist > 2) continue;
+    if (!(firstDist <= 2 || firstPrefix)) continue;
+
+    const display = `${emp.first_name} ${emp.last_name}`.trim();
+    const dedupeKey = normalize(display);
+    if (!display || seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+
+    const score = lastDist * 10 + Math.min(firstDist, 3) * 3 + (emp.is_active ? 0 : 1);
+    candidates.push({ display, score });
+  }
+
+  candidates.sort((a, b) => a.score - b.score || a.display.localeCompare(b.display));
+  return candidates.slice(0, maxSuggestions).map((c) => c.display);
 }
 
 async function recordSeparationTrackerAuditIfAnchored(input: SeparationInput, result: SeparationResult) {
@@ -210,12 +280,19 @@ export async function processSeparationSyncBatch(inputs: SeparationInput[]): Pro
 
     if (match.kind === "none") {
       summary.no_match += 1;
+      const suggestions = suggestSimilarSeparationNames(
+        roster,
+        input.last_name,
+        input.first_name
+      );
+      const suggestionText =
+        suggestions.length > 0 ? ` Suggested similar names: ${suggestions.join("; ")}` : "";
       const nm: SeparationResult = {
         ...base,
         status: "no_match",
         employee_id: null,
         match_type: null,
-        message: "No exact first/last (or preferred-name alias) match found",
+        message: `No exact first/last (or preferred-name alias) match found.${suggestionText}`,
       };
       results.push(nm);
       await recordSeparationTrackerAuditIfAnchored(input, nm);

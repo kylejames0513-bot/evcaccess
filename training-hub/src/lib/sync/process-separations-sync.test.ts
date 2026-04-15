@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   resolveSeparationMatch,
+  suggestSimilarSeparationNames,
   type SeparationRosterEmployee,
 } from "./process-separations-sync";
 
@@ -105,5 +106,28 @@ describe("resolveSeparationMatch", () => {
     const match = resolveSeparationMatch(roster, "Smith", "John");
 
     expect(match.kind).toBe("none");
+  });
+});
+
+describe("suggestSimilarSeparationNames", () => {
+  it("suggests close typo candidates without auto-matching", () => {
+    const roster = [
+      emp("inactive-1", "Dallas", "Russell", false),
+      emp("active-1", "Darius", "Russell", true),
+      emp("active-2", "Savannah", "Russell", true),
+    ];
+
+    const suggestions = suggestSimilarSeparationNames(roster, "Russel", "Dallas");
+
+    expect(suggestions).toContain("Dallas Russell");
+    expect(suggestions.length).toBeGreaterThan(0);
+  });
+
+  it("returns empty list when nothing close exists", () => {
+    const roster = [emp("active-1", "Jane", "Doe", true)];
+
+    const suggestions = suggestSimilarSeparationNames(roster, "Zimmerman", "Quincy");
+
+    expect(suggestions).toEqual([]);
   });
 });
