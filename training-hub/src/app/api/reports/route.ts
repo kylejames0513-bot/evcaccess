@@ -79,17 +79,20 @@ export const GET = withApiHandler(async (request) => {
         return a.name.localeCompare(b.name);
       });
 
-    const datedRows = separationRows.filter((row) => row.separationDate && row.daysSinceSeparation != null);
-    const last30 = datedRows.filter((row) => (row.daysSinceSeparation as number) < 30).length;
-    const last90 = datedRows.filter((row) => (row.daysSinceSeparation as number) < 90).length;
-    const ytd = datedRows.filter((row) => {
+    // Reports should reflect true separation events (rows with terminated_at),
+    // while still exposing legacy inactive rows missing a separation date.
+    const eventRows = separationRows.filter((row) => row.separationDate && row.daysSinceSeparation != null);
+    const legacyUnknownDateCount = separationRows.length - eventRows.length;
+    const last30 = eventRows.filter((row) => (row.daysSinceSeparation as number) < 30).length;
+    const last90 = eventRows.filter((row) => (row.daysSinceSeparation as number) < 90).length;
+    const ytd = eventRows.filter((row) => {
       if (!row.separationDate) return false;
       const parsed = parseDateOnly(row.separationDate);
       return parsed ? parsed >= startOfYearUtc : false;
     }).length;
-    const thisMonth = datedRows.filter((row) => row.separationYearMonth === thisYearMonth).length;
+    const thisMonth = eventRows.filter((row) => row.separationYearMonth === thisYearMonth).length;
 
-    const tenureValues = separationRows.flatMap((row) => (row.tenureDays == null ? [] : [row.tenureDays]));
+    const tenureValues = eventRows.flatMap((row) => (row.tenureDays == null ? [] : [row.tenureDays]));
     const averageTenureDays =
       tenureValues.length > 0
         ? Math.round(tenureValues.reduce((sum, days) => sum + days, 0) / tenureValues.length)
@@ -97,7 +100,7 @@ export const GET = withApiHandler(async (request) => {
 
     const byDivisionMap = new Map<string, { count: number; tenureDaysTotal: number; tenureRows: number }>();
     const byDepartmentMap = new Map<string, number>();
-    for (const row of separationRows) {
+    for (const row of eventRows) {
       const division = row.division || row.department || "Unknown";
       const divisionEntry = byDivisionMap.get(division) ?? { count: 0, tenureDaysTotal: 0, tenureRows: 0 };
       divisionEntry.count += 1;
@@ -116,7 +119,7 @@ export const GET = withApiHandler(async (request) => {
         division,
         count: entry.count,
         percentOfTotal:
-          separationRows.length > 0 ? Number(((entry.count / separationRows.length) * 100).toFixed(1)) : 0,
+          eventRows.length > 0 ? Number(((entry.count / eventRows.length) * 100).toFixed(1)) : 0,
         avgTenureDays: entry.tenureRows > 0 ? Math.round(entry.tenureDaysTotal / entry.tenureRows) : null,
       }))
       .sort((a, b) => b.count - a.count || a.division.localeCompare(b.division));
@@ -126,7 +129,7 @@ export const GET = withApiHandler(async (request) => {
         department,
         count,
         percentOfTotal:
-          separationRows.length > 0 ? Number(((count / separationRows.length) * 100).toFixed(1)) : 0,
+          eventRows.length > 0 ? Number(((count / eventRows.length) * 100).toFixed(1)) : 0,
       }))
       .sort((a, b) => b.count - a.count || a.department.localeCompare(b.department));
 
@@ -135,7 +138,7 @@ export const GET = withApiHandler(async (request) => {
         Date.UTC(todayUtc.getUTCFullYear(), todayUtc.getUTCMonth() - (11 - idx), 1)
       );
       const yearMonth = getYearMonth(monthDate);
-      const count = datedRows.filter((row) => row.separationYearMonth === yearMonth).length;
+      const count = eventRows.filter((row) => row.separationYearMonth === yearMonth).length;
       return {
         month: MONTH_NAMES[monthDate.getUTCMonth()],
         year: monthDate.getUTCFullYear(),
@@ -146,12 +149,12 @@ export const GET = withApiHandler(async (request) => {
 
     return {
       summary: {
-        totalSeparated: separationRows.length,
+        totalSeparated: eventRows.length,
         separatedThisMonth: thisMonth,
         separatedLast30Days: last30,
         separatedLast90Days: last90,
         separatedYtd: ytd,
-        unknownDateCount: separationRows.length - datedRows.length,
+        unknownDateCount: legacyUnknownDateCount,
         avgTenureDays: averageTenureDays,
         avgTenureYears: averageTenureDays == null ? null : Number((averageTenureDays / 365.25).toFixed(2)),
         medianTenureDays: median(tenureValues),
@@ -159,7 +162,7 @@ export const GET = withApiHandler(async (request) => {
       trends,
       byDivision,
       byDepartment,
-      employees: separationRows,
+      employees: eventRows,
     };
   }
 
