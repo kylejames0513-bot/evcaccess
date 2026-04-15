@@ -8,12 +8,14 @@ function emp(
   id: string,
   first: string,
   last: string,
-  isActive: boolean
+  isActive: boolean,
+  aliases: string[] = []
 ): SeparationRosterEmployee {
   return {
     id,
     first_name: first,
     last_name: last,
+    aliases,
     is_active: isActive,
     terminated_at: isActive ? null : "2026-01-01T00:00:00.000Z",
   };
@@ -61,19 +63,44 @@ describe("resolveSeparationMatch", () => {
     expect(match.candidates).toHaveLength(2);
   });
 
-  it("uses partial first-name matching when exact is absent", () => {
-    const roster = [emp("active-1", "Johnny", "Smith", true)];
+  it("matches an exact preferred-name alias", () => {
+    const roster = [
+      emp("active-1", "Jonathan", "Smith", true, [
+        "Smith, Jonathan",
+        "Jonathan Smith",
+        "Smith, John",
+        "John Smith",
+      ]),
+    ];
 
-    const match = resolveSeparationMatch(roster, "Smith", "Jo");
+    const match = resolveSeparationMatch(roster, "Smith", "John");
 
     expect(match.kind).toBe("single");
     if (match.kind !== "single") return;
-    expect(match.matchType).toBe("partial");
+    expect(match.matchType).toBe("exact");
     expect(match.employee.id).toBe("active-1");
   });
 
-  it("returns no match when no last-name match exists", () => {
-    const roster = [emp("active-1", "Jane", "Doe", true)];
+  it("does not allow partial first-name matches", () => {
+    const roster = [
+      emp("active-1", "Jonathan", "Smith", true, ["Smith, Jonathan", "Jonathan Smith"]),
+    ];
+
+    const match = resolveSeparationMatch(roster, "Smith", "Jon");
+
+    expect(match.kind).toBe("none");
+  });
+
+  it("returns no match when first name is missing", () => {
+    const roster = [emp("active-1", "Jane", "Doe", true, ["Doe, Jane", "Jane Doe"])];
+
+    const match = resolveSeparationMatch(roster, "Doe", "");
+
+    expect(match.kind).toBe("none");
+  });
+
+  it("returns no match when no exact name or alias match exists", () => {
+    const roster = [emp("active-1", "Jane", "Doe", true, ["Doe, Jane", "Jane Doe"])];
 
     const match = resolveSeparationMatch(roster, "Smith", "John");
 

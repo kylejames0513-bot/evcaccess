@@ -26,7 +26,7 @@ export interface SeparationResult {
   };
   status: "synced" | "no_match" | "ambiguous" | "already_inactive" | "failed";
   employee_id: string | null;
-  match_type: "exact" | "partial" | "last_only" | null;
+  match_type: "exact" | null;
   message: string | null;
 }
 
@@ -34,15 +34,15 @@ export interface SeparationRosterEmployee {
   id: string;
   first_name: string;
   last_name: string;
+  aliases: string[];
   is_active: boolean;
   terminated_at: string | null;
 }
 
 type Roster = SeparationRosterEmployee[];
-type SeparationMatchType = "exact" | "partial" | "last_only";
 type SeparationMatchOutcome =
-  | { kind: "single"; employee: SeparationRosterEmployee; matchType: SeparationMatchType }
-  | { kind: "ambiguous"; matchType: SeparationMatchType; candidates: SeparationRosterEmployee[] }
+  | { kind: "single"; employee: SeparationRosterEmployee; matchType: "exact" }
+  | { kind: "ambiguous"; matchType: "exact"; candidates: SeparationRosterEmployee[] }
   | { kind: "none" };
 
 function isYmd(s: unknown): s is string {
@@ -50,27 +50,45 @@ function isYmd(s: unknown): s is string {
 }
 
 function normalize(value: string): string {
-  return value.trim().toLowerCase();
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[.\-']/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function resolveCandidateMatch(
-  candidates: SeparationRosterEmployee[],
-  matchType: SeparationMatchType
+  candidates: SeparationRosterEmployee[]
 ): SeparationMatchOutcome {
   if (candidates.length === 0) return { kind: "none" };
 
   // Prefer the one active profile when exactly one is active.
   const active = candidates.filter((c) => c.is_active);
   if (active.length === 1) {
-    return { kind: "single", employee: active[0], matchType };
+    return { kind: "single", employee: active[0], matchType: "exact" };
   }
 
   // No unique active match; accept a single inactive profile.
   if (active.length === 0 && candidates.length === 1) {
-    return { kind: "single", employee: candidates[0], matchType };
+    return { kind: "single", employee: candidates[0], matchType: "exact" };
   }
 
-  return { kind: "ambiguous", matchType, candidates };
+  return { kind: "ambiguous", matchType: "exact", candidates };
+}
+
+function hasExactAliasFirstNameMatch(
+  employee: SeparationRosterEmployee,
+  normalizedLast: string,
+  normalizedFirst: string
+): boolean {
+  if (!normalizedFirst) return false;
+  const aliasTargets = new Set<string>([
+    normalize(`${normalizedFirst} ${normalizedLast}`),
+    normalize(`${normalizedLast}, ${normalizedFirst}`),
+  ]);
+  return (employee.aliases ?? []).some((alias) => aliasTargets.has(normalize(alias)));
 }
 
 export function resolveSeparationMatch(
@@ -80,24 +98,14 @@ export function resolveSeparationMatch(
 ): SeparationMatchOutcome {
   const last = normalize(lastName);
   const first = normalize(firstName);
-  if (last.length === 0) return { kind: "none" };
+  if (last.length === 0 || first.length === 0) return { kind: "none" };
 
-  const exact = roster.filter((emp) => normalize(emp.last_name) === last && normalize(emp.first_name) === first);
-  const exactOutcome = resolveCandidateMatch(exact, "exact");
-  if (exactOutcome.kind !== "none") return exactOutcome;
-
-  if (first.length > 0) {
-    const partial = roster.filter((emp) => {
-      if (normalize(emp.last_name) !== last) return false;
-      const empFirst = normalize(emp.first_name);
-      return empFirst.startsWith(first);
-    });
-    const partialOutcome = resolveCandidateMatch(partial, "partial");
-    if (partialOutcome.kind !== "none") return partialOutcome;
-  }
-
-  const lastOnly = roster.filter((emp) => normalize(emp.last_name) === last);
-  return resolveCandidateMatch(lastOnly, "last_only");
+  // Exact only: legal first-name match OR exact alias match for preferred first name.
+  const exact = roster.filter((emp) => {
+    if (normalize(emp.last_name) !== last) return false;
+    return normalize(emp.first_name) === first || hasExactAliasFirstNameMatch(emp, last, first);
+  });
+  return resolveCandidateMatch(exact);
 }
 
 async function recordSeparationTrackerAuditIfAnchored(input: SeparationInput, result: SeparationResult) {
@@ -155,7 +163,7 @@ async function loadRoster(): Promise<Roster> {
   for (;;) {
     const { data, error } = await db
       .from("employees")
-      .select("id, first_name, last_name, is_active, terminated_at")
+      .select("id, first_name, last_name, aliases, is_active, terminated_at")
       .range(offset, offset + PAGE - 1);
     if (error) {
       throw new ApiError(`failed to read roster: ${error.message}`, 500, "internal");
@@ -207,7 +215,7 @@ export async function processSeparationSyncBatch(inputs: SeparationInput[]): Pro
         status: "no_match",
         employee_id: null,
         match_type: null,
-        message: "No employee matched the given name",
+        message: "No exact first/last (or preferred-name alias) match found",
       };
       results.push(nm);
       await recordSeparationTrackerAuditIfAnchored(input, nm);
@@ -223,7 +231,7 @@ export async function processSeparationSyncBatch(inputs: SeparationInput[]): Pro
         status: "ambiguous",
         employee_id: null,
         match_type: match.matchType,
-        message: `${match.candidates.length} ${match.matchType} matches found (${activeCount} active, ${inactiveCount} inactive); resolve manually`,
+        message: `${match.candidates.length} exact-name matches found (${activeCount} active, ${inactiveCount} inactive); resolve manually`,
       };
       results.push(amb);
       await recordSeparationTrackerAuditIfAnchored(input, amb);
