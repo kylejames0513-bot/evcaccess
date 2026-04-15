@@ -28,19 +28,19 @@ See [docs/sync-contract.md](docs/sync-contract.md). VBA modules live under `../e
 
 ## Push to GitHub
 
-This repo’s remote is **`origin`** → `https://github.com/kylejames0513-bot/training-hub.git`. If `git push` says **Repository not found**, create an empty repository on GitHub with that exact name under your account (no README/license), then run:
+The canonical repo is **`kylejames0513-bot/evcaccess`** — this app lives in the **`training-hub/`** folder there: [github.com/kylejames0513-bot/evcaccess](https://github.com/kylejames0513-bot/evcaccess).
 
-```bash
-git push -u origin main
+This folder (`Documents/training-hub`) is a **standalone** git clone for fast local work. To publish updates to GitHub, sync into a clone of `evcaccess` and push from that repo root, for example:
+
+```powershell
+robocopy "C:\Users\mahon\OneDrive\Documents\training-hub" "C:\Users\mahon\OneDrive\Documents\evcaccess\training-hub" /MIR /XD .git node_modules .next .vercel
+cd C:\Users\mahon\OneDrive\Documents\evcaccess
+git add training-hub
+git commit -m "training-hub: describe your change"
+git push origin main
 ```
 
-If your repo URL or username differs, update the remote:
-
-```bash
-git remote set-url origin https://github.com/YOUR_USER/YOUR_REPO.git
-```
-
-Use **Git Credential Manager** (default on Windows) or a **Personal Access Token** with `repo` scope if GitHub prompts for sign-in.
+Use **Git Credential Manager** or a **Personal Access Token** (`repo` scope) if GitHub prompts for sign-in.
 
 ## Reference catalog
 
