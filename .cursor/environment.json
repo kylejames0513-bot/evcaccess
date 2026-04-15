@@ -1,4 +1,0 @@
-{
-  "$schema": "https://www.cursor.com/schemas/environment.schema.json",
-  "install": "bash .cursor/environment-bootstrap.sh"
-}
