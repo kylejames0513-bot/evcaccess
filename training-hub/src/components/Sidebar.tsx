@@ -1,56 +1,19 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
-  ClipboardCheck,
-  UserCheck,
-  UserPlus,
-  UserMinus,
-  RefreshCw,
-  CalendarPlus,
-  PenLine,
-  ShieldCheck,
-  Users,
   LogOut,
-  Upload,
-  ListChecks,
-  ClipboardList,
-  Settings,
-  Briefcase,
-  BarChart3,
-  Inbox,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
-
-const coreNav = [
-  { href: "/", label: "Hub Overview", icon: LayoutDashboard },
-  { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
-  { href: "/review", label: "Review Queue", icon: ListChecks },
-  { href: "/employees", label: "Employees", icon: Users },
-];
-
-const operationsNav = [
-  { href: "/operations", label: "Today / Operations", icon: Briefcase },
-  { href: "/roster-queue", label: "Roster queue", icon: Inbox },
-  { href: "/attendance", label: "Attendance", icon: UserCheck },
-  { href: "/imports", label: "Imports (Merged Sheet)", icon: Upload },
-  { href: "/new-hires", label: "New Hire Training", icon: UserPlus },
-  { href: "/reports", label: "Separation Summary", icon: BarChart3 },
-  { href: "/schedule", label: "Schedule", icon: CalendarPlus },
-];
-
-const trackerNav = [
-  { href: "/tracker/new-hires", label: "New Hire Workbook (Excel)", icon: ClipboardList },
-  { href: "/tracker/separations", label: "Separation Workbook (Excel)", icon: UserMinus },
-];
-
-const systemNav = [
-  { href: "/settings", label: "Settings", icon: Settings },
-  { href: "/sync", label: "Google Sheets Sync", icon: RefreshCw },
-  { href: "/data-health", label: "Data Quality", icon: ShieldCheck },
-  { href: "/signin", label: "Public Sign-In", icon: PenLine },
-];
+import {
+  PRIMARY_NAV_GROUPS,
+  ADVANCED_NAV_GROUP,
+  isNavItemActive,
+  type NavGroup,
+} from "@/config/navigation";
 
 function sectionTitleClass() {
   return "px-3 mb-1.5 text-[11px] font-semibold tracking-wide text-slate-500";
@@ -58,9 +21,10 @@ function sectionTitleClass() {
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   function navLink(item: { href: string; label: string; icon: React.ComponentType<{ className?: string }> }) {
-    const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+    const isActive = isNavItemActive(pathname, item);
     const Icon = item.icon;
     return (
       <Link
@@ -77,6 +41,17 @@ export default function Sidebar() {
       </Link>
     );
   }
+
+  function renderSection(section: NavGroup) {
+    return (
+      <div key={section.id}>
+        <p className={sectionTitleClass()}>{section.title}</p>
+        <div className="space-y-0.5">{section.items.map(navLink)}</div>
+      </div>
+    );
+  }
+
+  const hasAdvancedActive = (ADVANCED_NAV_GROUP?.items ?? []).some((item) => isNavItemActive(pathname, item));
 
   return (
     <aside className="hidden lg:flex lg:flex-col lg:w-[240px] bg-white border-r border-slate-200/80 h-full">
@@ -95,25 +70,29 @@ export default function Sidebar() {
 
       {/* Navigation — Core first, then daily ops, Excel workbooks, system */}
       <nav className="flex-1 px-3 overflow-y-auto space-y-5 pb-4">
-        <div>
-          <p className={sectionTitleClass()}>Core</p>
-          <div className="space-y-0.5">{coreNav.map(navLink)}</div>
-        </div>
+        {PRIMARY_NAV_GROUPS.map(renderSection)}
 
-        <div>
-          <p className={sectionTitleClass()}>Daily Operations</p>
-          <div className="space-y-0.5">{operationsNav.map(navLink)}</div>
-        </div>
-
-        <div>
-          <p className={sectionTitleClass()}>Excel Workbooks</p>
-          <div className="space-y-0.5">{trackerNav.map(navLink)}</div>
-        </div>
-
-        <div>
-          <p className={sectionTitleClass()}>System</p>
-          <div className="space-y-0.5">{systemNav.map(navLink)}</div>
-        </div>
+        {ADVANCED_NAV_GROUP && (
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-[12px] font-semibold border transition-colors ${
+                hasAdvancedActive
+                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {ADVANCED_NAV_GROUP.title}
+              {advancedOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+            {advancedOpen && (
+              <div className="mt-3 space-y-5">
+                {renderSection(ADVANCED_NAV_GROUP)}
+              </div>
+            )}
+          </div>
+        )}
       </nav>
 
       {/* Footer */}

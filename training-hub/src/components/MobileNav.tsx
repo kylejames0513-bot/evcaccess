@@ -6,70 +6,52 @@ import { usePathname } from "next/navigation";
 import {
   Menu,
   X,
-  LayoutDashboard,
-  CalendarPlus,
-  ClipboardCheck,
-  UserCheck,
-  UserPlus,
-  UserMinus,
-  RefreshCw,
-  PenLine,
-  ShieldCheck,
-  Users,
-  Upload,
-  ListChecks,
-  ClipboardList,
-  Settings,
-  Briefcase,
-  BarChart3,
-  Inbox,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
-
-type NavItem = { href: string; label: string; icon: React.ComponentType<{ className?: string }> };
-
-const mobileNavSections: { title: string; items: NavItem[] }[] = [
-  {
-    title: "Core",
-    items: [
-      { href: "/", label: "Hub Overview", icon: LayoutDashboard },
-      { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
-      { href: "/review", label: "Review Queue", icon: ListChecks },
-      { href: "/employees", label: "Employees", icon: Users },
-    ],
-  },
-  {
-    title: "Daily Operations",
-    items: [
-      { href: "/operations", label: "Today / Operations", icon: Briefcase },
-      { href: "/roster-queue", label: "Roster queue", icon: Inbox },
-      { href: "/attendance", label: "Attendance", icon: UserCheck },
-      { href: "/imports", label: "Imports (Merged Sheet)", icon: Upload },
-      { href: "/new-hires", label: "New Hire Training", icon: UserPlus },
-      { href: "/reports", label: "Separation Summary", icon: BarChart3 },
-      { href: "/schedule", label: "Schedule", icon: CalendarPlus },
-    ],
-  },
-  {
-    title: "Excel Workbooks",
-    items: [
-      { href: "/tracker/new-hires", label: "New Hire Workbook (Excel)", icon: ClipboardList },
-      { href: "/tracker/separations", label: "Separation Workbook (Excel)", icon: UserMinus },
-    ],
-  },
-  {
-    title: "System",
-    items: [
-      { href: "/settings", label: "Settings", icon: Settings },
-      { href: "/sync", label: "Google Sheets Sync", icon: RefreshCw },
-      { href: "/data-health", label: "Data Quality", icon: ShieldCheck },
-      { href: "/signin", label: "Public Sign-In", icon: PenLine },
-    ],
-  },
-];
+import {
+  PRIMARY_NAV_GROUPS,
+  ADVANCED_NAV_GROUP,
+  isNavItemActive,
+  type NavGroup,
+} from "@/config/navigation";
 
 export default function MobileNav() {
   const [open, setOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const pathname = usePathname();
+  const hasAdvancedActive =
+    ADVANCED_NAV_GROUP?.items.some((item) => isNavItemActive(pathname, item)) ?? false;
+
+  function renderSection(section: NavGroup) {
+    return (
+      <div key={section.id}>
+        <p className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-slate-500">{section.title}</p>
+        <div className="space-y-0.5">
+          {section.items.map((item) => {
+            const isActive = isNavItemActive(pathname, item);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => {
+                  setOpen(false);
+                  setAdvancedOpen(false);
+                }}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  isActive ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                }`}
+              >
+                <Icon className={`h-[18px] w-[18px] ${isActive ? "text-blue-600" : "text-slate-400"}`} />
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="lg:hidden">
@@ -88,30 +70,24 @@ export default function MobileNav() {
       </div>
       {open && (
         <nav className="bg-white border-b border-slate-200 px-3 pb-3 pt-1 space-y-4 shadow-lg max-h-[70vh] overflow-y-auto">
-          {mobileNavSections.map((section) => (
-            <div key={section.title}>
-              <p className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wide text-slate-500">{section.title}</p>
-              <div className="space-y-0.5">
-                {section.items.map((item) => {
-                  const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-                  const Icon = item.icon;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={() => setOpen(false)}
-                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                        isActive ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                      }`}
-                    >
-                      <Icon className={`h-[18px] w-[18px] ${isActive ? "text-blue-600" : "text-slate-400"}`} />
-                      {item.label}
-                    </Link>
-                  );
-                })}
-              </div>
+          {PRIMARY_NAV_GROUPS.map(renderSection)}
+          {ADVANCED_NAV_GROUP ? (
+            <div>
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen((v) => !v)}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-[12px] font-semibold border transition-colors ${
+                  hasAdvancedActive
+                    ? "border-blue-200 bg-blue-50 text-blue-700"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Advanced
+                {advancedOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </button>
+              {advancedOpen ? <div className="mt-3">{renderSection(ADVANCED_NAV_GROUP)}</div> : null}
             </div>
-          ))}
+          ) : null}
         </nav>
       )}
     </div>
