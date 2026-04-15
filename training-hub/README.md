@@ -12,6 +12,21 @@ Vercel + Supabase are configured under [`.cursor/mcp.json`](.cursor/mcp.json). S
 2. Apply migrations: from repo root, use Supabase CLI `supabase db push` (or run SQL files in `supabase/migrations/` in order on your project).
 3. `npm ci` then `npm run dev`.
 
+## Cursor Cloud environment bootstrap
+
+The repo includes a root-level cloud-agent environment config:
+
+- `.cursor/environment.json`
+- `.cursor/environment-bootstrap.sh`
+
+On cloud-agent startup, the install step runs `npm ci` inside `training-hub` so dependencies are preinstalled before tasks execute.
+
+To verify a machine is ready, run:
+
+```bash
+bash .cursor/environment-verify.sh
+```
+
 ## Scripts
 
 | Command        | Description              |
