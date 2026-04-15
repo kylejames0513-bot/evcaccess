@@ -6,6 +6,13 @@
 - **Trackers** — New hire / separation pages: more columns, sheet filters, inline **PATCH** editing, `job_title` on new hires. **`POST /api/sync/new-hires`** and **`POST /api/sync/separations`** upsert tracker audit rows when `sheet` + `row_number` are sent.
 - **Roles** — No in-app HR vs read-only split; documented single-operator + sync-token model in [`sync-contract.md`](sync-contract.md).
 
+## Done (one-stop operations)
+
+- **Today / Operations** — [`src/app/operations/page.tsx`](../src/app/operations/page.tsx) plus sidebar / mobile nav grouping and hub overview CTA ([`src/app/page.tsx`](../src/app/page.tsx)).
+- **Merged sheet pipeline** — [`docs/google-sheet-pipeline.md`](google-sheet-pipeline.md) and Apps Script stub [`docs/examples/merged-sheet-apps-script.gs`](examples/merged-sheet-apps-script.gs).
+- **Excel tab drift** — Extra section in [`docs/sync-contract.md`](sync-contract.md).
+- **Approve/deny strategy** — Option A (reconcile via audit + imports gate) vs Option B (future gated queue) in [`docs/operations-roster-queue.md`](operations-roster-queue.md).
+
 ## Repo context
 
 - **Canonical GitHub:** [kylejames0513-bot/evcaccess](https://github.com/kylejames0513-bot/evcaccess) — app under `training-hub/`.
@@ -21,6 +28,9 @@
 | Sync handlers | [`src/app/api/sync/new-hires/route.ts`](../src/app/api/sync/new-hires/route.ts), [`src/app/api/sync/separations/route.ts`](../src/app/api/sync/separations/route.ts) |
 | Compliance | [`src/app/compliance/page.tsx`](../src/app/compliance/page.tsx), [`src/app/api/compliance/route.ts`](../src/app/api/compliance/route.ts), [`src/lib/db/compliance.ts`](../src/lib/db/compliance.ts) |
 | Excel contract | [`docs/sync-contract.md`](sync-contract.md) |
+| One-stop entry | [`src/app/operations/page.tsx`](../src/app/operations/page.tsx), [`src/components/Sidebar.tsx`](../src/components/Sidebar.tsx) |
+| Merged Google Sheet | [`docs/google-sheet-pipeline.md`](google-sheet-pipeline.md) |
+| Roster queue strategy | [`docs/operations-roster-queue.md`](operations-roster-queue.md) |
 
 ## Constraints
 

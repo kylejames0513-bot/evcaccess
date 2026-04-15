@@ -24,3 +24,8 @@ Shared header: `x-hub-sync-token` → env `HUB_SYNC_TOKEN`.
 ## Google Sheets
 
 Folder `evcaccess-reference/Google Sheets/` — inventory Apps Script / sheet IDs when wiring optional Sheets API.
+
+Operational docs in this repo:
+
+- [`docs/google-sheet-pipeline.md`](google-sheet-pipeline.md) — merged sheet → `/api/imports` flow and column checklist.
+- [`docs/examples/merged-sheet-apps-script.gs`](examples/merged-sheet-apps-script.gs) — Apps Script stub.

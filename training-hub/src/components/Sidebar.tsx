@@ -18,22 +18,29 @@ import {
   ListChecks,
   ClipboardList,
   Settings,
+  Briefcase,
+  BarChart3,
 } from "lucide-react";
 
-const mainNav = [
-  { href: "/", label: "Hub Overview", icon: LayoutDashboard },
-  { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
-  { href: "/imports", label: "Imports", icon: Upload },
-  { href: "/review", label: "Review queue", icon: ListChecks },
-  { href: "/schedule", label: "Schedule", icon: CalendarPlus },
+const operationsNav = [
+  { href: "/operations", label: "Today / Operations", icon: Briefcase },
   { href: "/attendance", label: "Attendance", icon: UserCheck },
+  { href: "/imports", label: "Imports (merged sheet)", icon: Upload },
+  { href: "/new-hires", label: "New hire training", icon: UserPlus },
+  { href: "/reports", label: "Separation summary", icon: BarChart3 },
+  { href: "/schedule", label: "Schedule", icon: CalendarPlus },
+];
+
+const coreNav = [
+  { href: "/", label: "Hub overview", icon: LayoutDashboard },
+  { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
+  { href: "/review", label: "Review queue", icon: ListChecks },
+  { href: "/employees", label: "Employees", icon: Users },
 ];
 
 const trackerNav = [
-  { href: "/new-hires", label: "New hire training", icon: UserPlus },
-  { href: "/tracker/new-hires", label: "NH workbook rows", icon: ClipboardList },
-  { href: "/tracker/separations", label: "Separation workbook rows", icon: UserMinus },
-  { href: "/employees", label: "Employees", icon: Users },
+  { href: "/tracker/new-hires", label: "NH workbook audit", icon: ClipboardList },
+  { href: "/tracker/separations", label: "Sep workbook audit", icon: UserMinus },
 ];
 
 const systemNav = [
@@ -84,29 +91,30 @@ export default function Sidebar() {
       <nav className="flex-1 px-3 overflow-y-auto space-y-5 pb-4">
         <div>
           <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Core
+            Daily operations
           </p>
-          <div className="space-y-0.5">
-            {mainNav.map(navLink)}
-          </div>
+          <div className="space-y-0.5">{operationsNav.map(navLink)}</div>
         </div>
 
         <div>
           <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Trackers
+            Core
           </p>
-          <div className="space-y-0.5">
-            {trackerNav.map(navLink)}
-          </div>
+          <div className="space-y-0.5">{coreNav.map(navLink)}</div>
+        </div>
+
+        <div>
+          <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Excel sync audit
+          </p>
+          <div className="space-y-0.5">{trackerNav.map(navLink)}</div>
         </div>
 
         <div>
           <p className="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
             System
           </p>
-          <div className="space-y-0.5">
-            {systemNav.map(navLink)}
-          </div>
+          <div className="space-y-0.5">{systemNav.map(navLink)}</div>
         </div>
       </nav>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 type Source = "paylocity" | "phs" | "access" | "signin";
 
@@ -241,6 +242,14 @@ export default function ImportsPage() {
         <h1 className="text-2xl font-bold text-slate-900">Imports</h1>
         <p className="text-sm text-slate-500 mt-1">
           Upload a Paylocity, PHS, Access, or sign-in CSV. Preview the result, then commit.
+        </p>
+        <p className="text-sm text-slate-600 mt-2">
+          <Link href="/operations" className="text-blue-600 font-medium hover:underline">
+            Today / Operations
+          </Link>
+          <span className="text-slate-400 mx-2">·</span>
+          Automating your merged Google Sheet into this flow is documented in{" "}
+          <code className="text-xs bg-slate-100 px-1 rounded">docs/google-sheet-pipeline.md</code>.
         </p>
       </div>
 

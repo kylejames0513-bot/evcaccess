@@ -20,19 +20,23 @@ import {
   ListChecks,
   ClipboardList,
   Settings,
+  Briefcase,
+  BarChart3,
 } from "lucide-react";
 
 const navItems = [
-  { href: "/", label: "Hub Overview", icon: LayoutDashboard },
-  { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
-  { href: "/imports", label: "Imports", icon: Upload },
-  { href: "/review", label: "Review queue", icon: ListChecks },
-  { href: "/schedule", label: "Schedule", icon: CalendarPlus },
+  { href: "/operations", label: "Today / Operations", icon: Briefcase },
   { href: "/attendance", label: "Attendance", icon: UserCheck },
+  { href: "/imports", label: "Imports (merged sheet)", icon: Upload },
   { href: "/new-hires", label: "New hire training", icon: UserPlus },
-  { href: "/tracker/new-hires", label: "NH workbook rows", icon: ClipboardList },
-  { href: "/tracker/separations", label: "Separation rows", icon: UserMinus },
+  { href: "/reports", label: "Separation summary", icon: BarChart3 },
+  { href: "/schedule", label: "Schedule", icon: CalendarPlus },
+  { href: "/", label: "Hub overview", icon: LayoutDashboard },
+  { href: "/compliance", label: "Compliance", icon: ClipboardCheck },
+  { href: "/review", label: "Review queue", icon: ListChecks },
   { href: "/employees", label: "Employees", icon: Users },
+  { href: "/tracker/new-hires", label: "NH workbook audit", icon: ClipboardList },
+  { href: "/tracker/separations", label: "Sep workbook audit", icon: UserMinus },
   { href: "/settings", label: "Settings", icon: Settings },
   { href: "/sync", label: "Google Sheets Sync", icon: RefreshCw },
   { href: "/data-health", label: "Data Quality", icon: ShieldCheck },
@@ -59,7 +63,7 @@ export default function MobileNav() {
         </div>
       </div>
       {open && (
-        <nav className="bg-white border-b border-slate-200 px-3 pb-3 pt-1 space-y-0.5 shadow-lg">
+        <nav className="bg-white border-b border-slate-200 px-3 pb-3 pt-1 space-y-0.5 shadow-lg max-h-[70vh] overflow-y-auto">
           {navItems.map((item) => {
             const isActive = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
             const Icon = item.icon;

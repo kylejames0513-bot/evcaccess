@@ -40,3 +40,9 @@ The hub uses **Supabase session auth** for browser users; there is **no separate
 `{ "separations": [ { "last_name", "first_name", "date_of_separation", "sheet?", "row_number?" } ] }`
 
 Full response shapes match the reference implementation under `evcaccess-reference/training-hub/src/app/api/sync/`.
+
+### Workbook tab names and layout drift
+
+- **New hire tracker:** The string sent as `sheet` in each `new_hires[]` item should match the **Excel tab name** you are syncing from (e.g. `April 2026`). The hub upserts audit rows on `(sheet, row_number, section)`; changing tab titles without updating VBA will create **duplicate audit keys** or orphan rows. Prefer reading the active sheet name from `ActiveSheet.Name` (or a **config cell** in the workbook) instead of hard-coding a single month.
+- **Separation summary:** JSON field `sheet` maps to database column `fy_sheet`. Keep FY tab names **stable**, or have VBA send the current tab’s name on every push so audit rows stay aligned with the workbook.
+- **Column drift:** Hub logic keys off the **JSON payload**, not Excel column order. VBA should use header-row lookup (see `HubNewHireSync.bas`) so moving columns does not break pushes as long as the built JSON fields stay correct.
