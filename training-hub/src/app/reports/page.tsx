@@ -56,42 +56,45 @@ export default function ReportsPage() {
   const [divisionFilter, setDivisionFilter] = useState("all");
   const [windowFilter, setWindowFilter] = useState<"all" | "30" | "90" | "ytd" | "unknown">("all");
 
+  const ytdStart = useMemo(() => new Date(new Date().getFullYear(), 0, 1), []);
+
+  const divisionOptions = useMemo(() => {
+    if (!data?.employees?.length) return [];
+    return [
+      ...new Set(data.employees.map((row) => row.division || row.department || "Unknown").filter(Boolean)),
+    ].sort((a, b) => a.localeCompare(b));
+  }, [data]);
+
+  const filtered = useMemo(() => {
+    if (!data?.employees) return [];
+    return data.employees.filter((row) => {
+      const haystack = `${row.name} ${row.paylocityId ?? ""} ${row.jobTitle ?? ""}`.toLowerCase();
+      const matchesSearch = !search || haystack.includes(search.toLowerCase());
+
+      const divisionKey = row.division || row.department || "Unknown";
+      const matchesDivision = divisionFilter === "all" || divisionKey === divisionFilter;
+
+      let matchesWindow = true;
+      if (windowFilter === "30") matchesWindow = row.daysSinceSeparation != null && row.daysSinceSeparation < 30;
+      else if (windowFilter === "90") matchesWindow = row.daysSinceSeparation != null && row.daysSinceSeparation < 90;
+      else if (windowFilter === "unknown") matchesWindow = !row.separationDate;
+      else if (windowFilter === "ytd") {
+        const parsed = parseDateOnlyLocal(row.separationDate);
+        matchesWindow = parsed ? parsed >= ytdStart : false;
+      }
+
+      return matchesSearch && matchesDivision && matchesWindow;
+    });
+  }, [data, search, divisionFilter, windowFilter, ytdStart]);
+
+  const maxTrendCount = useMemo(() => {
+    if (!data?.trends?.length) return 1;
+    return Math.max(...data.trends.map((m) => m.count), 1);
+  }, [data]);
+
   if (loading) return <Loading message="Loading separation tracker..." />;
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
-
-  const divisionOptions = [
-    ...new Set(
-      data.employees
-        .map((row) => row.division || row.department || "Unknown")
-        .filter(Boolean)
-    ),
-  ].sort((a, b) => a.localeCompare(b));
-
-  const ytdStart = new Date(new Date().getFullYear(), 0, 1);
-  const filtered = data.employees.filter((row) => {
-    const haystack = `${row.name} ${row.paylocityId ?? ""} ${row.jobTitle ?? ""}`.toLowerCase();
-    const matchesSearch = !search || haystack.includes(search.toLowerCase());
-
-    const divisionKey = row.division || row.department || "Unknown";
-    const matchesDivision = divisionFilter === "all" || divisionKey === divisionFilter;
-
-    let matchesWindow = true;
-    if (windowFilter === "30") matchesWindow = row.daysSinceSeparation != null && row.daysSinceSeparation < 30;
-    else if (windowFilter === "90") matchesWindow = row.daysSinceSeparation != null && row.daysSinceSeparation < 90;
-    else if (windowFilter === "unknown") matchesWindow = !row.separationDate;
-    else if (windowFilter === "ytd") {
-      const parsed = parseDateOnlyLocal(row.separationDate);
-      matchesWindow = parsed ? parsed >= ytdStart : false;
-    }
-
-    return matchesSearch && matchesDivision && matchesWindow;
-  });
-
-  const maxTrendCount = useMemo(
-    () => Math.max(...data.trends.map((m) => m.count), 1),
-    [data.trends]
-  );
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto">

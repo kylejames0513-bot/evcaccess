@@ -440,6 +440,30 @@ export async function getComplianceSummary(): Promise<ComplianceSummary> {
   };
 }
 
+/** Column order for CSV export (HR-facing); keep in sync with `complianceRowToCsv`. */
+export const COMPLIANCE_CSV_COLUMNS = [
+  "paylocity_id",
+  "last_name",
+  "first_name",
+  "department",
+  "position",
+  "job_title",
+  "training_name",
+  "status",
+  "completion_date",
+  "expiration_date",
+  "days_overdue",
+  "completion_source",
+  "excusal_reason",
+] as const;
+
+function escapeCsvCell(value: string): string {
+  if (value.includes(",") || value.includes('"') || value.includes("\n") || value.includes("\r")) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
 /**
  * CSV-friendly flatten of a compliance row. Used by the dashboard CSV
  * export. Order matches the columns Kyle's HR team expects.
@@ -460,4 +484,17 @@ export function complianceRowToCsv(row: EmployeeCompliance): Record<string, stri
     completion_source: row.completion_source ?? "",
     excusal_reason: row.excusal_reason ?? "",
   };
+}
+
+/** One CSV data line (no header). */
+export function complianceRowToCsvLine(row: EmployeeCompliance): string {
+  const o = complianceRowToCsv(row);
+  return COMPLIANCE_CSV_COLUMNS.map((k) => escapeCsvCell(o[k])).join(",");
+}
+
+/** Full CSV document including header row. */
+export function complianceRowsToCsvText(rows: EmployeeCompliance[]): string {
+  const header = COMPLIANCE_CSV_COLUMNS.join(",");
+  const lines = rows.map((r) => complianceRowToCsvLine(r));
+  return [header, ...lines].join("\n");
 }

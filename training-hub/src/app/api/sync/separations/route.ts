@@ -56,6 +56,7 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 import { requireSyncToken } from "@/lib/sync-auth";
 import { createServerClient } from "@/lib/supabase";
 import { updateEmployee } from "@/lib/db/employees";
+import { upsertSeparationTrackerAuditFromSync } from "@/lib/db/trackers";
 import type { Employee } from "@/types/database";
 
 interface SeparationInput {
@@ -124,6 +125,25 @@ function findMatch(
   }
 
   return null;
+}
+
+async function recordSeparationTrackerAuditIfAnchored(
+  input: SeparationInput,
+  result: SeparationResult
+) {
+  if (!input.sheet || input.row_number == null || input.row_number < 1) return;
+  const noteParts = [result.match_type && `match=${result.match_type}`, result.message].filter(Boolean);
+  const notes = noteParts.length > 0 ? noteParts.join(" · ").slice(0, 4000) : null;
+  await upsertSeparationTrackerAuditFromSync({
+    fy_sheet: input.sheet,
+    row_number: input.row_number,
+    last_name: input.last_name,
+    first_name: input.first_name,
+    date_of_separation: input.date_of_separation,
+    employee_id: result.employee_id,
+    sync_status: result.status,
+    notes,
+  });
 }
 
 export const POST = withApiHandler(async (req) => {
@@ -208,26 +228,30 @@ export const POST = withApiHandler(async (req) => {
 
     if (!match) {
       summary.no_match += 1;
-      results.push({
+      const nm: SeparationResult = {
         ...base,
         status: "no_match",
         employee_id: null,
         match_type: null,
         message: "No active employee matched the given name",
-      });
+      };
+      results.push(nm);
+      await recordSeparationTrackerAuditIfAnchored(input, nm);
       continue;
     }
 
     const emp = match.employee;
     if (!emp.is_active) {
       summary.already_inactive += 1;
-      results.push({
+      const ai: SeparationResult = {
         ...base,
         status: "already_inactive",
         employee_id: emp.id,
         match_type: match.matchType,
         message: "Employee was already inactive; nothing to do",
-      });
+      };
+      results.push(ai);
+      await recordSeparationTrackerAuditIfAnchored(input, ai);
       continue;
     }
 
@@ -237,22 +261,26 @@ export const POST = withApiHandler(async (req) => {
         terminated_at: new Date(`${input.date_of_separation}T00:00:00Z`).toISOString(),
       })) as Employee;
       summary.synced += 1;
-      results.push({
+      const ok: SeparationResult = {
         ...base,
         status: "synced",
         employee_id: updated.id,
         match_type: match.matchType,
         message: null,
-      });
+      };
+      results.push(ok);
+      await recordSeparationTrackerAuditIfAnchored(input, ok);
     } catch (err) {
       summary.failed += 1;
-      results.push({
+      const fl: SeparationResult = {
         ...base,
         status: "failed",
         employee_id: emp.id,
         match_type: match.matchType,
         message: err instanceof Error ? err.message : "unknown error",
-      });
+      };
+      results.push(fl);
+      await recordSeparationTrackerAuditIfAnchored(input, fl);
     }
   }
 

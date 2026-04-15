@@ -27,25 +27,23 @@ export default function NewHiresPage() {
   const [divisionFilter, setDivisionFilter] = useState("all");
   const { data, loading, error } = useFetch<NewHiresData>(`/api/new-hires?r=${refreshKey}`);
 
+  const divisionOptions = useMemo(() => {
+    if (!data?.newHires?.length) return [];
+    return [...new Set(data.newHires.map((n) => n.division).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  }, [data]);
+
+  const filtered = useMemo(() => {
+    if (!data?.newHires) return [];
+    return data.newHires.filter((hire) => {
+      const matchesSearch = !search || hire.name.toLowerCase().includes(search.toLowerCase());
+      const matchesDivision = divisionFilter === "all" || hire.division === divisionFilter;
+      return matchesSearch && matchesDivision;
+    });
+  }, [data, search, divisionFilter]);
+
   if (loading) return <Loading message="Loading new-hire tracker..." />;
   if (error) return <ErrorState message={error} />;
   if (!data) return null;
-
-  const divisionOptions = useMemo(
-    () =>
-      [...new Set(data.newHires.map((n) => n.division).filter(Boolean))].sort((a, b) =>
-        a.localeCompare(b)
-      ),
-    [data.newHires]
-  );
-
-  const filtered = data.newHires.filter((hire) => {
-    const matchesSearch =
-      !search || hire.name.toLowerCase().includes(search.toLowerCase());
-    const matchesDivision =
-      divisionFilter === "all" || hire.division === divisionFilter;
-    return matchesSearch && matchesDivision;
-  });
 
   return (
     <div className="max-w-7xl mx-auto space-y-4">

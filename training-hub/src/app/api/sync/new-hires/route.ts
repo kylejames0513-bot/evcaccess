@@ -62,6 +62,7 @@ import {
 } from "@/lib/db/employees";
 import { buildNameAliases } from "@/lib/resolver/name-match";
 import type { Employee, EmployeeUpdate } from "@/types/database";
+import { upsertNewHireTrackerAuditFromSync } from "@/lib/db/trackers";
 
 interface NewHireInput {
   last_name: string;
@@ -101,6 +102,25 @@ function nullableString(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const trimmed = v.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+async function recordNewHireTrackerAuditIfAnchored(input: NewHireInput, result: NewHireResult) {
+  if (!input.sheet || input.row_number == null || input.row_number < 1) return;
+  await upsertNewHireTrackerAuditFromSync({
+    sheet: input.sheet,
+    row_number: input.row_number,
+    last_name: input.last_name,
+    first_name: input.first_name,
+    hire_date: input.hire_date,
+    paylocity_id: input.paylocity_id,
+    division: input.division,
+    department: input.department,
+    position: input.position,
+    job_title: input.job_title,
+    employee_id: result.employee_id,
+    hubSyncStatus: result.status,
+    hubMessage: result.message,
+  });
 }
 
 export const POST = withApiHandler(async (req) => {
@@ -190,12 +210,14 @@ export const POST = withApiHandler(async (req) => {
         } else if (candidates.length > 1) {
           // Ambiguous — don't guess. Punt to the operator.
           summary.ambiguous += 1;
-          results.push({
+          const r: NewHireResult = {
             ...base,
             status: "ambiguous",
             employee_id: null,
             message: `${candidates.length} active/inactive employees match this name; resolve manually in /review`,
-          });
+          };
+          results.push(r);
+          await recordNewHireTrackerAuditIfAnchored(input, r);
           continue;
         }
       }
@@ -220,12 +242,14 @@ export const POST = withApiHandler(async (req) => {
           is_active: true,
         });
         summary.created += 1;
-        results.push({
+        const createdRes: NewHireResult = {
           ...base,
           status: "created",
           employee_id: created.id,
           message: null,
-        });
+        };
+        results.push(createdRes);
+        await recordNewHireTrackerAuditIfAnchored(input, createdRes);
         continue;
       }
 
@@ -249,12 +273,14 @@ export const POST = withApiHandler(async (req) => {
         patch.reactivated_at = new Date().toISOString();
         const updated = await updateEmployee(existing.id, patch);
         summary.reactivated += 1;
-        results.push({
+        const reactRes: NewHireResult = {
           ...base,
           status: "reactivated",
           employee_id: updated.id,
           message: "Existing inactive profile reactivated; training history preserved",
-        });
+        };
+        results.push(reactRes);
+        await recordNewHireTrackerAuditIfAnchored(input, reactRes);
         continue;
       }
 
@@ -262,30 +288,36 @@ export const POST = withApiHandler(async (req) => {
       if (Object.keys(patch).length > 0) {
         const updated = await updateEmployee(existing.id, patch);
         summary.updated += 1;
-        results.push({
+        const updRes: NewHireResult = {
           ...base,
           status: "updated",
           employee_id: updated.id,
           message: "Filled missing fields without overwriting operator data",
-        });
+        };
+        results.push(updRes);
+        await recordNewHireTrackerAuditIfAnchored(input, updRes);
         continue;
       }
 
       summary.unchanged += 1;
-      results.push({
+      const sameRes: NewHireResult = {
         ...base,
         status: "unchanged",
         employee_id: existing.id,
         message: "Employee already exists with all fields populated",
-      });
+      };
+      results.push(sameRes);
+      await recordNewHireTrackerAuditIfAnchored(input, sameRes);
     } catch (err) {
       summary.failed += 1;
-      results.push({
+      const failRes: NewHireResult = {
         ...base,
         status: "failed",
         employee_id: null,
         message: err instanceof Error ? err.message : "unknown error",
-      });
+      };
+      results.push(failRes);
+      await recordNewHireTrackerAuditIfAnchored(input, failRes);
     }
   }
 

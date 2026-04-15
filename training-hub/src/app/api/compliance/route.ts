@@ -1,4 +1,9 @@
-import { listCompliance, getComplianceSummary, fixSharedColumnKeyCompliance } from "@/lib/db/compliance";
+import {
+  listCompliance,
+  getComplianceSummary,
+  fixSharedColumnKeyCompliance,
+  complianceRowsToCsvText,
+} from "@/lib/db/compliance";
 import { classifyTier } from "@/lib/notifications/tiers";
 import { withApiHandler } from "@/lib/api-handler";
 
@@ -7,8 +12,9 @@ import { withApiHandler } from "@/lib/api-handler";
  *
  * Query params:
  *   department, position, status, training_type_id, employee_id
+ *   format=csv — same filters; returns text/csv with columns matching `complianceRowToCsv`.
  *
- * Returns:
+ * Returns (JSON default):
  *   {
  *     rows:    EmployeeCompliance[]
  *     summary: ComplianceSummary
@@ -28,6 +34,20 @@ export const GET = withApiHandler(async (req) => {
       : undefined,
     employeeId: params.get("employee_id") ?? undefined,
   };
+
+  if (params.get("format") === "csv") {
+    const rawRows = await listCompliance(filters);
+    const rows = await fixSharedColumnKeyCompliance(rawRows);
+    const body = complianceRowsToCsvText(rows);
+    const date = new Date().toISOString().slice(0, 10);
+    return new Response(body, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="compliance_${date}.csv"`,
+      },
+    });
+  }
 
   const [rawRows, summary] = await Promise.all([
     listCompliance(filters),

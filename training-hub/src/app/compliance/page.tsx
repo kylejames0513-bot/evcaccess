@@ -2,14 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Download } from "lucide-react";
+import { Loading, ErrorState } from "@/components/ui/DataState";
+import type { NotificationTier } from "@/lib/notifications/tiers";
+
+interface TierPayload {
+  tier: NotificationTier;
+  days_until: number | null;
+  days_overdue: number | null;
+}
 
 interface ComplianceRow {
   employee_id: string | null;
   first_name: string | null;
   last_name: string | null;
   department: string | null;
+  division: string | null;
   position: string | null;
+  job_title: string | null;
   paylocity_id: string | null;
   training_type_id: number | null;
   training_name: string | null;
@@ -22,6 +32,7 @@ interface ComplianceRow {
   due_in_30: boolean | null;
   due_in_60: boolean | null;
   due_in_90: boolean | null;
+  tier?: TierPayload;
 }
 
 interface EmployeeGroup {
@@ -29,6 +40,8 @@ interface EmployeeGroup {
   first_name: string;
   last_name: string;
   department: string;
+  division: string;
+  job_title: string;
   position: string;
   paylocity_id: string;
   trainings: ComplianceRow[];
@@ -43,15 +56,39 @@ interface Summary {
   tier_counts: { due_30: number; due_60: number; due_90: number; overdue: number };
 }
 
+interface TrainingTypeOption {
+  id: number;
+  name: string;
+}
+
 export default function CompliancePage() {
   const [rows, setRows] = useState<ComplianceRow[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [department, setDepartment] = useState("");
   const [position, setPosition] = useState("");
   const [status, setStatus] = useState("");
+  const [trainingTypeId, setTrainingTypeId] = useState("");
+  const [employeeId, setEmployeeId] = useState("");
+  const [trainingTypes, setTrainingTypes] = useState<TrainingTypeOption[]>([]);
+  const [compact, setCompact] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch("/api/training-types");
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || "Failed to load training types");
+        const list = (j.training_types ?? []) as { id: number; name: string }[];
+        setTrainingTypes(list.map((t) => ({ id: t.id, name: t.name })));
+      } catch {
+        /* optional filter; leave empty */
+      }
+    })();
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +98,8 @@ export default function CompliancePage() {
       if (department) params.set("department", department);
       if (position) params.set("position", position);
       if (status) params.set("status", status);
+      if (trainingTypeId) params.set("training_type_id", trainingTypeId);
+      if (employeeId.trim()) params.set("employee_id", employeeId.trim());
       const r = await fetch(`/api/compliance?${params.toString()}`);
       const j = await r.json();
       if (j.error) throw new Error(j.error);
@@ -71,13 +110,12 @@ export default function CompliancePage() {
     } finally {
       setLoading(false);
     }
-  }, [department, position, status]);
+  }, [department, position, status, trainingTypeId, employeeId]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  // Group rows by employee
   const employees = useMemo(() => {
     const statusRank: Record<string, number> = { expired: 0, expiring_soon: 1, needed: 2, excused: 3, current: 4 };
     const map = new Map<string, EmployeeGroup>();
@@ -91,6 +129,8 @@ export default function CompliancePage() {
           first_name: r.first_name ?? "",
           last_name: r.last_name ?? "",
           department: r.department ?? "",
+          division: r.division ?? "",
+          job_title: r.job_title ?? "",
           position: r.position ?? "",
           paylocity_id: r.paylocity_id ?? "",
           trainings: [],
@@ -113,8 +153,12 @@ export default function CompliancePage() {
   const departments = useMemo(() => {
     const set = new Set<string>();
     rows.forEach((r) => r.department && set.add(r.department));
+    rows.forEach((r) => r.division && set.add(r.division));
     return [...set].sort();
   }, [rows]);
+
+  const hasActiveFilters =
+    Boolean(department) || Boolean(position) || Boolean(status) || Boolean(trainingTypeId) || Boolean(employeeId.trim());
 
   function toggleExpanded(eid: string) {
     const next = new Set(expanded);
@@ -123,39 +167,59 @@ export default function CompliancePage() {
     setExpanded(next);
   }
 
-  function exportCsv() {
-    const header = [
-      "paylocity_id", "last_name", "first_name", "department", "position",
-      "training_name", "status", "completion_date", "expiration_date",
-      "days_overdue", "completion_source", "excusal_reason",
-    ];
-    const lines = [header.join(",")];
-    for (const r of rows) {
-      lines.push(
-        header.map((k) => {
-          const v = (r as unknown as Record<string, unknown>)[k];
-          if (v == null) return "";
-          const s = String(v);
-          return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
-        }).join(",")
-      );
+  async function exportCsv() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (department) params.set("department", department);
+      if (position) params.set("position", position);
+      if (status) params.set("status", status);
+      if (trainingTypeId) params.set("training_type_id", trainingTypeId);
+      if (employeeId.trim()) params.set("employee_id", employeeId.trim());
+      params.set("format", "csv");
+      const r = await fetch(`/api/compliance?${params.toString()}`);
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error((j as { error?: string }).error || `Export failed (${r.status})`);
+      }
+      const blob = await r.blob();
+      const cd = r.headers.get("Content-Disposition");
+      const match = cd?.match(/filename="([^"]+)"/);
+      const filename = match?.[1] ?? `compliance_${new Date().toISOString().slice(0, 10)}.csv`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setExporting(false);
     }
-    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `compliance_${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
   }
+
+  const cell = compact ? "px-3 py-2" : "px-4 py-3";
+  const cellSm = compact ? "px-3 py-1.5" : "px-4 py-2";
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Compliance</h1>
-        {summary && (
-          <p className="mt-1 text-sm text-slate-500">{summary.total_active_employees} active employees</p>
-        )}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Compliance</h1>
+          {summary && (
+            <p className="mt-1 text-sm text-slate-500">{summary.total_active_employees} active employees</p>
+          )}
+        </div>
+        <label className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer select-none shrink-0">
+          <input
+            type="checkbox"
+            checked={compact}
+            onChange={(e) => setCompact(e.target.checked)}
+            className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+          />
+          Compact rows
+        </label>
       </div>
 
       {summary && (
@@ -167,137 +231,242 @@ export default function CompliancePage() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-wrap gap-4 items-end">
-        <label className="block">
-          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Department</span>
-          <select
-            value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-            className="mt-1 block w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-          >
-            <option value="">All</option>
-            {departments.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Position</span>
-          <input
-            type="text"
-            value={position}
-            onChange={(e) => setPosition(e.target.value)}
-            placeholder="filter..."
-            className="mt-1 block w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-          />
-        </label>
-        <label className="block">
-          <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Status</span>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className="mt-1 block w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-          >
-            <option value="">All</option>
-            <option value="current">Current</option>
-            <option value="expiring_soon">Expiring soon</option>
-            <option value="expired">Expired</option>
-            <option value="needed">Needed</option>
-            <option value="excused">Excused</option>
-          </select>
-        </label>
-        <div className="ml-auto">
-          <button type="button" onClick={exportCsv} className="px-4 py-2 border border-slate-200 bg-white rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
-            Export CSV
-          </button>
+      {summary && (
+        <div>
+          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Due windows (employees)</h2>
+          <p className="text-xs text-slate-400 mb-3">
+            Counts reflect how many employees have at least one training in each window (same ladder as notifications: overdue,
+            then 1–30, 31–60, 61–90 days to expiration).
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <Stat label="Overdue" value={summary.tier_counts.overdue} color="red" />
+            <Stat label="Due in 30 days" value={summary.tier_counts.due_30} color="amber" />
+            <Stat label="Due in 31–60 days" value={summary.tier_counts.due_60} color="yellow" />
+            <Stat label="Due in 61–90 days" value={summary.tier_counts.due_90} color="blue" />
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl border border-slate-200 px-4 py-3 space-y-3">
+        <div className="flex flex-wrap gap-4 items-end">
+          <label className="block min-w-[140px] flex-1 sm:flex-none">
+            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Department / division</span>
+            <select
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+              className="mt-1 block w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="">All</option>
+              {departments.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block min-w-[120px] flex-1 sm:flex-none">
+            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Position</span>
+            <input
+              type="text"
+              value={position}
+              onChange={(e) => setPosition(e.target.value)}
+              placeholder="contains…"
+              className="mt-1 block w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            />
+          </label>
+          <label className="block min-w-[120px] flex-1 sm:flex-none">
+            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Status</span>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="mt-1 block w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="">All</option>
+              <option value="current">Current</option>
+              <option value="expiring_soon">Expiring soon</option>
+              <option value="expired">Expired</option>
+              <option value="needed">Needed</option>
+              <option value="excused">Excused</option>
+            </select>
+          </label>
+          <label className="block min-w-[180px] flex-1 sm:flex-none">
+            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Training</span>
+            <select
+              value={trainingTypeId}
+              onChange={(e) => setTrainingTypeId(e.target.value)}
+              className="mt-1 block w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="">All types</option>
+              {trainingTypes.map((t) => (
+                <option key={t.id} value={String(t.id)}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block min-w-[200px] flex-1 sm:flex-none">
+            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Employee ID</span>
+            <input
+              type="text"
+              value={employeeId}
+              onChange={(e) => setEmployeeId(e.target.value)}
+              placeholder="UUID to narrow to one person"
+              className="mt-1 block w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-mono text-xs"
+            />
+          </label>
+          <div className="flex flex-wrap gap-2 ml-auto w-full sm:w-auto justify-end">
+            <button
+              type="button"
+              onClick={() => void exportCsv()}
+              disabled={exporting || loading}
+              className="inline-flex items-center gap-2 px-4 py-2 border border-slate-200 bg-white rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" />
+              {exporting ? "Exporting…" : "Export CSV"}
+            </button>
+          </div>
         </div>
       </div>
 
-      {error && <div className="text-red-600 text-sm">{error}</div>}
-      {loading && <div className="text-slate-500 text-sm">Loading...</div>}
+      {error && <ErrorState message={error} />}
+      {loading && !error && <Loading message="Loading compliance…" />}
 
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-100">
-              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 w-8"></th>
-              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Employee</th>
-              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Department</th>
-              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Position</th>
-              <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">Status</th>
-              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400">Compliance</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {employees.map((emp) => {
-              const isOpen = expanded.has(emp.employee_id);
-              return (
-                <EmployeeRow
-                  key={emp.employee_id}
-                  emp={emp}
-                  isOpen={isOpen}
-                  onToggle={() => toggleExpanded(emp.employee_id)}
-                />
-              );
-            })}
-            {employees.length === 0 && !loading && (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No employees match the filters.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {!loading && !error && (
+        <div className="-mx-4 sm:mx-0 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          <table className="min-w-[720px] w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50/80">
+                <th className={`${cell} text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 w-8`} />
+                <th className={`${cell} text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400`}>
+                  Employee
+                </th>
+                <th className={`${cell} text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 hidden md:table-cell`}>
+                  Job title
+                </th>
+                <th className={`${cell} text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400`}>
+                  Dept
+                </th>
+                <th className={`${cell} text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 hidden lg:table-cell`}>
+                  Position
+                </th>
+                <th className={`${cell} text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400`}>Status</th>
+                <th className={`${cell} text-right text-[11px] font-semibold uppercase tracking-wider text-slate-400`}>Done</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {employees.map((emp) => {
+                const isOpen = expanded.has(emp.employee_id);
+                return (
+                  <EmployeeRow
+                    key={emp.employee_id}
+                    emp={emp}
+                    isOpen={isOpen}
+                    onToggle={() => toggleExpanded(emp.employee_id)}
+                    cell={cell}
+                    cellSm={cellSm}
+                  />
+                );
+              })}
+              {employees.length === 0 && (
+                <tr>
+                  <td colSpan={7} className={`${cell} text-center text-slate-500`}>
+                    {hasActiveFilters
+                      ? "No employees match the current filters. Try clearing a filter."
+                      : "No compliance rows returned. If you expect data, verify employees and required trainings in Supabase."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
-function EmployeeRow({ emp, isOpen, onToggle }: { emp: EmployeeGroup; isOpen: boolean; onToggle: () => void }) {
+function EmployeeRow({
+  emp,
+  isOpen,
+  onToggle,
+  cell,
+  cellSm,
+}: {
+  emp: EmployeeGroup;
+  isOpen: boolean;
+  onToggle: () => void;
+  cell: string;
+  cellSm: string;
+}) {
   return (
     <>
       <tr className="hover:bg-slate-50 cursor-pointer transition-colors" onClick={onToggle}>
-        <td className="px-4 py-3 text-slate-400">
+        <td className={`${cell} text-slate-400 align-middle`}>
           {isOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </td>
-        <td className="px-4 py-3">
-          <Link href={`/employees/${emp.employee_id}`} className="text-blue-600 hover:underline font-medium" onClick={(e) => e.stopPropagation()}>
+        <td className={`${cell} align-middle`}>
+          <Link
+            href={`/employees/${emp.employee_id}`}
+            className="text-blue-600 hover:underline font-medium"
+            onClick={(e) => e.stopPropagation()}
+          >
             {emp.last_name}, {emp.first_name}
           </Link>
           {emp.paylocity_id && <span className="text-slate-400 text-xs ml-1.5">({emp.paylocity_id})</span>}
         </td>
-        <td className="px-4 py-3 text-slate-500">{emp.department}</td>
-        <td className="px-4 py-3 text-slate-500">{emp.position}</td>
-        <td className="px-4 py-3"><StatusBadge status={emp.worstStatus} /></td>
-        <td className="px-4 py-3 text-right">
-          <span className={`text-sm font-semibold tabular-nums ${emp.completedCount === emp.totalCount ? "text-emerald-700" : "text-slate-900"}`}>
+        <td className={`${cell} text-slate-600 hidden md:table-cell align-middle`}>{emp.job_title || "—"}</td>
+        <td className={`${cell} text-slate-500 align-middle`}>
+          <span className="line-clamp-2">{emp.department || emp.division || "—"}</span>
+        </td>
+        <td className={`${cell} text-slate-500 hidden lg:table-cell align-middle`}>{emp.position}</td>
+        <td className={`${cell} align-middle`}>
+          <StatusBadge status={emp.worstStatus} />
+        </td>
+        <td className={`${cell} text-right align-middle`}>
+          <span
+            className={`text-sm font-semibold tabular-nums ${emp.completedCount === emp.totalCount ? "text-emerald-700" : "text-slate-900"}`}
+          >
             {emp.completedCount}/{emp.totalCount}
           </span>
         </td>
       </tr>
-      {isOpen && emp.trainings.map((t, i) => (
-        <tr key={`${emp.employee_id}-${t.training_type_id}-${i}`} className="bg-slate-50/60">
-          <td className="px-4 py-2"></td>
-          <td className="px-4 py-2 pl-10 text-slate-700" colSpan={3}>
-            {t.training_type_id ? (
-              <Link href={`/trainings/${t.training_type_id}`} className="text-blue-600 hover:underline text-xs">
-                {t.training_name}
-              </Link>
-            ) : (
-              <span className="text-xs">{t.training_name}</span>
-            )}
-            <span className="ml-3 text-xs text-slate-500">
-              {t.completion_date ?? "—"}
-              {t.expiration_date && <span className="text-slate-400"> → {t.expiration_date}</span>}
-              {t.days_overdue != null && t.days_overdue > 0 && (
-                <span className="text-red-600 font-medium ml-1">({t.days_overdue}d overdue)</span>
+      {isOpen &&
+        emp.trainings.map((t, i) => (
+          <tr key={`${emp.employee_id}-${t.training_type_id}-${i}`} className="bg-slate-50/60">
+            <td className={cellSm} />
+            <td className={`${cellSm} pl-8 md:pl-10 text-slate-700`} colSpan={4}>
+              {t.training_type_id ? (
+                <Link href={`/trainings/${t.training_type_id}`} className="text-blue-600 hover:underline text-xs">
+                  {t.training_name}
+                </Link>
+              ) : (
+                <span className="text-xs">{t.training_name}</span>
               )}
-              {t.status === "excused" && t.excusal_reason && (
-                <span className="text-slate-400 ml-1">· {t.excusal_reason}</span>
-              )}
-            </span>
-          </td>
-          <td className="px-4 py-2"><StatusBadge status={t.status} /></td>
-          <td className="px-4 py-2 text-right text-xs text-slate-400">{t.completion_source ?? ""}</td>
-        </tr>
-      ))}
+              <span className="ml-2 block sm:inline text-xs text-slate-500 mt-0.5 sm:mt-0">
+                {t.completion_date ?? "—"}
+                {t.expiration_date && <span className="text-slate-400"> → {t.expiration_date}</span>}
+                {t.days_overdue != null && t.days_overdue > 0 && (
+                  <span className="text-red-600 font-medium ml-1">({t.days_overdue}d overdue)</span>
+                )}
+                {t.tier?.tier === "due_30" && (
+                  <span className="text-amber-700 font-medium ml-1">(due ≤30d)</span>
+                )}
+                {t.tier?.tier === "due_60" && (
+                  <span className="text-amber-600 ml-1">(due 31–60d)</span>
+                )}
+                {t.tier?.tier === "due_90" && (
+                  <span className="text-slate-600 ml-1">(due 61–90d)</span>
+                )}
+                {t.status === "excused" && t.excusal_reason && (
+                  <span className="text-slate-400 ml-1">· {t.excusal_reason}</span>
+                )}
+              </span>
+            </td>
+            <td className={cellSm}>
+              <StatusBadge status={t.status} />
+            </td>
+            <td className={`${cellSm} text-right text-xs text-slate-400`}>{t.completion_source ?? ""}</td>
+          </tr>
+        ))}
     </>
   );
 }
@@ -319,7 +488,9 @@ function Stat({ label, value, color }: { label: string; value: number; color: st
   };
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4 flex items-start gap-3">
-      <div className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${iconColors[color] ?? "bg-slate-50 text-slate-500"}`}>
+      <div
+        className={`flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${iconColors[color] ?? "bg-slate-50 text-slate-500"}`}
+      >
         <span className={`block w-2.5 h-2.5 rounded-full ${dotColor[color] ?? "bg-slate-400"}`} />
       </div>
       <div className="min-w-0">
@@ -339,6 +510,16 @@ function StatusBadge({ status }: { status: string | null }) {
     needed: "bg-orange-50 text-orange-700 ring-1 ring-orange-600/10",
     excused: "bg-slate-50 text-slate-600 ring-1 ring-slate-500/10",
   };
-  const labels: Record<string, string> = { current: "current", expiring_soon: "expiring", expired: "expired", needed: "needed", excused: "excused" };
-  return <span className={`inline-flex items-center text-xs font-medium rounded-md px-2 py-0.5 ${colors[status] ?? colors.excused}`}>{labels[status] ?? status}</span>;
+  const labels: Record<string, string> = {
+    current: "current",
+    expiring_soon: "expiring",
+    expired: "expired",
+    needed: "needed",
+    excused: "excused",
+  };
+  return (
+    <span className={`inline-flex items-center text-xs font-medium rounded-md px-2 py-0.5 ${colors[status] ?? colors.excused}`}>
+      {labels[status] ?? status}
+    </span>
+  );
 }
