@@ -23,7 +23,7 @@ Files tracked at the root of [kylejames0513-bot/evcaccess](https://github.com/ky
 |------|--------|
 | **Hub sync** | `POST /api/sync/separations`, `GET /api/sync/roster` ([`sync-contract.md`](sync-contract.md)) |
 | **Hub UI** | In-app audit: [`/tracker/separations`](../src/app/tracker/separations/page.tsx) |
-| **FY tabs** | One sheet per fiscal year, named like `FY 2026 (Jan26-Dec26)` (see `fyNames` list in reference `HubSync.bas`). Current FY sheet is chosen from workbook logic (e.g. **Dashboard** cell **B5** in reference). |
+| **FY tabs** | One sheet per fiscal year, named like `FY 2026 (Jan26-Dec26)`. Default macro (`PushSeparationsToHub`) scans **all FY tabs** each run; optional helper `PushActiveFiscalSheetToHub` targets one resolved FY tab (active sheet, Dashboard pointer, or first FY tab). |
 | **Data layout** | Name **column A**, Date of Separation **B**, Date of Hire **C**; data rows **9–413** on each FY sheet (reference constants). |
 | **Internal sheets** | **Sync Log**, **Headcount Ledger** (VBA-managed). **`Hub Audit Pull`** — created/refreshed by macro **`PullSeparationAuditFromHub`** (`GET /api/sync/separation-audit`). |
 

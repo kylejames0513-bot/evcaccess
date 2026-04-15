@@ -32,5 +32,7 @@ Both push macros support:
 ## Workbook behavior included in these modules
 
 - **New hire tracker**: discovers all month sheets dynamically and excludes operational tabs (`NH Hub Log`, `Sync Log`, `Headcount`, `Dashboard`, `Instructions`, `README`).
-- **Separation tracker**: picks the FY sheet from active tab, `Dashboard!B5`, or first tab beginning with `FY`.
+- **Separation tracker**:
+  - `PushSeparationsToHub` scans **all FY tabs** in the workbook (`FY*`) and pushes one combined batch.
+  - `PushActiveFiscalSheetToHub` targets one FY tab (active tab / dashboard target / first FY tab) for troubleshooting or partial reruns.
 - Writes sheet/row anchors in payload so hub tracker audit rows stay aligned with Excel rows.
