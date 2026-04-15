@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { UserMinus, Pencil, Plus, Trash2, X, Check } from "lucide-react";
+import { UserMinus, Pencil, Plus, Trash2, X, Check, RefreshCw } from "lucide-react";
 import { Loading, ErrorState } from "@/components/ui/DataState";
 
 type Row = {
@@ -29,6 +29,7 @@ export default function TrackerSeparationsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>({});
   const [saving, setSaving] = useState(false);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     fy_sheet: "FY 2026 (Jan26-Dec26)",
@@ -161,6 +162,23 @@ export default function TrackerSeparationsPage() {
     }
   }
 
+  async function resyncRow(id: string) {
+    setSyncingId(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/tracker-rows/separations/${id}/resync`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Re-sync failed");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Re-sync failed");
+    } finally {
+      setSyncingId(null);
+    }
+  }
+
   if (loading) return <Loading message="Loading separation rows..." />;
   if (error && rows.length === 0) return <ErrorState message={error} />;
 
@@ -176,6 +194,7 @@ export default function TrackerSeparationsPage() {
           <code className="text-xs bg-slate-100 px-1 rounded">/api/sync/separations</code>; when{" "}
           <code className="text-xs bg-slate-100 px-1 rounded">sheet</code> and{" "}
           <code className="text-xs bg-slate-100 px-1 rounded">row_number</code> are sent, the hub upserts an audit row here.
+          Edit a row name/date and click <strong>Re-sync</strong> to re-run that single row from the dashboard, then pull it back to Excel via separation audit.
         </p>
       </div>
 
@@ -344,6 +363,15 @@ export default function TrackerSeparationsPage() {
                     {r.notes ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      disabled={syncingId === r.id}
+                      onClick={() => void resyncRow(r.id)}
+                      className="p-1.5 text-emerald-700 hover:bg-emerald-50 rounded inline-flex mr-1 disabled:opacity-50"
+                      title="Re-sync this row"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${syncingId === r.id ? "animate-spin" : ""}`} />
+                    </button>
                     <button
                       type="button"
                       onClick={() => startEdit(r)}

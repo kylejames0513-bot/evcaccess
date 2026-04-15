@@ -60,6 +60,17 @@ export async function listSeparationTrackerRows(): Promise<SeparationTrackerRow[
   return (data ?? []) as SeparationTrackerRow[];
 }
 
+export async function getSeparationTrackerRowById(id: string): Promise<SeparationTrackerRow | null> {
+  const db = createServerClient();
+  const { data, error } = await db
+    .from("separation_tracker_rows")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data ?? null) as SeparationTrackerRow | null;
+}
+
 export async function insertSeparationTrackerRow(
   row: SeparationTrackerRowInsert
 ): Promise<SeparationTrackerRow> {
