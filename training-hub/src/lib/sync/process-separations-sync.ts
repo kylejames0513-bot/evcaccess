@@ -30,49 +30,74 @@ export interface SeparationResult {
   message: string | null;
 }
 
-type RosterEmp = {
+export interface SeparationRosterEmployee {
   id: string;
   first_name: string;
   last_name: string;
   is_active: boolean;
   terminated_at: string | null;
-};
-type ActiveRoster = RosterEmp[];
+}
+
+type Roster = SeparationRosterEmployee[];
+type SeparationMatchType = "exact" | "partial" | "last_only";
+type SeparationMatchOutcome =
+  | { kind: "single"; employee: SeparationRosterEmployee; matchType: SeparationMatchType }
+  | { kind: "ambiguous"; matchType: SeparationMatchType; candidates: SeparationRosterEmployee[] }
+  | { kind: "none" };
 
 function isYmd(s: unknown): s is string {
   return typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
-function findMatch(
-  roster: ActiveRoster,
+function normalize(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function resolveCandidateMatch(
+  candidates: SeparationRosterEmployee[],
+  matchType: SeparationMatchType
+): SeparationMatchOutcome {
+  if (candidates.length === 0) return { kind: "none" };
+
+  // Prefer the one active profile when exactly one is active.
+  const active = candidates.filter((c) => c.is_active);
+  if (active.length === 1) {
+    return { kind: "single", employee: active[0], matchType };
+  }
+
+  // No unique active match; accept a single inactive profile.
+  if (active.length === 0 && candidates.length === 1) {
+    return { kind: "single", employee: candidates[0], matchType };
+  }
+
+  return { kind: "ambiguous", matchType, candidates };
+}
+
+export function resolveSeparationMatch(
+  roster: Roster,
   lastName: string,
   firstName: string
-): { employee: RosterEmp; matchType: "exact" | "partial" | "last_only" } | null {
-  const last = lastName.trim().toLowerCase();
-  const first = firstName.trim().toLowerCase();
-  if (last.length === 0) return null;
+): SeparationMatchOutcome {
+  const last = normalize(lastName);
+  const first = normalize(firstName);
+  if (last.length === 0) return { kind: "none" };
 
-  for (const emp of roster) {
-    if (emp.last_name.toLowerCase() === last && emp.first_name.toLowerCase() === first) {
-      return { employee: emp, matchType: "exact" };
-    }
-  }
+  const exact = roster.filter((emp) => normalize(emp.last_name) === last && normalize(emp.first_name) === first);
+  const exactOutcome = resolveCandidateMatch(exact, "exact");
+  if (exactOutcome.kind !== "none") return exactOutcome;
 
   if (first.length > 0) {
-    for (const emp of roster) {
-      const empFirst = emp.first_name.toLowerCase();
-      if (emp.last_name.toLowerCase() === last && empFirst.startsWith(first)) {
-        return { employee: emp, matchType: "partial" };
-      }
-    }
+    const partial = roster.filter((emp) => {
+      if (normalize(emp.last_name) !== last) return false;
+      const empFirst = normalize(emp.first_name);
+      return empFirst.startsWith(first);
+    });
+    const partialOutcome = resolveCandidateMatch(partial, "partial");
+    if (partialOutcome.kind !== "none") return partialOutcome;
   }
 
-  const lastOnly = roster.filter((emp) => emp.last_name.toLowerCase() === last);
-  if (lastOnly.length === 1) {
-    return { employee: lastOnly[0], matchType: "last_only" };
-  }
-
-  return null;
+  const lastOnly = roster.filter((emp) => normalize(emp.last_name) === last);
+  return resolveCandidateMatch(lastOnly, "last_only");
 }
 
 async function recordSeparationTrackerAuditIfAnchored(input: SeparationInput, result: SeparationResult) {
@@ -122,22 +147,21 @@ export function parseSeparationSyncPayload(body: unknown): SeparationInput[] {
   return inputs;
 }
 
-async function loadActiveRoster(): Promise<ActiveRoster> {
+async function loadRoster(): Promise<Roster> {
   const db = createServerClient();
-  const roster: ActiveRoster = [];
+  const roster: Roster = [];
   const PAGE = 1000;
   let offset = 0;
   for (;;) {
     const { data, error } = await db
       .from("employees")
       .select("id, first_name, last_name, is_active, terminated_at")
-      .eq("is_active", true)
       .range(offset, offset + PAGE - 1);
     if (error) {
       throw new ApiError(`failed to read roster: ${error.message}`, 500, "internal");
     }
     if (!data || data.length === 0) break;
-    roster.push(...(data as ActiveRoster));
+    roster.push(...(data as Roster));
     if (data.length < PAGE) break;
     offset += PAGE;
   }
@@ -154,7 +178,7 @@ export async function processSeparationSyncBatch(inputs: SeparationInput[]): Pro
     failed: number;
   };
 }> {
-  const roster = await loadActiveRoster();
+  const roster = await loadRoster();
   const results: SeparationResult[] = [];
   const summary = {
     synced: 0,
@@ -165,7 +189,7 @@ export async function processSeparationSyncBatch(inputs: SeparationInput[]): Pro
   };
 
   for (const input of inputs) {
-    const match = findMatch(roster, input.last_name, input.first_name);
+    const match = resolveSeparationMatch(roster, input.last_name, input.first_name);
     const base: Omit<SeparationResult, "status" | "employee_id" | "match_type" | "message"> = {
       sheet: input.sheet ?? null,
       row_number: input.row_number ?? null,
@@ -176,17 +200,33 @@ export async function processSeparationSyncBatch(inputs: SeparationInput[]): Pro
       },
     };
 
-    if (!match) {
+    if (match.kind === "none") {
       summary.no_match += 1;
       const nm: SeparationResult = {
         ...base,
         status: "no_match",
         employee_id: null,
         match_type: null,
-        message: "No active employee matched the given name",
+        message: "No employee matched the given name",
       };
       results.push(nm);
       await recordSeparationTrackerAuditIfAnchored(input, nm);
+      continue;
+    }
+
+    if (match.kind === "ambiguous") {
+      summary.ambiguous += 1;
+      const activeCount = match.candidates.filter((c) => c.is_active).length;
+      const inactiveCount = match.candidates.length - activeCount;
+      const amb: SeparationResult = {
+        ...base,
+        status: "ambiguous",
+        employee_id: null,
+        match_type: match.matchType,
+        message: `${match.candidates.length} ${match.matchType} matches found (${activeCount} active, ${inactiveCount} inactive); resolve manually`,
+      };
+      results.push(amb);
+      await recordSeparationTrackerAuditIfAnchored(input, amb);
       continue;
     }
 
