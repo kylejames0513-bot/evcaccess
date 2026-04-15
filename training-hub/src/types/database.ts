@@ -67,6 +67,14 @@ export type EmployeeCompliance = Tables<"employee_compliance">;
 export type EmployeeHistory = Tables<"employee_history">;
 export type MasterCompletion = Tables<"master_completions">;
 
+export type NewHireTrackerRow = Tables<"new_hire_tracker_rows">;
+export type NewHireTrackerRowInsert = TablesInsert<"new_hire_tracker_rows">;
+export type NewHireTrackerRowUpdate = TablesUpdate<"new_hire_tracker_rows">;
+
+export type SeparationTrackerRow = Tables<"separation_tracker_rows">;
+export type SeparationTrackerRowInsert = TablesInsert<"separation_tracker_rows">;
+export type SeparationTrackerRowUpdate = TablesUpdate<"separation_tracker_rows">;
+
 // Source enum (string union, not a Postgres enum) used by training_records,
 // training_aliases, excusals, imports, unresolved_people, unknown_trainings.
 export type ImportSource = "paylocity" | "phs" | "access" | "signin" | "manual" | "cutover";

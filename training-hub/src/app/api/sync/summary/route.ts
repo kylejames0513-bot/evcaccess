@@ -3,7 +3,7 @@ import { createServerClient } from "@/lib/supabase";
 import { getSyncLog } from "@/lib/hub-settings";
 import { computeDataHealthSummary } from "@/lib/data-health-summary";
 
-export const GET = withApiHandler(async () => {
+export const GET = withApiHandler(async (req) => {
   const db = createServerClient();
   const quality = await computeDataHealthSummary();
 

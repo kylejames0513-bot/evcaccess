@@ -1,0 +1,26 @@
+# Reference catalog (evcaccess backup branch)
+
+Local clone: `../evcaccess-reference` (branch `backup/main-before-rewrite-20260414`).
+
+## Supabase migrations
+
+44 SQL files copied from `evcaccess-reference/training-hub/supabase/migrations/` (`20260409010504_001_initial_schema.sql` … `20260414000200_compliance_view_expiring_90_days.sql`), plus this repo’s `20260415001000_hub_tracker_tables.sql` (`new_hire_tracker_rows`, `separation_tracker_rows`).
+
+## Excel / VBA contracts
+
+| Workbook | Module | Endpoints |
+|----------|--------|-----------|
+| FY Separation Summary | `scripts/separation-summary/HubSync.bas` | `POST /api/sync/separations`, `GET /api/sync/roster`, `GET /api/sync/roster?include_inactive=true` |
+| Monthly New Hire Tracker | `scripts/new-hire-tracker/HubNewHireSync.bas` | `POST /api/sync/new-hires`, `POST /api/sync/training-status` |
+
+Shared header: `x-hub-sync-token` → env `HUB_SYNC_TOKEN`.
+
+## Scripts (reference)
+
+- `scripts/cutover/` — historical bulk SQL (not replayed as migrations).
+- `scripts/separation-summary/` — xlsx tooling + `HubSync.bas`.
+- `scripts/new-hire-tracker/` — `HubNewHireSync.bas`, README.
+
+## Google Sheets
+
+Folder `evcaccess-reference/Google Sheets/` — inventory Apps Script / sheet IDs when wiring optional Sheets API.

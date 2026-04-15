@@ -21,6 +21,7 @@
 // service-role key is never embedded in the workbook.
 // ============================================================
 
+import { timingSafeEqual } from "node:crypto";
 import { ApiError } from "@/lib/api-handler";
 import type { NextRequest } from "next/server";
 
@@ -30,11 +31,7 @@ const TOKEN_HEADER = "x-hub-sync-token";
  * Throw ApiError(401) unless the request presents the correct
  * HUB_SYNC_TOKEN in the x-hub-sync-token header.
  *
- * Constant-time comparison is unnecessary here — tokens are long,
- * the attacker has no side channel to measure per-byte response
- * time over real-world network jitter, and a timing-safe compare
- * would just obscure the logic. If that becomes a concern later,
- * swap in crypto.timingSafeEqual.
+ * Uses timing-safe comparison when lengths match.
  */
 export function requireSyncToken(req: NextRequest): void {
   const expected = process.env.HUB_SYNC_TOKEN;
@@ -46,8 +43,11 @@ export function requireSyncToken(req: NextRequest): void {
       "internal"
     );
   }
-  const presented = req.headers.get(TOKEN_HEADER);
-  if (!presented || presented !== expected) {
+  const presented = req.headers.get(TOKEN_HEADER) ?? "";
+  const a = Buffer.from(presented, "utf8");
+  const b = Buffer.from(expected, "utf8");
+  const ok = a.length === b.length && timingSafeEqual(a, b);
+  if (!ok) {
     throw new ApiError("invalid or missing sync token", 401, "unauthorized");
   }
 }

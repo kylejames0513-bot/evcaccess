@@ -4,7 +4,14 @@ import { withApiHandler, ApiError } from "@/lib/api-handler";
 export const POST = withApiHandler(async (request) => {
   const body = await request.json();
   const providedPassword = typeof body.password === "string" ? body.password.trim() : "";
-  const expectedPassword = process.env.HR_PASSWORD?.trim() || "tennyson";
+  const expectedPassword = process.env.HR_PASSWORD?.trim() ?? "";
+  if (!expectedPassword) {
+    throw new ApiError(
+      "HR login is not configured (set HR_PASSWORD)",
+      503,
+      "internal"
+    );
+  }
   if (!providedPassword) {
     throw new ApiError("Password is required", 400, "missing_field");
   }
@@ -31,7 +38,7 @@ export const GET = withApiHandler(async () => {
   return {
     authenticated: session?.value === "authenticated",
     hasSupabaseSession: false,
-    legacyLoginEnabled: true,
+    legacyLoginEnabled: Boolean(process.env.HR_PASSWORD?.trim()),
   };
 });
 

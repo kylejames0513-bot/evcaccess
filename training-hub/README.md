@@ -1,73 +1,47 @@
-# Training Hub v2 (Hub-First)
+# Training Hub
 
-Training Hub has been rebuilt as a hub-first app:
+Next.js 16 + Supabase training compliance app (greenfield build, evolved from the reference clone in `../evcaccess-reference`).
 
-- Data is pushed into the hub through API endpoints
-- The dashboard reads and analyzes the hub state
-- A one-time run guard blocks duplicate pushes by `runId`
+## MCP (Cursor)
 
-## Run locally
+Vercel + Supabase are configured under [`.cursor/mcp.json`](.cursor/mcp.json). See [`.cursor/MCP_SETUP.md`](.cursor/MCP_SETUP.md) to sign in from **Settings → Tools & MCP**.
+
+## Setup
+
+1. Copy `.env.local.example` to `.env.local` and set Supabase URL/keys, `HR_PASSWORD` (local default in the example is `tennyson`), and `HUB_SYNC_TOKEN`.
+2. Apply migrations: from repo root, use Supabase CLI `supabase db push` (or run SQL files in `supabase/migrations/` in order on your project).
+3. `npm ci` then `npm run dev`.
+
+## Scripts
+
+| Command        | Description              |
+|----------------|--------------------------|
+| `npm run dev`  | Local dev server          |
+| `npm run build`| Production build          |
+| `npm run lint` | ESLint                    |
+| `npm run typecheck` | TypeScript check     |
+| `npm test`     | Vitest (resolver + tiers) |
+
+## Excel sync
+
+See [docs/sync-contract.md](docs/sync-contract.md). VBA modules live under `../evcaccess-reference/scripts/`.
+
+## Push to GitHub
+
+This repo’s remote is **`origin`** → `https://github.com/kylejames0513-bot/training-hub.git`. If `git push` says **Repository not found**, create an empty repository on GitHub with that exact name under your account (no README/license), then run:
 
 ```bash
-npm install
-npm run dev
+git push -u origin main
 ```
 
-Open `http://localhost:3000`.
+If your repo URL or username differs, update the remote:
 
-## API flow
-
-### 1) Push records from Google Apps Script
-
-Endpoint: `POST /api/hub/push`
-
-Payload shape:
-
-```json
-{
-  "runId": "sheet-run-2026-04-14T18:40:00Z",
-  "source": "google-sheets",
-  "employees": [{ "employee_id": "E-1001", "name": "Jane Doe", "division": "Residential", "location": "North", "status": "active" }],
-  "records": [{ "employee_id": "E-1001", "training_key": "cpr", "completed_at": "2026-01-10", "expires_at": "2028-01-10", "source": "google-sheets" }]
-}
+```bash
+git remote set-url origin https://github.com/YOUR_USER/YOUR_REPO.git
 ```
 
-`runId` is idempotent: the hub processes it once and rejects repeats.
+Use **Git Credential Manager** (default on Windows) or a **Personal Access Token** with `repo` scope if GitHub prompts for sign-in.
 
-### 2) Read state in the hub
+## Reference catalog
 
-Endpoint: `GET /api/hub/state`
-
-Returns:
-
-- `data` (employees + records currently loaded)
-- `summary` (counts + warnings)
-- `sync` (last run metadata and processed run IDs)
-
-## Google Apps Script example
-
-```javascript
-function pushTrainingHubRun() {
-  var runId = Utilities.formatDate(new Date(), "UTC", "yyyy-MM-dd'T'HH:mm:ss'Z'");
-  var payload = {
-    runId: "sheet-run-" + runId,
-    source: "google-sheets",
-    employees: [
-      { employee_id: "E-1001", name: "Jane Doe", division: "Residential", location: "North", status: "active" }
-    ],
-    records: [
-      { employee_id: "E-1001", training_key: "cpr", completed_at: "2026-01-10", expires_at: "2028-01-10", source: "google-sheets" }
-    ]
-  };
-
-  var response = UrlFetchApp.fetch("https://evcaccess.vercel.app/api/hub/push", {
-    method: "post",
-    contentType: "application/json",
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  });
-
-  Logger.log(response.getResponseCode());
-  Logger.log(response.getContentText());
-}
-```
+See [docs/REFERENCE_CATALOG.md](docs/REFERENCE_CATALOG.md).

@@ -598,6 +598,124 @@ export type Database = {
         }
         Relationships: []
       }
+      new_hire_tracker_rows: {
+        Row: {
+          id: string
+          sheet: string
+          row_number: number
+          section: string
+          last_name: string
+          first_name: string
+          hire_date: string
+          paylocity_id: string | null
+          division: string | null
+          department: string | null
+          position: string | null
+          job_title: string | null
+          status: string
+          notes: string | null
+          employee_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          sheet: string
+          row_number: number
+          section?: string
+          last_name: string
+          first_name: string
+          hire_date: string
+          paylocity_id?: string | null
+          division?: string | null
+          department?: string | null
+          position?: string | null
+          job_title?: string | null
+          status?: string
+          notes?: string | null
+          employee_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          sheet?: string
+          row_number?: number
+          section?: string
+          last_name?: string
+          first_name?: string
+          hire_date?: string
+          paylocity_id?: string | null
+          division?: string | null
+          department?: string | null
+          position?: string | null
+          job_title?: string | null
+          status?: string
+          notes?: string | null
+          employee_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "new_hire_tracker_rows_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      separation_tracker_rows: {
+        Row: {
+          id: string
+          fy_sheet: string
+          row_number: number
+          last_name: string
+          first_name: string
+          date_of_separation: string
+          employee_id: string | null
+          sync_status: string | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          fy_sheet: string
+          row_number: number
+          last_name: string
+          first_name: string
+          date_of_separation: string
+          employee_id?: string | null
+          sync_status?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          fy_sheet?: string
+          row_number?: number
+          last_name?: string
+          first_name?: string
+          date_of_separation?: string
+          employee_id?: string | null
+          sync_status?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "separation_tracker_rows_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       employee_compliance: {

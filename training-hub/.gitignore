@@ -30,8 +30,12 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files (keep *.example tracked)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
 # vercel
 .vercel
@@ -39,3 +43,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Other agents’ MCP installers (this repo uses .cursor/mcp.json)
+.codex/
+.gemini/
+.zed/
+.mcp.json
+opencode.json
+# MCPorter installer output (repo root only — do not use plain `config/` or `src/config` breaks)
+/config/
