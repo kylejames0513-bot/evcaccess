@@ -15,7 +15,7 @@ Files tracked at the root of [kylejames0513-bot/evcaccess](https://github.com/ky
 | **Header rows** | New-hire header row **4**; transfer section header row **58**. Column positions are resolved by **header text** where possible (fallback columns C–I in reference). |
 | **Macro log** | Optional sheet **`NH Hub Log`** — timestamps for push attempts (success/fail). Excluded from data-sheet discovery so it is never scanned as a month tab. |
 
-**VBA reference:** `evcaccess-reference/scripts/new-hire-tracker/HubNewHireSync.bas`
+**VBA reference:** [`../../scripts/new-hire-tracker/HubNewHireSync.bas`](../../scripts/new-hire-tracker/HubNewHireSync.bas) (import steps: [`vba-sync-setup.md`](vba-sync-setup.md))
 
 ## 2. `FY Separation Summary (3).xlsx`
 
@@ -27,7 +27,7 @@ Files tracked at the root of [kylejames0513-bot/evcaccess](https://github.com/ky
 | **Data layout** | Name **column A**, Date of Separation **B**, Date of Hire **C**; data rows **9–413** on each FY sheet (reference constants). |
 | **Internal sheets** | **Sync Log**, **Headcount Ledger** (VBA-managed). **`Hub Audit Pull`** — created/refreshed by macro **`PullSeparationAuditFromHub`** (`GET /api/sync/separation-audit`). |
 
-**VBA reference:** `evcaccess-reference/scripts/separation-summary/HubSync.bas` — includes **`PullSeparationAuditFromHub`** (GET `/api/sync/separation-audit`) to refresh worksheet **`Hub Audit Pull`** for reconciliation with FY rows.
+**VBA reference:** [`../../scripts/separation-summary/HubSync.bas`](../../scripts/separation-summary/HubSync.bas) — includes **`PullSeparationAuditFromHub`** (GET `/api/sync/separation-audit`) to refresh worksheet **`Hub Audit Pull`** for reconciliation with FY rows.
 
 **Filename:** HR may use the numbered variant **`FY Separation Summary (3).xlsx`** on disk; VBA and paths should match the file you ship.
 

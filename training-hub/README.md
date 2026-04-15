@@ -24,7 +24,7 @@ Vercel + Supabase are configured under [`.cursor/mcp.json`](.cursor/mcp.json). S
 
 ## Excel sync
 
-See [docs/sync-contract.md](docs/sync-contract.md). VBA modules live under `../evcaccess-reference/scripts/`.
+See [docs/sync-contract.md](docs/sync-contract.md) and [docs/vba-sync-setup.md](docs/vba-sync-setup.md). Import-ready VBA modules are tracked in `../scripts/`.
 
 ## Push to GitHub
 

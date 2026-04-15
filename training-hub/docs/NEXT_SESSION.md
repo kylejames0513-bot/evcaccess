@@ -6,6 +6,7 @@
 - **Compliance** — `due_window` query param + scheduler presets; URL sync; sticky table header.
 - **Gated roster (Option B)** — `pending_roster_events`, [`/roster-queue`](../src/app/roster-queue/page.tsx), approve/deny APIs; opt-in `HUB_ROSTER_SYNC_GATED`.
 - **Excel** — `GET /api/sync/separation-audit`; VBA `PullSeparationAuditFromHub`; `HubNewHireSync` discovers month sheets + header-based name columns + `NH Hub Log`.
+- **VBA source tracked in-repo** — import-ready modules under `scripts/new-hire-tracker/HubNewHireSync.bas` and `scripts/separation-summary/HubSync.bas` (setup guide: [`vba-sync-setup.md`](vba-sync-setup.md)).
 - **Docs** — [`operating-cadence-8-weeks.md`](operating-cadence-8-weeks.md), sync contract + workbook inventory + roster queue updates.
 
 ## Done (Phase 7)

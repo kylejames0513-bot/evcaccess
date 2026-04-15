@@ -12,16 +12,15 @@ Tab names, header rows, and repo filenames: **[`workbook-inventory.md`](workbook
 
 | Workbook | Module | Endpoints |
 |----------|--------|-----------|
-| FY Separation Summary (repo: `FY Separation Summary (3).xlsx`) | `scripts/separation-summary/HubSync.bas` | `POST /api/sync/separations`, `GET /api/sync/roster`, `GET /api/sync/roster?include_inactive=true`, `GET /api/sync/separation-audit` (VBA `PullSeparationAuditFromHub`) |
-| Monthly New Hire Tracker | `scripts/new-hire-tracker/HubNewHireSync.bas` | `POST /api/sync/new-hires`, `POST /api/sync/training-status` |
+| FY Separation Summary (repo: `FY Separation Summary (3).xlsx`) | [`../../scripts/separation-summary/HubSync.bas`](../../scripts/separation-summary/HubSync.bas) | `POST /api/sync/separations`, `GET /api/sync/roster`, `GET /api/sync/roster?include_inactive=true`, `GET /api/sync/separation-audit` (VBA `PullSeparationAuditFromHub`) |
+| Monthly New Hire Tracker | [`../../scripts/new-hire-tracker/HubNewHireSync.bas`](../../scripts/new-hire-tracker/HubNewHireSync.bas) | `POST /api/sync/new-hires`, `POST /api/sync/training-status` |
 
 Shared header: `x-hub-sync-token` → env `HUB_SYNC_TOKEN`.
 
-## Scripts (reference)
+## Scripts (this repo)
 
-- `scripts/cutover/` — historical bulk SQL (not replayed as migrations).
-- `scripts/separation-summary/` — xlsx tooling + `HubSync.bas`.
-- `scripts/new-hire-tracker/` — `HubNewHireSync.bas`, README.
+- `../../scripts/separation-summary/` — separation workbook module `HubSync.bas`.
+- `../../scripts/new-hire-tracker/` — new-hire workbook module `HubNewHireSync.bas`.
 
 ## Google Sheets
 

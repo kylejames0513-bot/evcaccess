@@ -14,12 +14,12 @@ All sync routes require header **`x-hub-sync-token`** matching environment varia
 
 Set environment variable **`HUB_ROSTER_SYNC_GATED=true`** on the hub to enqueue Excel sync batches in table **`pending_roster_events`**. HR approves or denies from **`/roster-queue`** (browser session). VBA macros receive **HTTP 202** with `pending_id` instead of the usual results payload—see [`operations-roster-queue.md`](operations-roster-queue.md).
 
-VBA modules live in the reference repo:
+Import-ready VBA modules are tracked in this repo:
 
-- `evcaccess-reference/scripts/separation-summary/HubSync.bas`
-- `evcaccess-reference/scripts/new-hire-tracker/HubNewHireSync.bas`
+- [`../../scripts/separation-summary/HubSync.bas`](../../scripts/separation-summary/HubSync.bas)
+- [`../../scripts/new-hire-tracker/HubNewHireSync.bas`](../../scripts/new-hire-tracker/HubNewHireSync.bas)
 
-Update **`HUB_BASE_URL`** and **`HUB_SYNC_TOKEN`** in each module after deploy.
+Update **`HUB_BASE_URL`** and **`HUB_SYNC_TOKEN`** in each module after deploy. Full import steps are in [`vba-sync-setup.md`](vba-sync-setup.md).
 
 ### Production cutover (VBA)
 
@@ -46,7 +46,7 @@ The hub uses **Supabase session auth** for browser users; there is **no separate
 
 `{ "separations": [ { "last_name", "first_name", "date_of_separation", "sheet?", "row_number?" } ] }`
 
-Full response shapes match the reference implementation under `evcaccess-reference/training-hub/src/app/api/sync/`.
+Full response shapes match the handlers under `src/app/api/sync/`.
 
 ### Workbook tab names and layout drift
 
