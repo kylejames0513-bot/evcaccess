@@ -26,6 +26,20 @@ Private Const LOG_SHEET_NAME As String = "Sync Log"
 Private Const AUDIT_SHEET_NAME As String = "Hub Audit Pull"
 
 Public Sub PushSeparationsToHub()
+    Dim payload As String
+    Dim fySheetCount As Long
+    Dim separationCount As Long
+    payload = BuildWorkbookPayload(fySheetCount, separationCount)
+
+    If payload = vbNullString Then
+        MsgBox "No separation rows were found across FY sheets.", vbInformation
+        Exit Sub
+    End If
+
+    PostPayloadToHub payload, "all_fy_sheets", separationCount, fySheetCount
+End Sub
+
+Public Sub PushActiveFiscalSheetToHub()
     Dim sourceSheet As Worksheet
     Set sourceSheet = ResolveFiscalSheet()
 
@@ -35,13 +49,14 @@ Public Sub PushSeparationsToHub()
     End If
 
     Dim payload As String
-    payload = BuildSeparationPayload(sourceSheet)
+    Dim separationCount As Long
+    payload = BuildSeparationPayload(sourceSheet, separationCount)
     If payload = vbNullString Then
         MsgBox "No separation rows were found on " & sourceSheet.Name & ".", vbInformation
         Exit Sub
     End If
 
-    PostPayloadToHub payload, sourceSheet.Name
+    PostPayloadToHub payload, sourceSheet.Name, separationCount, 1
 End Sub
 
 Public Sub PullSeparationAuditFromHub()
@@ -88,12 +103,51 @@ HttpFailure:
     MsgBox "Unable to pull separation audit from hub." & vbCrLf & Err.Description, vbCritical
 End Sub
 
-Private Function BuildSeparationPayload(ByVal ws As Worksheet) As String
+Private Function BuildWorkbookPayload(ByRef fySheetCount As Long, ByRef separationCount As Long) As String
     Dim items As String
     Dim itemCount As Long
     items = vbNullString
     itemCount = 0
+    fySheetCount = 0
+    separationCount = 0
 
+    Dim ws As Worksheet
+    For Each ws In ThisWorkbook.Worksheets
+        If ShouldUseAsFiscalSheet(ws.Name) Then
+            fySheetCount = fySheetCount + 1
+            AppendSheetRows ws, items, itemCount, separationCount
+        End If
+    Next ws
+
+    If itemCount = 0 Then
+        BuildWorkbookPayload = vbNullString
+    Else
+        BuildWorkbookPayload = "{""separations"":[" & items & "]}"
+    End If
+End Function
+
+Private Function BuildSeparationPayload(ByVal ws As Worksheet, ByRef separationCount As Long) As String
+    Dim items As String
+    Dim itemCount As Long
+    items = vbNullString
+    itemCount = 0
+    separationCount = 0
+
+    AppendSheetRows ws, items, itemCount, separationCount
+
+    If itemCount = 0 Then
+        BuildSeparationPayload = vbNullString
+    Else
+        BuildSeparationPayload = "{""separations"":[" & items & "]}"
+    End If
+End Function
+
+Private Sub AppendSheetRows( _
+    ByVal ws As Worksheet, _
+    ByRef items As String, _
+    ByRef itemCount As Long, _
+    ByRef separationCount As Long _
+)
     Dim r As Long
     For r = DATA_START_ROW To DATA_END_ROW
         Dim fullName As String
@@ -120,18 +174,18 @@ Private Function BuildSeparationPayload(ByVal ws As Worksheet) As String
                 If itemCount > 0 Then items = items & ","
                 items = items & rowJson
                 itemCount = itemCount + 1
+                separationCount = separationCount + 1
             End If
         End If
     Next r
+End Sub
 
-    If itemCount = 0 Then
-        BuildSeparationPayload = vbNullString
-    Else
-        BuildSeparationPayload = "{""separations"":[" & items & "]}"
-    End If
-End Function
-
-Private Sub PostPayloadToHub(ByVal payload As String, ByVal sourceSheetName As String)
+Private Sub PostPayloadToHub( _
+    ByVal payload As String, _
+    ByVal sourceSheetName As String, _
+    ByVal separationCount As Long, _
+    ByVal fySheetCount As Long _
+)
     Dim endpoint As String
     endpoint = HUB_BASE_URL & API_SYNC_SEPARATIONS
 
@@ -152,12 +206,18 @@ Private Sub PostPayloadToHub(ByVal payload As String, ByVal sourceSheetName As S
 
     WriteSyncLog "separations:" & sourceSheetName, statusCode, responseText
 
+    Dim scopedLabel As String
+    scopedLabel = CStr(separationCount) & " row(s)"
+    If fySheetCount > 1 Then
+        scopedLabel = scopedLabel & " across " & CStr(fySheetCount) & " FY sheets"
+    End If
+
     If statusCode = 200 Then
-        MsgBox "Separation sync completed successfully." & vbCrLf & responseText, vbInformation
+        MsgBox "Separation sync completed successfully for " & scopedLabel & "." & vbCrLf & responseText, vbInformation
     ElseIf statusCode = 202 Then
-        MsgBox "Separation batch queued for approval on /roster-queue." & vbCrLf & responseText, vbInformation
+        MsgBox "Separation batch queued for approval on /roster-queue (" & scopedLabel & ")." & vbCrLf & responseText, vbInformation
     Else
-        MsgBox "Separation sync failed (HTTP " & CStr(statusCode) & ")." & vbCrLf & responseText, vbCritical
+        MsgBox "Separation sync failed (HTTP " & CStr(statusCode) & ") for " & scopedLabel & "." & vbCrLf & responseText, vbCritical
     End If
 
     Exit Sub
