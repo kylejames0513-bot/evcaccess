@@ -1,23 +1,20 @@
 /**
  * Source D — Separations (FY_Separation_Summary.xlsx)
  *
- * Reads CY sheets only (CY 2023-2027), ignores Dashboard/Analytics/Data/FY views.
- * Upserts to separations table.
+ * Reads FY sheets (FY 2023 through FY 2027). Each sheet has monthly
+ * sections with a repeating header row:
+ *   Name, Date of Separation, DOH, Length of Service, Eligible for Rehire,
+ *   Status, Location, Reason for Leaving, Supervisor, Exit Interview Date,
+ *   Job, Comments, Department
+ *
+ * Ignores: Dashboard, Multi-Year Analytics, Data, Reference
  */
 
 import * as XLSX from "xlsx";
 import * as fs from "fs";
 import * as path from "path";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  parseDate,
-  toISODate,
-  parseSeparationType,
-  parseRehireEligible,
-  parseExitInterviewStatus,
-  normalizeName,
-} from "../normalize.js";
-import { resolveEmployeeWithSuggestion } from "../resolver.js";
+import { parseDate, toISODate } from "../normalize.js";
 import {
   createIngestionRun,
   finishIngestionRun,
@@ -25,44 +22,28 @@ import {
   type RunStats,
 } from "../runLogger.js";
 
-/** Only read CY sheets — skip dashboards and views */
-function isCYSheet(name: string): boolean {
-  return /^CY\s*\d{4}/i.test(name.trim());
+function isFYSheet(name: string): boolean {
+  return /^FY\s*\d{4}/i.test(name.trim());
 }
 
-/** Flexible column detection for separation sheets */
-const COL_ALIASES: Record<string, string[]> = {
-  name: ["employee name", "name", "employee", "last, first"],
-  position: ["position", "job", "role", "title", "job title"],
-  department: ["department", "dept"],
-  hire_date: ["hire date", "doh", "date of hire"],
-  separation_date: ["separation date", "sep date", "term date", "termination date", "date of separation"],
-  separation_type: ["separation type", "type", "sep type"],
-  reason: ["reason", "reason (primary)", "primary reason", "reason primary"],
-  reason_secondary: ["reason (secondary)", "secondary reason", "reason secondary"],
-  rehire: ["eligible for rehire", "rehire", "rehire eligible", "eligible"],
-  exit_interview: ["exit interview", "exit interview status", "exit"],
-  notes: ["notes", "hr notes", "comments"],
-};
-
-function detectCols(headers: string[]): Map<string, number> {
-  const mapping = new Map<string, number>();
-  const norm = headers.map((h) => h.trim().toLowerCase().replace(/[^a-z0-9\s()]/g, ""));
-
-  for (const [canonical, aliases] of Object.entries(COL_ALIASES)) {
-    for (let i = 0; i < norm.length; i++) {
-      if (aliases.some((a) => norm[i] === a || norm[i].includes(a))) {
-        mapping.set(canonical, i);
-        break;
-      }
-    }
-  }
-  return mapping;
+function parseRehire(val: string): "yes" | "no" | "conditional" {
+  const v = val.trim().toLowerCase();
+  if (["yes", "y"].includes(v)) return "yes";
+  if (["no", "n"].includes(v)) return "no";
+  return "conditional";
 }
 
-function getCell(row: unknown[], idx: number | undefined): string {
-  if (idx === undefined || idx >= row.length) return "";
-  return String(row[idx] ?? "").trim();
+function parseSepType(val: string): string {
+  const v = val.trim().toLowerCase();
+  if (v.includes("termination") || v.includes("fired")) return "involuntary";
+  if (v.includes("better opportunity") || v.includes("personal") || v.includes("relocated") || v.includes("resign")) return "voluntary";
+  if (v.includes("abandon") || v.includes("ncns") || v.includes("no call")) return "job_abandonment";
+  if (v.includes("retire")) return "retirement";
+  if (v.includes("death") || v.includes("deceased")) return "death";
+  if (v.includes("layoff") || v.includes("rif")) return "layoff";
+  if (v.includes("end of contract")) return "end_of_contract";
+  // "Other", "unknown", or anything else
+  return "other";
 }
 
 export async function ingest(options: {
@@ -74,11 +55,10 @@ export async function ingest(options: {
   const { supabase, dryRun } = options;
   const stats: RunStats = { processed: 0, inserted: 0, updated: 0, skipped: 0, unresolved: 0, errors: [] };
 
-  const filepath = options.filepath ?? path.resolve(process.cwd(), "FY Separation Summary.xlsx");
+  let filepath = options.filepath ?? path.resolve(process.cwd(), "FY Separation Summary.xlsx");
   if (!fs.existsSync(filepath)) {
-    // Try data/sources
-    const alt = path.resolve(process.cwd(), "data/sources/FY Separation Summary.xlsx");
-    if (!fs.existsSync(alt)) {
+    filepath = path.resolve(process.cwd(), "data/sources/FY Separation Summary.xlsx");
+    if (!fs.existsSync(filepath)) {
       stats.errors.push(`File not found: ${filepath}`);
       return stats;
     }
@@ -89,137 +69,168 @@ export async function ingest(options: {
     : await createIngestionRun(supabase, "separation_xlsx", "manual");
 
   const wb = XLSX.readFile(filepath, { type: "file", cellDates: true });
+  const fySheets = wb.SheetNames.filter(isFYSheet);
+  console.log(`[separationSummary] Found FY sheets: ${fySheets.join(", ")}`);
 
-  const cySheets = wb.SheetNames.filter(isCYSheet);
-  console.log(`[separationSummary] Found CY sheets: ${cySheets.join(", ")}`);
+  for (const sheetName of fySheets) {
+    const ws = wb.Sheets[sheetName];
+    if (!ws) continue;
 
-  for (const sheetName of cySheets) {
-    const sheet = wb.Sheets[sheetName];
-    if (!sheet) continue;
+    const allRows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: "", raw: false });
 
-    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "", raw: false });
-    if (rows.length < 2) continue;
-
-    // Find header row (first row with recognizable column names)
-    let headerIdx = 0;
-    let colMap: Map<string, number> | null = null;
-    for (let i = 0; i < Math.min(5, rows.length); i++) {
-      const candidate = (rows[i] as string[]).map(String);
-      const detected = detectCols(candidate);
-      if (detected.has("separation_date") || detected.has("name")) {
-        headerIdx = i;
-        colMap = detected;
-        break;
+    // Find all header rows (they repeat per month section)
+    // Header has "Name" in col 0 and "Date of Separation" in col 1
+    const headerIndices: number[] = [];
+    for (let i = 0; i < allRows.length; i++) {
+      const row = allRows[i] as string[];
+      if (row && String(row[0] ?? "").trim().toLowerCase() === "name" &&
+          String(row[1] ?? "").trim().toLowerCase().includes("separation")) {
+        headerIndices.push(i);
       }
     }
 
-    if (!colMap) {
-      console.warn(`[separationSummary] Could not detect columns in sheet "${sheetName}"`);
+    if (headerIndices.length === 0) {
+      console.warn(`[separationSummary] No header rows found in "${sheetName}"`);
       continue;
     }
 
-    console.log(`[separationSummary] Sheet "${sheetName}": ${rows.length - headerIdx - 1} data rows`);
+    console.log(`[separationSummary] Sheet "${sheetName}": ${headerIndices.length} monthly sections`);
 
-    for (let i = headerIdx + 1; i < rows.length; i++) {
-      const row = rows[i] as unknown[];
-      stats.processed++;
+    // Process data rows between each header and the next header (or end of sheet)
+    for (let h = 0; h < headerIndices.length; h++) {
+      const headerIdx = headerIndices[h];
+      const nextHeader = h + 1 < headerIndices.length ? headerIndices[h + 1] : allRows.length;
 
-      const nameRaw = getCell(row, colMap.get("name"));
-      if (!nameRaw) { stats.skipped++; continue; }
+      // Detect columns from header row
+      const header = (allRows[headerIdx] as string[]).map(c => String(c ?? "").trim().toLowerCase());
+      const colName = header.indexOf("name");
+      const colSepDate = header.findIndex(h => h.includes("date of separation") || h.includes("sep date"));
+      const colDoh = header.findIndex(h => h.includes("doh") || h.includes("date of hire") || h === "doh");
+      const colRehire = header.findIndex(h => h.includes("rehire"));
+      const colLocation = header.findIndex(h => h.includes("location"));
+      const colReason = header.findIndex(h => h.includes("reason"));
+      const colSupervisor = header.findIndex(h => h.includes("supervisor"));
+      const colExit = header.findIndex(h => h.includes("exit"));
+      const colJob = header.findIndex(h => h === "job");
+      const colComments = header.findIndex(h => h.includes("comment"));
+      const colDept = header.findIndex(h => h.includes("department"));
+      const colStatus = header.findIndex(h => h === "status");
 
-      const sepDateRaw = getCell(row, colMap.get("separation_date"));
-      const sepDate = parseDate(sepDateRaw);
-      if (!sepDate) { stats.skipped++; continue; }
+      for (let r = headerIdx + 1; r < nextHeader; r++) {
+        const row = allRows[r] as unknown[];
+        if (!row) continue;
 
-      // Parse "Last, First" name format
-      let lastName = "";
-      let firstName = "";
-      if (nameRaw.includes(",")) {
-        const parts = nameRaw.split(",").map((p) => p.trim());
-        lastName = parts[0];
-        firstName = parts.slice(1).join(" ");
-      } else {
-        const parts = nameRaw.split(/\s+/);
-        firstName = parts[0];
-        lastName = parts.slice(1).join(" ");
-      }
+        const name = String(row[colName] ?? "").trim();
+        if (!name) continue;
 
-      const hireDateRaw = getCell(row, colMap.get("hire_date"));
-      const hireDate = parseDate(hireDateRaw);
+        // Skip month headers that sneak in (e.g., "FEBRUARY 2026")
+        if (/^[A-Z]+\s+\d{4}$/.test(name)) continue;
 
-      const separationType = parseSeparationType(getCell(row, colMap.get("separation_type")));
-      const reason = getCell(row, colMap.get("reason"));
-      const reasonSecondary = getCell(row, colMap.get("reason_secondary"));
-      const rehire = parseRehireEligible(getCell(row, colMap.get("rehire")));
-      const exitInterview = parseExitInterviewStatus(getCell(row, colMap.get("exit_interview")));
-      const notes = getCell(row, colMap.get("notes"));
-      const position = getCell(row, colMap.get("position"));
-      const department = getCell(row, colMap.get("department"));
+        stats.processed++;
 
-      // Try to resolve employee
-      const { match, suggested } = await resolveEmployeeWithSuggestion(lastName, firstName, supabase);
+        const sepDateRaw = row[colSepDate >= 0 ? colSepDate : 1];
+        const sepDate = parseDate(sepDateRaw as string | number);
+        if (!sepDate) { stats.skipped++; continue; }
 
-      const record = {
-        employee_id: match?.employeeDbId ?? null,
-        legal_name: `${lastName}, ${firstName}`,
-        position: position || null,
-        department: department || null,
-        hire_date: hireDate ? toISODate(hireDate) : null,
-        separation_date: toISODate(sepDate),
-        separation_type: separationType,
-        reason_primary: reason || null,
-        reason_secondary: reasonSecondary || null,
-        rehire_eligible: rehire,
-        exit_interview_status: exitInterview,
-        hr_notes: notes || null,
-        ingest_source: "separation_xlsx",
-      };
+        const dohRaw = colDoh >= 0 ? row[colDoh] : null;
+        const doh = dohRaw ? parseDate(dohRaw as string | number) : null;
 
-      if (dryRun) {
-        console.log(`  [DRY] ${record.legal_name} — ${record.separation_date} — ${record.separation_type}`);
-        stats.inserted++;
-        continue;
-      }
+        const rehireRaw = colRehire >= 0 ? String(row[colRehire] ?? "").trim() : "";
+        const reason = colReason >= 0 ? String(row[colReason] ?? "").trim() : "";
+        const location = colLocation >= 0 ? String(row[colLocation] ?? "").trim() : "";
+        const supervisor = colSupervisor >= 0 ? String(row[colSupervisor] ?? "").trim() : "";
+        const exitRaw = colExit >= 0 ? String(row[colExit] ?? "").trim() : "";
+        const job = colJob >= 0 ? String(row[colJob] ?? "").trim() : "";
+        const comments = colComments >= 0 ? String(row[colComments] ?? "").trim() : "";
+        const dept = colDept >= 0 ? String(row[colDept] ?? "").trim() : "";
+        const statusCode = colStatus >= 0 ? String(row[colStatus] ?? "").trim() : "";
 
-      // Dedup: check if separation already exists for this person + date
-      const { data: existing } = await supabase
-        .from("separations")
-        .select("id")
-        .eq("legal_name", record.legal_name)
-        .eq("separation_date", record.separation_date)
-        .maybeSingle();
+        // Parse separation type from reason + status code
+        let sepType = parseSepType(reason);
+        // Status "D" often means discharged/involuntary, "U" = unknown/other
+        if (statusCode.toUpperCase() === "D" && sepType === "other") sepType = "involuntary";
 
-      if (existing) {
-        // Update
-        const { error } = await supabase
+        // Parse exit interview
+        let exitStatus: "completed" | "declined" | "scheduled" | "not_done" = "not_done";
+        if (exitRaw) {
+          const exitDate = parseDate(exitRaw);
+          if (exitDate) exitStatus = "completed";
+          else if (exitRaw.toLowerCase().includes("no response") || exitRaw.toUpperCase() === "N/A") exitStatus = "declined";
+          else if (exitRaw.toLowerCase().includes("scheduled")) exitStatus = "scheduled";
+        }
+
+        const record = {
+          legal_name: name,
+          position: job || null,
+          department: dept || null,
+          supervisor_name_raw: supervisor || null,
+          hire_date: doh ? toISODate(doh) : null,
+          separation_date: toISODate(sepDate),
+          separation_type: sepType,
+          reason_primary: reason || null,
+          rehire_eligible: parseRehire(rehireRaw),
+          exit_interview_status: exitStatus,
+          hr_notes: [comments, location ? `Location: ${location}` : ""].filter(Boolean).join(". ") || null,
+          ingest_source: "separation_xlsx",
+        };
+
+        if (dryRun) {
+          console.log(`  [DRY] ${record.legal_name} — ${record.separation_date} — ${record.separation_type}`);
+          stats.inserted++;
+          continue;
+        }
+
+        // Dedup by name + separation date
+        const { data: existing } = await supabase
           .from("separations")
-          .update(record)
-          .eq("id", existing.id);
-        if (error) stats.errors.push(`Update sep for ${record.legal_name}: ${error.message}`);
-        else stats.updated++;
-      } else {
-        const { error } = await supabase
-          .from("separations")
-          .insert(record);
-        if (error) stats.errors.push(`Insert sep for ${record.legal_name}: ${error.message}`);
-        else stats.inserted++;
-      }
+          .select("id")
+          .eq("legal_name", record.legal_name)
+          .eq("separation_date", record.separation_date)
+          .maybeSingle();
 
-      if (!match && suggested) {
-        stats.unresolved++;
-        await addToReviewQueue(supabase, {
-          ingestion_run_id: runId,
-          source: "separation_xlsx",
-          reason: "name_not_resolved",
-          raw_payload: { lastName, firstName, separation_date: toISODate(sepDate) },
-          suggested_match_employee_id: suggested.employeeDbId,
-          suggested_match_score: suggested.score,
-        });
+        if (existing) {
+          await supabase.from("separations").update(record).eq("id", existing.id);
+          stats.updated++;
+        } else {
+          const { error } = await supabase.from("separations").insert(record);
+          if (error) {
+            stats.errors.push(`Insert failed for ${record.legal_name}: ${error.message}`);
+          } else {
+            stats.inserted++;
+          }
+        }
+
+        // Try to link to employee record
+        const nameParts = name.includes(",")
+          ? name.split(",").map(p => p.trim())
+          : name.split(/\s+/);
+        let empLastName = "", empFirstName = "";
+        if (name.includes(",")) {
+          empLastName = nameParts[0];
+          empFirstName = nameParts.slice(1).join(" ");
+        } else {
+          empFirstName = nameParts[0];
+          empLastName = nameParts.slice(1).join(" ");
+        }
+
+        if (empLastName && empFirstName) {
+          const { data: emp } = await supabase
+            .from("employees")
+            .select("id")
+            .ilike("legal_last_name", empLastName)
+            .ilike("legal_first_name", `${empFirstName}%`)
+            .limit(1)
+            .maybeSingle();
+
+          if (emp && existing) {
+            await supabase.from("separations").update({ employee_id: emp.id }).eq("id", existing.id);
+          }
+        }
       }
     }
   }
 
-  console.log(`[separationSummary] Done: ${stats.inserted} inserted, ${stats.updated} updated, ${stats.unresolved} unresolved`);
+  console.log(`[separationSummary] Done: ${stats.inserted} inserted, ${stats.updated} updated, ${stats.skipped} skipped, ${stats.errors.length} errors`);
   if (!dryRun) await finishIngestionRun(supabase, runId, stats);
   return stats;
 }

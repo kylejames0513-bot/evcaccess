@@ -20,6 +20,7 @@ config({ path: path.resolve(process.cwd(), ".env") });
 import * as employeeMaster from "./sources/employeeMaster.js";
 import * as attendanceTracker from "./sources/attendanceTracker.js";
 import * as separationSummary from "./sources/separationSummary.js";
+import * as newHireTracker from "./sources/newHireTracker.js";
 
 const SOURCES: Record<string, { ingest: typeof employeeMaster.ingest }> = {
   employee_master: employeeMaster,
@@ -27,6 +28,8 @@ const SOURCES: Record<string, { ingest: typeof employeeMaster.ingest }> = {
   attendance_tracker: attendanceTracker,
   separation_xlsx: separationSummary,
   separation_summary: separationSummary,
+  new_hire_tracker: newHireTracker,
+  new_hires: newHireTracker,
 };
 
 function parseArgs() {
@@ -84,19 +87,23 @@ async function main() {
 
   // Full run: order matters
   if (mode === "seed") {
-    console.log("--- Step 1/3: Employee Master (Source A) ---");
+    console.log("--- Step 1/4: Employee Master (Source A) ---");
     const empStats = await employeeMaster.ingest({ mode, dryRun, supabase });
     console.log("Employee Master:", JSON.stringify(empStats, null, 2));
 
-    console.log("\n--- Step 2/3: Separation Summary (Source D) ---");
+    console.log("\n--- Step 2/4: Separation Summary (Source D) ---");
     const sepStats = await separationSummary.ingest({ mode, dryRun, supabase });
     console.log("Separation Summary:", JSON.stringify(sepStats, null, 2));
 
-    console.log("\n--- Step 3/3: Attendance Tracker (Source B) ---");
+    console.log("\n--- Step 3/4: New Hire Tracker (Source C) ---");
+    const nhStats = await newHireTracker.ingest({ mode, dryRun, supabase });
+    console.log("New Hire Tracker:", JSON.stringify(nhStats, null, 2));
+
+    console.log("\n--- Step 4/4: Attendance Tracker (Source B) ---");
     const attStats = await attendanceTracker.ingest({ mode, dryRun, supabase });
     console.log("Attendance Tracker:", JSON.stringify(attStats, null, 2));
 
-    const totalErrors = empStats.errors.length + sepStats.errors.length + attStats.errors.length;
+    const totalErrors = empStats.errors.length + sepStats.errors.length + nhStats.errors.length + attStats.errors.length;
     if (totalErrors > 0) {
       console.error(`\n${totalErrors} total errors. Check output above.`);
       process.exit(1);
