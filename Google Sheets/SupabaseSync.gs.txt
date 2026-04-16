@@ -1,0 +1,1820 @@
+// ============================================================
+// Supabase Sync — Merge 3 sheets → Merged tab → Supabase
+// ============================================================
+// Workflow:
+//   1. Run "Merge All 3 Sheets → Merged Tab"
+//      Reads Training, Paylocity Import, PHS Import
+//      Writes result to a "Merged" tab for review
+//   2. Review the Merged tab — edit as needed
+//   3. Run "Push Merged Tab → Supabase"
+//      Clears Supabase training data, pushes employees + records + excusals
+// ============================================================
+
+const SUPABASE_URL = "https://xkfvipcxnzwyskknkmpj.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrZnZpcGN4bnp3eXNra25rbXBqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTY5NjU5MCwiZXhwIjoyMDkxMjcyNTkwfQ.VjmNtuLvrZoSEGiSLAcHHBBsbx-I72jSH5eIoOHejrk";
+
+const MERGED_SHEET = "Merged";
+const NAME_FIX_SHEET = "Attendee Name Fixes";
+
+const PAYLOCITY_MAP = {
+  "cpr.fa": "CPR", "cpr/fa": "CPR", "cpr": "CPR", "cpr/first aid": "CPR",
+  "first aid": "CPR", "firstaid": "CPR",
+  "med training": "MED_TRAIN", "med cert": "MED_TRAIN", "med recert": "MED_TRAIN",
+  "medication training": "MED_TRAIN", "initial med training": "MED_TRAIN",
+  "post med": "POST MED",
+  "ukeru": "Ukeru", "behavior training": "Ukeru",
+  "safety care": "Safety Care", "mealtime instructions": "Mealtime", "mealtime": "Mealtime",
+  "pom": "POM", "poms": "POM",
+  "pers cent thnk": "Pers Cent Thnk", "person centered thinking": "Pers Cent Thnk", "person centered": "Pers Cent Thnk",
+  "meaningful day": "Meaningful Day", "md refresh": "MD refresh",
+  "rights training": "Rights Training", "title vi": "Title VI",
+  "active shooter": "Active Shooter", "skills system": "Skills System",
+  "cpi": "CPI", "cpm": "CPM", "pfh/didd": "PFH/DIDD",
+  "basic vcrm": "Basic VCRM", "advanced vcrm": "Advanced VCRM", "adv vcrm": "Advanced VCRM",
+  "trn": "TRN", "asl": "ASL", "shift": "SHIFT", "adv shift": "ADV SHIFT", "advanced shift": "ADV SHIFT",
+  "mc": "MC", "skills online": "Skills Online", "etis": "ETIS",
+  "gerd": "GERD", "dysphagia": "Dysphagia Overview", "dysphagia overview": "Dysphagia Overview",
+  "diabetes": "Diabetes", "falls": "Falls", "health passport": "Health Passport",
+  "hco": "HCO Training", "hco training": "HCO Training",
+};
+
+const PHS_CATEGORY_MAP = { "med admin": "MED_TRAIN", "cpr/fa": "CPR" };
+const PHS_TYPE_MAP = {
+  "ukeru": "Ukeru", "safety care": "Safety Care", "behavior training": "Ukeru",
+  "mealtime": "Mealtime", "mealtime instructions": "Mealtime",
+  "med training": "MED_TRAIN", "medication training": "MED_TRAIN",
+  "post med": "POST MED", "pom": "POM",
+  "person centered": "Pers Cent Thnk", "person centered thinking": "Pers Cent Thnk",
+  "meaningful day": "Meaningful Day", "rights training": "Rights Training", "rights": "Rights Training",
+  "title vi": "Title VI", "active shooter": "Active Shooter", "skills system": "Skills System",
+  "cpm": "CPM", "pfh/didd": "PFH/DIDD", "basic vcrm": "Basic VCRM", "advanced vcrm": "Advanced VCRM",
+  "trn": "TRN", "asl": "ASL", "shift": "SHIFT",
+  "gerd": "GERD", "dysphagia": "Dysphagia Overview", "dysphagia overview": "Dysphagia Overview",
+  "diabetes": "Diabetes", "falls": "Falls", "health passport": "Health Passport",
+  "hco": "HCO Training", "hco training": "HCO Training",
+};
+
+const SYNC_EXCUSALS = {
+  "NA":1,"N/A":1,"N/":1,"VP":1,"DIR":1,"DIRECTOR":1,"CEO":1,"CFO":1,"COO":1,"CMO":1,
+  "AVP":1,"SVP":1,"EVP":1,"PRESIDENT":1,"MGR":1,"MANAGER":1,"SUPERVISOR":1,"SUPV":1,
+  "ELC":1,"EI":1,"FACILITIES":1,"MAINT":1,"HR":1,"FINANCE":1,"FIN":1,"IT":1,"ADMIN":1,
+  "NURSE":1,"LPN":1,"RN":1,"CNA":1,"BH":1,"PA":1,"BA":1,"QA":1,"TAC":1,"BOARD":1,
+  "TRAINER":1,"LP":1,"NS":1,"LLL":1
+};
+
+// All training columns for the merged sheet (in order)
+const MERGED_TRAINING_COLS = [
+  "CPR", "Ukeru", "MED_TRAIN", "POST MED", "Mealtime", "POM",
+  "Pers Cent Thnk", "Safety Care", "Meaningful Day", "MD refresh", "GERD",
+  "HCO Training", "Health Passport", "Diabetes", "Falls", "Dysphagia Overview",
+  "Rights Training", "Title VI", "Active Shooter", "Skills System", "CPI",
+  "CPM", "PFH/DIDD", "Basic VCRM", "Advanced VCRM", "VR", "TRN", "ASL",
+  "Skills Online", "ETIS", "SHIFT", "ADV SHIFT", "MC"
+];
+
+// Alternate header spellings seen on upstream sheets → canonical col key.
+// Keeps us tolerant of typos (e.g. the Training tab currently has
+// "Dysphagia Oveview" — note the missing 'r') and the Access tab's
+// "PFH_DIDD" underscore variant.
+const MERGED_COL_ALIASES = {
+  "dysphagia oveview": "Dysphagia Overview",
+  "dysphagia": "Dysphagia Overview",
+  "pfh_didd": "PFH/DIDD",
+  "vr training": "VR",
+};
+
+function addSupabaseSyncMenu() {
+  SpreadsheetApp.getUi().createMenu("Supabase Sync")
+    .addItem("1. Merge All 3 Sheets → Merged Tab", "buildMergedSheet")
+    .addSeparator()
+    .addItem("2. Push Merged Tab → Supabase", "pushMergedToSupabase")
+    .addSeparator()
+    .addItem("3. Push Training Records → Supabase", "pushTrainingRecordsToSupabase")
+    .addSeparator()
+    .addItem("Set Up Nightly Auto-Sync", "installAutoSync")
+    .addItem("Remove Auto-Sync", "removeAutoSync")
+    .addToUi();
+}
+
+// ════════════════════════════════════════════════════════════
+// SCHEDULED AUTO-SYNC
+// ════════════════════════════════════════════════════════════
+// Runs buildMergedSheet → pushMergedToSupabase unattended.
+// Safe to repeat: only replaces source=merged_sheet records,
+// preserves signin/session/manual records. Uses ON CONFLICT
+// upserts so duplicates are harmless.
+//
+// To set up: run installAutoSync() or use the menu item.
+// To remove: run removeAutoSync() or delete the trigger in
+//            Apps Script > Triggers.
+// ════════════════════════════════════════════════════════════
+
+function scheduledSync() {
+  var now = new Date();
+  var et = Utilities.formatDate(now, "America/New_York", "u:H").split(":");
+  var dayOfWeek = parseInt(et[0], 10); // 1=Monday … 7=Sunday
+  var hour = parseInt(et[1], 10);
+
+  // Only run Mon(1)–Fri(5), 8 AM – 5 PM ET
+  if (dayOfWeek > 5 || hour < 8 || hour >= 17) {
+    Logger.log("scheduledSync skipped — outside Mon–Fri 8–5 ET (day=" + dayOfWeek + " hour=" + hour + ")");
+    return;
+  }
+
+  Logger.log("scheduledSync started at " + now.toISOString());
+  buildMergedSheet();
+  pushMergedToSupabase();
+  Logger.log("scheduledSync finished at " + new Date().toISOString());
+}
+
+/**
+ * Install hourly triggers that run scheduledSync Mon–Fri, 8 AM – 5 PM.
+ * Idempotent — removes any existing scheduledSync triggers first.
+ *
+ * Google Apps Script doesn't support "weekday-only hourly" in a single
+ * trigger, so we use an everyHours(1) trigger and gate on day/time
+ * inside scheduledSync itself.
+ */
+function installAutoSync() {
+  removeAutoSync(); // clear any existing triggers
+  ScriptApp.newTrigger("scheduledSync")
+    .timeBased()
+    .everyHours(1)
+    .create();
+  notify_("Auto-Sync Installed",
+    "scheduledSync will run hourly Mon–Fri, 8 AM – 5 PM ET.\n" +
+    "Outside that window it skips automatically.\n\n" +
+    "To remove: Supabase Sync menu → Remove Auto-Sync");
+}
+
+/**
+ * Remove the nightly scheduledSync trigger.
+ */
+function removeAutoSync() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === "scheduledSync") {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// UI helpers — tolerate being run from the Apps Script editor
+// or a trigger (where SpreadsheetApp.getUi() throws).
+// ────────────────────────────────────────────────────────────
+
+function safeGetUi_() {
+  try {
+    return SpreadsheetApp.getUi();
+  } catch (e) {
+    return null;
+  }
+}
+
+// Ask a yes/no question. If no UI is available, log the prompt and
+// default to YES so the script can still run unattended.
+function confirm_(title, message) {
+  var ui = safeGetUi_();
+  if (ui) {
+    var answer = ui.alert(title, message, ui.ButtonSet.YES_NO);
+    return answer === ui.Button.YES;
+  }
+  Logger.log("[confirm] " + title + ": " + message + "  (no UI — auto-YES)");
+  return true;
+}
+
+// Show an informational alert. Falls back to the Apps Script log.
+function notify_(title, message) {
+  var ui = safeGetUi_();
+  if (ui) {
+    ui.alert(title, message, ui.ButtonSet.OK);
+  } else {
+    Logger.log("[" + title + "]\n" + message);
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// STEP 1: Build the Merged sheet
+// ════════════════════════════════════════════════════════════
+function buildMergedSheet() {
+  if (!confirm_(
+    "Build Merged Sheet",
+    "This will read Training, Paylocity Import, and PHS Import,\n" +
+    "pick the most recent date for each employee+training,\n" +
+    "and write the result to a 'Merged' tab.\n\n" +
+    "Any existing 'Merged' tab will be cleared. Continue?"
+  )) return;
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // bestDates: "Last|First|ColKey" → { date: Date, source: string }
+  var bestDates = {};
+  // excusals: "Last|First|ColKey" → code
+  var excusals = {};
+  // employees: "Last|First" → { department, hire_date, is_active }
+  var employees = {};
+
+  // ── Read Employee tab (authoritative for legal vs preferred names) ──
+  // The HR-maintained Employee tab carries Last Name / First Name (legal) /
+  // Middle Name / Preferred Name for every person. The Training tab only
+  // has the preferred name in its F NAME column, so the Training tab alone
+  // can't tell us that Cindy Thompson is legally Mary Thompson, etc.
+  // We build two lookups from the Employee tab and merge aliases later:
+  //   empInfoById:   "AB04" → { legal, middle, preferred, last, status, ... }
+  //   empInfoByName: "thompson|cindy" → same
+  var empInfoById = {};
+  var empInfoByName = {};
+  var empSheet = ss.getSheetByName("Employee") || ss.getSheetByName("Employees");
+  if (empSheet && empSheet.getLastRow() >= 2) {
+    var eData = empSheet.getDataRange().getValues();
+    var eH = eData[0];
+    var eLnC   = findCol_(eH, "Last Name");
+    if (eLnC < 0) eLnC = findCol_(eH, "L NAME");
+    var eFnC   = findCol_(eH, "First Name");
+    if (eFnC < 0) eFnC = findCol_(eH, "F NAME");
+    var eMidC  = findCol_(eH, "Middle Name");
+    if (eMidC < 0) eMidC = findCol_(eH, "Middle");
+    var ePrefC = findCol_(eH, "Preferred Name");
+    if (ePrefC < 0) ePrefC = findCol_(eH, "Preferred/First Name");
+    if (ePrefC < 0) ePrefC = findCol_(eH, "Preferred");
+    var eIdC   = findCol_(eH, "ID");
+    var eStatC = findCol_(eH, "Status");
+
+    if (eLnC >= 0 && eFnC >= 0) {
+      for (var ei = 1; ei < eData.length; ei++) {
+        var eRow = eData[ei];
+        var eLn = String(eRow[eLnC] || "").trim();
+        var eLegal = String(eRow[eFnC] || "").trim();
+        if (!eLn || !eLegal) continue;
+        var eMid = eMidC >= 0 ? String(eRow[eMidC] || "").trim() : "";
+        var ePref = ePrefC >= 0 ? String(eRow[ePrefC] || "").trim() : "";
+        var eId = eIdC >= 0 ? String(eRow[eIdC] || "").trim() : "";
+        var eStat = eStatC >= 0 ? String(eRow[eStatC] || "").trim() : "";
+        var eCanon = ePref || eLegal;
+
+        var info = {
+          legal_first: eLegal,
+          middle: eMid,
+          preferred: ePref,
+          canonical_first: eCanon,
+          last_name: eLn,
+          status: eStat,
+          id: eId,
+        };
+
+        if (eId) empInfoById[eId] = info;
+        // Key by lowercase (last|canonical) so it matches the Training sheet's F NAME
+        empInfoByName[(eLn + "|" + eCanon).toLowerCase()] = info;
+        // Also index under (last|legal) in case the Training sheet uses the legal form
+        if (eLegal && eLegal.toLowerCase() !== eCanon.toLowerCase()) {
+          var legalKey = (eLn + "|" + eLegal).toLowerCase();
+          if (!empInfoByName[legalKey]) empInfoByName[legalKey] = info;
+        }
+      }
+    }
+  }
+
+  function aliasesFromEmpInfo_(info, currentFnLegacy) {
+    if (!info) return [];
+    var out = [];
+    var canonFull = (info.canonical_first + " " + info.last_name).toLowerCase();
+
+    function add(candidate) {
+      var c = String(candidate || "").trim();
+      if (!c) return;
+      var full = c + " " + info.last_name;
+      if (full.toLowerCase() === canonFull) return;
+      // Don't add the preferred name itself as an alias
+      for (var k = 0; k < out.length; k++) {
+        if (out[k].toLowerCase() === full.toLowerCase()) return;
+      }
+      out.push(full);
+    }
+
+    // Legal first name (when different from canonical/preferred)
+    if (info.legal_first && info.legal_first.toLowerCase() !== info.canonical_first.toLowerCase()) {
+      add(info.legal_first);
+    }
+    // Middle name — only if it's a full word (not a single-letter initial)
+    if (info.middle && info.middle.length > 1 && !/^[a-z]\.?$/i.test(info.middle)) {
+      add(info.middle);
+    }
+    // If the current Training-sheet F NAME is different from both legal and preferred,
+    // capture it too so it remains resolvable after the sheet is cleaned up.
+    if (currentFnLegacy && currentFnLegacy.toLowerCase() !== info.canonical_first.toLowerCase()) {
+      add(currentFnLegacy);
+    }
+    return out;
+  }
+
+  // ── Read Training sheet ──
+  var trSheet = ss.getSheetByName("Training");
+  if (!trSheet) { notify_("Error", "Training sheet not found"); return; }
+
+  var trData = trSheet.getDataRange().getValues();
+  var trH = trData[0];
+  var idCol = findCol_(trH, "ID");
+  var lnCol = findCol_(trH, "L NAME");
+  if (lnCol < 0) lnCol = findCol_(trH, "Last Name");
+  var fnCol = findCol_(trH, "F NAME");
+  if (fnCol < 0) fnCol = findCol_(trH, "First Name");
+  var actCol = findCol_(trH, "ACTIVE");
+  var divCol = findCol_(trH, "Division Description");
+  if (divCol < 0) divCol = findCol_(trH, "Division");
+  var hireCol = findCol_(trH, "Hire Date");
+
+  // Optional: Middle Name + Preferred Name (or Preferred/First Name).
+  // When present, the sync will auto-register aliases whenever the
+  // legal first name or middle name differs from the preferred name.
+  var midCol = findCol_(trH, "Middle Name");
+  if (midCol < 0) midCol = findCol_(trH, "Middle");
+  var prefCol = findCol_(trH, "Preferred/First Name");
+  if (prefCol < 0) prefCol = findCol_(trH, "Preferred Name");
+  if (prefCol < 0) prefCol = findCol_(trH, "Preferred First Name");
+  if (prefCol < 0) prefCol = findCol_(trH, "Preferred");
+
+  if (lnCol < 0 || fnCol < 0) { notify_("Error", "Last/First Name columns not found on Training sheet"); return; }
+
+  // Map each header index to a training col key (case-insensitive partial match)
+  var headerKey = [];
+  for (var c = 0; c < trH.length; c++) {
+    var h = String(trH[c]).trim();
+    var key = matchTrainingCol_(h);
+    headerKey.push(key);
+  }
+
+  var trDateCount = 0;
+  var trExcCount = 0;
+
+  for (var i = 1; i < trData.length; i++) {
+    var row = trData[i];
+    var ln = String(row[lnCol] || "").trim();
+    var legalFirst = String(row[fnCol] || "").trim();
+    var middle = midCol >= 0 ? String(row[midCol] || "").trim() : "";
+    var preferred = prefCol >= 0 ? String(row[prefCol] || "").trim() : "";
+
+    // Canonical first name = preferred name when provided, otherwise legal
+    var fn = preferred || legalFirst;
+    if (!ln) continue;
+
+    var active = actCol >= 0 ? String(row[actCol] || "").trim().toUpperCase() === "Y" : true;
+    var dept = divCol >= 0 ? String(row[divCol] || "").trim() : "";
+    var empNum = idCol >= 0 ? String(row[idCol] || "").trim() : "";
+    var hd = "";
+    if (hireCol >= 0 && row[hireCol]) {
+      var hDate = new Date(row[hireCol]);
+      if (!isNaN(hDate.getTime())) hd = Utilities.formatDate(hDate, "America/New_York", "M/d/yyyy");
+    }
+
+    // Cross-reference the Employee tab. Match by ID first (most
+    // reliable), then fall back to (last|first) name match. Whichever
+    // we find becomes the source of truth for legal-vs-preferred
+    // aliases on this row.
+    var empInfo = null;
+    if (empNum && empInfoById[empNum]) {
+      empInfo = empInfoById[empNum];
+    } else {
+      empInfo = empInfoByName[(ln + "|" + legalFirst).toLowerCase()]
+             || empInfoByName[(ln + "|" + fn).toLowerCase()]
+             || null;
+    }
+
+    // If the Employee tab has a preferred name, that becomes the
+    // canonical first name on the Merged tab too.
+    if (empInfo && empInfo.canonical_first) {
+      fn = empInfo.canonical_first;
+    }
+
+    // Build the alias list: every name variant the person might sign
+    // in as that differs from the canonical "{fn} {ln}".
+    var aliases = [];
+    function addAliasIfDiff_(candidate) {
+      var c = String(candidate || "").trim();
+      if (!c) return;
+      var full = c + " " + ln;
+      if (full.toLowerCase() === (fn + " " + ln).toLowerCase()) return;
+      for (var aa = 0; aa < aliases.length; aa++) {
+        if (aliases[aa].toLowerCase() === full.toLowerCase()) return;
+      }
+      aliases.push(full);
+    }
+
+    // 1) Legal first name vs preferred — from the Training sheet itself
+    //    (only meaningful if the Training sheet has its own Preferred column).
+    if (legalFirst && legalFirst.toLowerCase() !== fn.toLowerCase()) addAliasIfDiff_(legalFirst);
+    if (middle && middle.length > 1 && !/^[a-z]\.?$/i.test(middle)) addAliasIfDiff_(middle);
+
+    // 2) Legal first name vs preferred — from the Employee tab. This is
+    //    the main path for users who maintain legal/preferred on the
+    //    separate HR roster sheet.
+    if (empInfo) {
+      var empAliases = aliasesFromEmpInfo_(empInfo, legalFirst);
+      for (var eai = 0; eai < empAliases.length; eai++) {
+        // empAliases already include the " Last" suffix — split and
+        // pass just the first-name part to addAliasIfDiff_.
+        var ea = empAliases[eai];
+        var spaceIdx = ea.lastIndexOf(" ");
+        var eaFirst = spaceIdx > 0 ? ea.substring(0, spaceIdx) : ea;
+        addAliasIfDiff_(eaFirst);
+      }
+    }
+
+    // 3) Quoted nicknames inside the Training sheet's F NAME, e.g. Michael "Mike"
+    var qMatch = legalFirst.match(/["'(]([^"')]+)["')]/);
+    if (qMatch && qMatch[1]) addAliasIfDiff_(qMatch[1]);
+    var beforeQ = legalFirst.replace(/\s*["'(][^"')]+["')].*$/, "").trim();
+    if (beforeQ && beforeQ !== legalFirst) addAliasIfDiff_(beforeQ);
+
+    var empKey = ln + "|" + fn;
+    employees[empKey] = {
+      last_name: ln,
+      first_name: fn,
+      department: dept,
+      hire_date: hd,
+      is_active: active,
+      employee_number: empNum,
+      aliases: aliases,
+    };
+
+    if (!active) continue;
+
+    for (var c2 = 0; c2 < trH.length; c2++) {
+      var ck = headerKey[c2];
+      if (!ck) continue;
+
+      var val = String(row[c2] || "").trim();
+      if (!val) continue;
+
+      var upper = val.toUpperCase();
+
+      if (SYNC_EXCUSALS[upper]) {
+        excusals[empKey + "|" + ck] = val;
+        trExcCount++;
+        continue;
+      }
+
+      if (upper.indexOf("FX") === 0 || upper.indexOf("FAIL") === 0 || upper === "FS") continue;
+
+      var d = tryParseDate_(val);
+      if (d) {
+        updateBest_(bestDates, empKey + "|" + ck, d, "training_sheet");
+        trDateCount++;
+      }
+    }
+  }
+
+  // ── Read Paylocity Import ──
+  var paySheet = ss.getSheetByName("Paylocity Import");
+  var payDateCount = 0;
+  if (paySheet) {
+    var payData = paySheet.getDataRange().getValues();
+    if (payData.length > 1) {
+      var payH = payData[0];
+      var pLn = findColPartial_(payH, "last");
+      var pFn = findColPartial_(payH, "first");
+      var pSk = findColPartial_(payH, "skill");
+      var pDt = findColPartial_(payH, "effective");
+
+      if (pLn >= 0 && pFn >= 0 && pSk >= 0 && pDt >= 0) {
+        for (var p = 1; p < payData.length; p++) {
+          var pr = payData[p];
+          var pln = String(pr[pLn] || "").trim();
+          var pfn = String(pr[pFn] || "").trim();
+          var skill = String(pr[pSk] || "").trim().toLowerCase();
+          var pdate = String(pr[pDt] || "").trim();
+          if (!pln || !skill || !pdate) continue;
+
+          var pCol = PAYLOCITY_MAP[skill];
+          if (!pCol) continue;
+
+          var pd = tryParseDate_(pdate);
+          if (!pd) continue;
+
+          var pKey = pln + "|" + pfn;
+          updateBest_(bestDates, pKey + "|" + pCol, pd, "paylocity");
+          payDateCount++;
+
+          // First Aid is inactive — CPR/FA is the single combined training.
+          if (pCol === "FIRSTAID") { pCol = "CPR"; }  // remap legacy FIRSTAID → CPR
+        }
+      }
+    }
+  }
+
+  // ── Read PHS Import ──
+  var phsSheet = ss.getSheetByName("PHS Import");
+  var phsDateCount = 0;
+  if (phsSheet) {
+    var phsData = phsSheet.getDataRange().getValues();
+    if (phsData.length > 1) {
+      var phsH = phsData[0];
+      var qNm = findColPartial_(phsH, "employee");
+      var qCt = findColPartial_(phsH, "category");
+      var qTy = findColPartial_(phsH, "type");
+      var qDt = findColPartial_(phsH, "effective");
+      var qTm = findColPartial_(phsH, "termination");
+
+      if (qNm >= 0 && qCt >= 0 && qDt >= 0) {
+        for (var q = 1; q < phsData.length; q++) {
+          var qr = phsData[q];
+          var qName = String(qr[qNm] || "").trim();
+          var qCat = String(qr[qCt] || "").trim().toLowerCase();
+          var qType = qTy >= 0 ? String(qr[qTy] || "").trim().toLowerCase() : "";
+          var qDate = String(qr[qDt] || "").trim();
+          var qTerm = qTm >= 0 ? String(qr[qTm] || "").trim() : "";
+
+          if (!qName || !qDate) continue;
+          if (qTerm) continue;
+          if (qType === "fail" || qType === "no show") continue;
+
+          var qCol = PHS_CATEGORY_MAP[qCat] || null;
+          if (!qCol && qCat === "additional training") qCol = PHS_TYPE_MAP[qType] || null;
+          if (!qCol) continue;
+
+          var qd = tryParseDate_(qDate);
+          if (!qd) continue;
+
+          // PHS names are "Last, First" but sometimes "Last, CREDENTIAL, First"
+          // where CREDENTIAL is a professional license like LCSW, RN, etc.
+          var qLn = qName, qFn = "";
+          if (qName.indexOf(",") >= 0) {
+            var parts = qName.split(",").map(function(s) { return s.trim(); }).filter(Boolean);
+            qLn = parts[0];
+            // Strip credential-like tokens from middle positions
+            var filtered = [parts[0]];
+            for (var ci = 1; ci < parts.length; ci++) {
+              if (ci < parts.length - 1 && isCredential_(parts[ci])) continue;
+              filtered.push(parts[ci]);
+            }
+            qLn = filtered[0];
+            qFn = filtered.slice(1).join(" ");
+          }
+
+          var qKey = qLn + "|" + qFn;
+          updateBest_(bestDates, qKey + "|" + qCol, qd, "phs");
+          phsDateCount++;
+
+          // First Aid is inactive — remap to CPR
+          if (qCol === "FIRSTAID") qCol = "CPR";
+        }
+      }
+    }
+  }
+
+  // ── Write to Merged sheet ──
+  var merged = ss.getSheetByName(MERGED_SHEET);
+  if (merged) {
+    merged.clear();
+  } else {
+    merged = ss.insertSheet(MERGED_SHEET);
+  }
+
+  var headerRow = ["ID", "L NAME", "F NAME", "ACTIVE", "Division", "Hire Date", "Aliases"].concat(MERGED_TRAINING_COLS);
+  merged.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
+  merged.getRange(1, 1, 1, headerRow.length).setFontWeight("bold").setBackground("#1e3a5f").setFontColor("#ffffff");
+  merged.setFrozenRows(1);
+
+  // Sort employees alphabetically
+  var empKeys = Object.keys(employees).sort();
+  var outRows = [];
+
+  for (var ei = 0; ei < empKeys.length; ei++) {
+    var key = empKeys[ei];
+    var emp = employees[key];
+    var rowOut = [
+      emp.employee_number || "",
+      emp.last_name,
+      emp.first_name,
+      emp.is_active ? "Y" : "N",
+      emp.department,
+      emp.hire_date,
+      (emp.aliases || []).join("; "),
+    ];
+
+    for (var ti = 0; ti < MERGED_TRAINING_COLS.length; ti++) {
+      var col = MERGED_TRAINING_COLS[ti];
+      var bKey = key + "|" + col;
+      var exc = excusals[bKey];
+      if (exc) {
+        rowOut.push(exc);
+        continue;
+      }
+      var best = bestDates[bKey];
+      if (best) {
+        rowOut.push(Utilities.formatDate(best.date, "America/New_York", "M/d/yyyy"));
+      } else {
+        rowOut.push("");
+      }
+    }
+
+    outRows.push(rowOut);
+  }
+
+  if (outRows.length > 0) {
+    merged.getRange(2, 1, outRows.length, headerRow.length).setValues(outRows);
+  }
+
+  merged.autoResizeColumns(1, headerRow.length);
+
+  var msg = "Merged sheet built!\n\n" +
+    "Employees: " + empKeys.length + "\n" +
+    "Training dates from Training sheet: " + trDateCount + "\n" +
+    "Excusals from Training sheet: " + trExcCount + "\n" +
+    "Paylocity dates: " + payDateCount + "\n" +
+    "PHS dates: " + phsDateCount + "\n\n" +
+    "Total merged records: " + Object.keys(bestDates).length + "\n" +
+    "Total excusals: " + Object.keys(excusals).length + "\n\n" +
+    "Review the 'Merged' tab, then run 'Push Merged Tab → Supabase'.";
+
+  notify_("Merge Complete", msg);
+}
+
+// ════════════════════════════════════════════════════════════
+// STEP 2: Push Merged sheet to Supabase
+// ════════════════════════════════════════════════════════════
+// Idempotent upsert of employees (by last_name, first_name) plus
+// a full rebuild of training_records and excusals from the Merged
+// tab. Requires the employees_name_unique constraint from migration
+// 005 to be applied.
+// ════════════════════════════════════════════════════════════
+function pushMergedToSupabase() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var merged = ss.getSheetByName(MERGED_SHEET);
+  if (!merged) { notify_("Error", "Merged sheet not found. Run Step 1 first."); return; }
+
+  if (!confirm_(
+    "Push to Supabase",
+    "This will UPSERT employees from the Merged sheet, then DELETE\n" +
+    "all existing training_records and excusals in Supabase and\n" +
+    "push fresh ones from the Merged sheet.\n\n" +
+    "Existing employee rows get their department, hire_date, and\n" +
+    "is_active updated. No new duplicate employees will be created.\n\n" +
+    "Continue?"
+  )) return;
+
+  var data = merged.getDataRange().getValues();
+  if (data.length < 2) { notify_("Empty", "Merged sheet is empty"); return; }
+
+  var headers = data[0];
+  var idC = findCol_(headers, "ID");
+  var lnC = findCol_(headers, "L NAME");
+  var fnC = findCol_(headers, "F NAME");
+  var actC = findCol_(headers, "ACTIVE");
+  var divC = findCol_(headers, "Division");
+  var hireC = findCol_(headers, "Hire Date");
+  var aliasC = findCol_(headers, "Aliases");
+
+  if (lnC < 0 || fnC < 0) { notify_("Error", "L NAME / F NAME columns not found"); return; }
+
+  // Find training column positions in merged sheet
+  var colMap = {}; // col key → col index
+  var unmatchedHeaders = [];
+  for (var h = 0; h < headers.length; h++) {
+    var hdr = String(headers[h] || "").trim();
+    if (!hdr || h === idC || h === lnC || h === fnC || h === actC || h === divC || h === hireC || h === aliasC) continue;
+    var key = matchTrainingCol_(hdr);
+    if (key) {
+      colMap[key] = h;
+    } else {
+      unmatchedHeaders.push(hdr);
+    }
+  }
+
+  // Fetch training types (look up by column_key)
+  var ttResp = supabaseGet("/rest/v1/training_types?select=id,name,column_key&is_active=eq.true&limit=200");
+  var trainingTypes = JSON.parse(ttResp.getContentText());
+  var ttByKey = {}; // lowercase col key → { id }
+  for (var t = 0; t < trainingTypes.length; t++) {
+    ttByKey[trainingTypes[t].column_key.toLowerCase()] = trainingTypes[t];
+  }
+
+  // Flag any sheet columns whose training_type doesn't exist in Supabase
+  var missingTrainingTypes = [];
+  for (var ck in colMap) {
+    if (!ttByKey[ck.toLowerCase()]) missingTrainingTypes.push(ck);
+  }
+
+  // ─── Step 1: Build employee payload + collect records/excusals ───
+  var employees = [];
+  var records = [];
+  var excusalList = [];
+  var seenNames = {}; // last|first lowercase → true, to skip merged-sheet dupes
+
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    var ln = String(row[lnC] || "").trim();
+    var fn = String(row[fnC] || "").trim();
+    if (!ln && !fn) continue;
+    if (!ln) continue;
+
+    var nameKey = (ln + "|" + fn).toLowerCase();
+    if (seenNames[nameKey]) continue; // skip intra-sheet dupes
+    seenNames[nameKey] = true;
+
+    var active = actC >= 0 ? String(row[actC] || "").trim().toUpperCase() === "Y" : true;
+    var dept = divC >= 0 ? String(row[divC] || "").trim() : "";
+    var empNum = idC >= 0 ? String(row[idC] || "").trim() : "";
+    var hd = null;
+    if (hireC >= 0 && row[hireC]) {
+      var hDate = tryParseDate_(String(row[hireC]));
+      if (hDate) hd = Utilities.formatDate(hDate, "America/New_York", "yyyy-MM-dd");
+    }
+    // Aliases are stored in the Merged tab as a semicolon-separated string.
+    // Parse back into an array for Supabase.
+    var aliasList = [];
+    if (aliasC >= 0) {
+      var rawAliases = String(row[aliasC] || "").trim();
+      if (rawAliases) {
+        var parts = rawAliases.split(/\s*;\s*/);
+        for (var api = 0; api < parts.length; api++) {
+          var pa = parts[api].trim();
+          if (pa) aliasList.push(pa);
+        }
+      }
+    }
+
+    employees.push({
+      last_name: ln,
+      first_name: fn,
+      is_active: active,
+      department: dept || null,
+      hire_date: hd,
+      employee_number: empNum || null,
+      aliases: aliasList,
+    });
+
+    if (!active) continue;
+
+    // Process training columns for this employee
+    for (var key in colMap) {
+      var val = String(row[colMap[key]] || "").trim();
+      if (!val) continue;
+
+      var upper = val.toUpperCase();
+      if (SYNC_EXCUSALS[upper]) {
+        excusalList.push({ lastName: ln, firstName: fn, colKey: key, reason: val });
+        continue;
+      }
+
+      var d = tryParseDate_(val);
+      if (d) {
+        records.push({
+          lastName: ln, firstName: fn, colKey: key,
+          date: Utilities.formatDate(d, "America/New_York", "yyyy-MM-dd"),
+        });
+      }
+    }
+  }
+
+  // ─── Step 2: Bulk upsert employees via RPC ───
+  //
+  // We call a Postgres function (upsert_employees_from_sheet) that
+  // takes the whole employee batch as a single JSONB array and does
+  // ON CONFLICT against the case-insensitive functional index server-
+  // side. This is MUCH faster than per-row PATCH — 2000+ employees
+  // go through in one or two HTTP calls instead of hitting the
+  // 6-minute Apps Script limit.
+  var empLookup = {}; // lowercase "last|first" → id
+  var empInserted = 0; // RPC returns upsertedrows; we don't distinguish insert vs update
+  var empErrors = 0;
+
+  var UPSERT_BATCH = 500;
+  for (var ub = 0; ub < employees.length; ub += UPSERT_BATCH) {
+    var batch = employees.slice(ub, ub + UPSERT_BATCH);
+    var rpcResp = UrlFetchApp.fetch(
+      SUPABASE_URL + "/rest/v1/rpc/upsert_employees_from_sheet",
+      {
+        method: "post",
+        headers: {
+          "apikey": SUPABASE_KEY,
+          "Authorization": "Bearer " + SUPABASE_KEY,
+          "Content-Type": "application/json",
+        },
+        payload: JSON.stringify({ emps: batch }),
+        muteHttpExceptions: true,
+      }
+    );
+    if (rpcResp.getResponseCode() >= 200 && rpcResp.getResponseCode() < 300) {
+      try {
+        var returned = JSON.parse(rpcResp.getContentText());
+        for (var ri = 0; ri < returned.length; ri++) {
+          var rk = (String(returned[ri].last_name || "") + "|" + String(returned[ri].first_name || "")).toLowerCase();
+          empLookup[rk] = returned[ri].id;
+        }
+        empInserted += returned.length;
+      } catch (parseErr) {
+        Logger.log("RPC response parse failed: " + parseErr);
+      }
+    } else {
+      empErrors += batch.length;
+      Logger.log("Employee RPC upsert failed (" + rpcResp.getResponseCode() + "): " + rpcResp.getContentText());
+    }
+    Utilities.sleep(100);
+  }
+
+  // Fallback: if any employees didn't get an ID back from the RPC
+  // (shouldn't happen unless the RPC failed partially), fetch them
+  // by name so the training_records insert below can still find them.
+  if (Object.keys(empLookup).length < employees.length) {
+    var offset = 0;
+    while (true) {
+      var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name&limit=1000&offset=" + offset);
+      var empList = JSON.parse(empResp.getContentText());
+      if (empList.length === 0) break;
+      for (var el = 0; el < empList.length; el++) {
+        var key2 = (String(empList[el].last_name || "") + "|" + String(empList[el].first_name || "")).toLowerCase();
+        if (!empLookup[key2]) empLookup[key2] = empList[el].id;
+      }
+      offset += empList.length;
+      if (empList.length < 1000) break;
+    }
+  }
+
+  // ─── Step 3: Wipe only this source's existing data ───
+  // Only delete training_records and excusals that came from a
+  // previous merged-sheet push. Leave rows from other sources
+  // (training_records_sheet, auto_fill, manual) alone so they
+  // don't get destroyed by running this sync. Also delete any
+  // auto_fill rows that were cascaded from merged_sheet inserts
+  // so we don't leave orphans.
+  supabaseDelete("/rest/v1/training_records?source=in.(merged_sheet,auto_fill)");
+  supabaseDelete("/rest/v1/excusals?source=eq.merged_sheet");
+
+  // ─── Step 4: Push training records ───
+  var recPayload = [];
+  var skippedNoEmp = 0, skippedNoTT = 0;
+  for (var rc = 0; rc < records.length; rc++) {
+    var rec = records[rc];
+    var k = (rec.lastName + "|" + rec.firstName).toLowerCase();
+    var empId = empLookup[k];
+    if (!empId) { skippedNoEmp++; continue; }
+    var tt = ttByKey[rec.colKey.toLowerCase()];
+    if (!tt) { skippedNoTT++; continue; }
+    recPayload.push({
+      employee_id: empId,
+      training_type_id: tt.id,
+      completion_date: rec.date,
+      source: "merged_sheet",
+    });
+  }
+
+  // Smaller batch for training_records — the apply_auto_fill trigger
+  // fires per row and large batches can blow the Postgres stack depth.
+  var REC_BATCH = 25;
+  var recInserted = 0;
+  for (var rb = 0; rb < recPayload.length; rb += REC_BATCH) {
+    var rBatch = recPayload.slice(rb, rb + REC_BATCH);
+    var rResp = supabasePost(
+      "/rest/v1/training_records?on_conflict=employee_id,training_type_id,completion_date",
+      rBatch,
+      { "Prefer": "resolution=merge-duplicates" }
+    );
+    if (rResp.getResponseCode() >= 200 && rResp.getResponseCode() < 300) {
+      recInserted += rBatch.length;
+    } else {
+      Logger.log("Record batch failed (" + rResp.getResponseCode() + "): " + rResp.getContentText());
+    }
+    Utilities.sleep(100);
+  }
+
+  // ─── Step 5: Push excusals ───
+  var excPayload = [];
+  var excSkippedNoEmp = 0, excSkippedNoTT = 0;
+  for (var xc = 0; xc < excusalList.length; xc++) {
+    var exc = excusalList[xc];
+    var k2 = (exc.lastName + "|" + exc.firstName).toLowerCase();
+    var empId2 = empLookup[k2];
+    if (!empId2) { excSkippedNoEmp++; continue; }
+    var tt2 = ttByKey[exc.colKey.toLowerCase()];
+    if (!tt2) { excSkippedNoTT++; continue; }
+    excPayload.push({
+      employee_id: empId2,
+      training_type_id: tt2.id,
+      reason: exc.reason,
+      source: "merged_sheet",
+    });
+  }
+
+  var excInserted = 0;
+  var EXC_BATCH = 100;
+  for (var xb = 0; xb < excPayload.length; xb += EXC_BATCH) {
+    var xBatch = excPayload.slice(xb, xb + EXC_BATCH);
+    var xResp = supabasePost(
+      "/rest/v1/excusals?on_conflict=employee_id,training_type_id",
+      xBatch,
+      { "Prefer": "resolution=merge-duplicates" }
+    );
+    if (xResp.getResponseCode() >= 200 && xResp.getResponseCode() < 300) {
+      excInserted += xBatch.length;
+    } else {
+      Logger.log("Excusal batch failed (" + xResp.getResponseCode() + "): " + xResp.getContentText());
+    }
+    Utilities.sleep(100);
+  }
+
+  // ─── Step 6: Report ───
+  var msg = "Push Complete!\n\n" +
+    "Employees upserted: " + empInserted + " of " + employees.length;
+  if (empErrors > 0) msg += "   [" + empErrors + " failed]";
+  msg += "\n" +
+    "Training records: " + recInserted + " of " + records.length +
+    "   [skipped: " + skippedNoEmp + " no-emp, " + skippedNoTT + " no-tt]\n" +
+    "Excusals: " + excInserted + " of " + excusalList.length +
+    "   [skipped: " + excSkippedNoEmp + " no-emp, " + excSkippedNoTT + " no-tt]";
+
+  if (missingTrainingTypes.length > 0) {
+    msg += "\n\n⚠ Missing training_types in Supabase for columns:\n  " +
+      missingTrainingTypes.join(", ") +
+      "\nSeed them (e.g. via migration 003) before re-running.";
+  }
+  if (unmatchedHeaders.length > 0) {
+    msg += "\n\n⚠ Sheet headers that didn't map to a known training column:\n  " +
+      unmatchedHeaders.join(", ");
+  }
+
+  notify_("Done", msg);
+}
+
+// ════════════════════════════════════════════════════════════
+// Helpers
+// ════════════════════════════════════════════════════════════
+
+// Match any training column name to its canonical column_key
+function matchTrainingCol_(header) {
+  if (!header) return null;
+  var h = header.toLowerCase().trim();
+  for (var i = 0; i < MERGED_TRAINING_COLS.length; i++) {
+    if (MERGED_TRAINING_COLS[i].toLowerCase() === h) return MERGED_TRAINING_COLS[i];
+  }
+  // Tolerate common misspellings / alternate header names.
+  if (MERGED_COL_ALIASES[h]) return MERGED_COL_ALIASES[h];
+  return null;
+}
+
+function updateBest_(bestDates, key, date, source) {
+  var existing = bestDates[key];
+  if (!existing || date.getTime() > existing.date.getTime()) {
+    bestDates[key] = { date: date, source: source };
+  }
+}
+
+function tryParseDate_(value) {
+  if (!value) return null;
+  if (value instanceof Date && !isNaN(value.getTime())) return value;
+  var s = String(value).trim();
+  var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (m) {
+    var yr = parseInt(m[3]);
+    if (yr < 100) yr += 2000;
+    var d = new Date(yr, parseInt(m[1]) - 1, parseInt(m[2]));
+    if (!isNaN(d.getTime()) && d.getFullYear() > 2000) return d;
+  }
+  var iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    var d2 = new Date(parseInt(iso[1]), parseInt(iso[2]) - 1, parseInt(iso[3]));
+    if (!isNaN(d2.getTime())) return d2;
+  }
+  var d3 = new Date(s);
+  if (!isNaN(d3.getTime()) && d3.getFullYear() > 2000) return d3;
+  return null;
+}
+
+function findCol_(headers, name) {
+  var upper = name.toUpperCase();
+  for (var i = 0; i < headers.length; i++) {
+    if (String(headers[i]).trim().toUpperCase() === upper) return i;
+  }
+  return -1;
+}
+
+// Professional credentials that PHS embeds in the name field, e.g. "Cupp, LCSW, Heather"
+var KNOWN_CREDENTIALS_ = {
+  "LCSW":1,"LISW":1,"LSW":1,"MSW":1,"LMSW":1,"LICSW":1,
+  "RN":1,"BSN":1,"MSN":1,"DNP":1,"APRN":1,"FNP":1,"CNP":1,
+  "LPN":1,"CNA":1,"STNA":1,
+  "MD":1,"DO":1,"PA":1,"NP":1,"DPM":1,"DDS":1,"DMD":1,
+  "PHD":1,"EDD":1,"PSYD":1,
+  "LPC":1,"LPCC":1,"LCPC":1,"NCC":1,"LMHC":1,
+  "OT":1,"OTR":1,"PT":1,"PTA":1,"DPT":1,
+  "CRNA":1,"EMT":1,"AEMT":1,
+  "RT":1,"RRT":1,"CRT":1,"RD":1,"LD":1,
+  "LMFT":1,"MFT":1,"BCBA":1,"RBT":1,"PHARMD":1,"RPH":1,
+};
+
+function isCredential_(token) {
+  var clean = token.replace(/[.\-]/g, "").trim().toUpperCase();
+  if (!clean) return false;
+  if (KNOWN_CREDENTIALS_[clean]) return true;
+  // Heuristic: short all-caps token (2-8 chars)
+  return clean.length >= 2 && clean.length <= 8 && /^[A-Z]+$/.test(clean);
+}
+
+function findColPartial_(headers, partial) {
+  var lower = partial.toLowerCase();
+  for (var i = 0; i < headers.length; i++) {
+    if (String(headers[i]).trim().toLowerCase().indexOf(lower) >= 0) return i;
+  }
+  return -1;
+}
+
+// ────────────────────────────────────────────────────────────
+// Levenshtein edit distance — used for fuzzy typo matching in
+// pushTrainingRecordsToSupabase. Caps at maxDist so we can short-
+// circuit expensive comparisons.
+// ────────────────────────────────────────────────────────────
+
+function levenshtein_(a, b, maxDist) {
+  a = String(a || "");
+  b = String(b || "");
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  if (Math.abs(a.length - b.length) > maxDist) return maxDist + 1;
+
+  var prev = new Array(b.length + 1);
+  var cur = new Array(b.length + 1);
+  for (var j = 0; j <= b.length; j++) prev[j] = j;
+  for (var i = 1; i <= a.length; i++) {
+    cur[0] = i;
+    var rowMin = i;
+    for (var j2 = 1; j2 <= b.length; j2++) {
+      var cost = a.charAt(i - 1) === b.charAt(j2 - 1) ? 0 : 1;
+      cur[j2] = Math.min(
+        cur[j2 - 1] + 1,      // insert
+        prev[j2] + 1,         // delete
+        prev[j2 - 1] + cost   // substitute
+      );
+      if (cur[j2] < rowMin) rowMin = cur[j2];
+    }
+    if (rowMin > maxDist) return maxDist + 1;
+    var tmp = prev; prev = cur; cur = tmp;
+  }
+  return prev[b.length];
+}
+
+// ────────────────────────────────────────────────────────────
+// Attendee Name Fixes helpers
+// ────────────────────────────────────────────────────────────
+// The "Attendee Name Fixes" sheet lets you manually map sheet
+// attendee names that the matcher couldn't resolve to a canonical
+// name the matcher can resolve.
+//
+// Columns:
+//   A: Sheet Name      — the attendee text from Training Records
+//   B: Canonical Name  — you fill this in with the correct name
+//   C: Count           — how many Training Records rows have this name
+//   D: Notes           — script writes status here ("matched" / "unresolved" / "")
+// ────────────────────────────────────────────────────────────
+
+// Top-level version of normKey_ so it's usable outside
+// pushTrainingRecordsToSupabase (e.g. by the fix-sheet helpers).
+// Lowercases, strips apostrophes / periods / dashes, collapses
+// whitespace, trims. Keeps internal spaces so "mary thompson"
+// and "Mary Thompson" collapse to the same key but "mt" doesn't.
+function normAttendeeKey_(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[''`´.,\-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function loadAttendeeNameFixes_(ss) {
+  var sheet = ss.getSheetByName(NAME_FIX_SHEET);
+  if (!sheet || sheet.getLastRow() < 2) return {};
+  var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+  var map = {};
+  for (var i = 0; i < rows.length; i++) {
+    var sheetName = String(rows[i][0] || "").trim();
+    var canonical = String(rows[i][1] || "").trim();
+    if (!sheetName || !canonical) continue;
+    // Key by normalized sheet name so "Mary Thompson" and
+    // "mary thompson" resolve to the same canonical name.
+    map[normAttendeeKey_(sheetName)] = canonical;
+  }
+  return map;
+}
+
+function writeUnmatchedAttendeesToFixSheet_(ss, unmatchedNames) {
+  var sheet = ss.getSheetByName(NAME_FIX_SHEET);
+  var existingRows = [];
+
+  if (sheet && sheet.getLastRow() >= 2) {
+    existingRows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues();
+  }
+
+  if (!sheet) {
+    sheet = ss.insertSheet(NAME_FIX_SHEET);
+  }
+
+  // Headers (recreate to be safe)
+  sheet.getRange(1, 1, 1, 4).setValues([[
+    "Sheet Name", "Canonical Name", "Count", "Notes"
+  ]]);
+  sheet.getRange(1, 1, 1, 4)
+    .setFontWeight("bold")
+    .setBackground("#1e3a5f")
+    .setFontColor("#ffffff");
+
+  // Collapse the freshly-unmatched names by normalized key so
+  // "Tanytha Bingham" and "tanytha bingham" don't create two rows.
+  // Keep the most-frequently-used raw spelling as the display name.
+  var grouped = {}; // normKey → { display, count }
+  for (var nm in unmatchedNames) {
+    var nk = normAttendeeKey_(nm);
+    if (!nk) continue;
+    if (!grouped[nk]) {
+      grouped[nk] = { display: nm, count: 0, rawCounts: {} };
+    }
+    grouped[nk].count += unmatchedNames[nm];
+    grouped[nk].rawCounts[nm] = (grouped[nk].rawCounts[nm] || 0) + unmatchedNames[nm];
+  }
+  // Pick the highest-count raw spelling as the display name for each group
+  for (var gk in grouped) {
+    var best = "";
+    var bestCount = -1;
+    for (var rc in grouped[gk].rawCounts) {
+      if (grouped[gk].rawCounts[rc] > bestCount) {
+        best = rc;
+        bestCount = grouped[gk].rawCounts[rc];
+      }
+    }
+    grouped[gk].display = best;
+  }
+
+  // Merge: keep any existing Canonical Name entries, update counts, add new
+  var finalRows = [];
+  var processedKeys = {};
+
+  // 1) Existing rows: keep canonical + refreshed count (keyed by normalized)
+  for (var er = 0; er < existingRows.length; er++) {
+    var name = String(existingRows[er][0] || "").trim();
+    if (!name) continue;
+    var ek = normAttendeeKey_(name);
+    if (!ek || processedKeys[ek]) continue;
+    processedKeys[ek] = true;
+    var count = grouped[ek] ? grouped[ek].count : 0;
+    var canonical = String(existingRows[er][1] || "").trim();
+    var notes = String(existingRows[er][3] || "");
+    if (count === 0 && !canonical) continue; // drop stale empty rows
+    finalRows.push([name, canonical, count, notes]);
+  }
+
+  // 2) New unmatched groups not already in the sheet
+  for (var gk2 in grouped) {
+    if (processedKeys[gk2]) continue;
+    finalRows.push([grouped[gk2].display, "", grouped[gk2].count, ""]);
+    processedKeys[gk2] = true;
+  }
+
+  // Sort by count DESC, then name
+  finalRows.sort(function(a, b) {
+    if (b[2] !== a[2]) return b[2] - a[2];
+    return String(a[0]).localeCompare(String(b[0]));
+  });
+
+  // Clear old data area and write
+  if (sheet.getLastRow() > 1) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).clearContent().clearFormat();
+  }
+  if (finalRows.length > 0) {
+    sheet.getRange(2, 1, finalRows.length, 4).setValues(finalRows);
+    // Highlight rows with a filled Canonical Name in green
+    for (var fr = 0; fr < finalRows.length; fr++) {
+      if (String(finalRows[fr][1] || "").trim()) {
+        sheet.getRange(fr + 2, 2).setBackground("#d4edda");
+      }
+    }
+  }
+
+  sheet.setColumnWidth(1, 220);
+  sheet.setColumnWidth(2, 220);
+  sheet.setColumnWidth(3, 70);
+  sheet.setColumnWidth(4, 200);
+  sheet.setFrozenRows(1);
+
+  return finalRows.length;
+}
+
+// ────────────────────────────────────────────────────────────
+// Supabase HTTP helpers
+// ────────────────────────────────────────────────────────────
+
+function supabaseGet(path) {
+  return UrlFetchApp.fetch(SUPABASE_URL + path, {
+    method: "get",
+    headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY },
+    muteHttpExceptions: true,
+  });
+}
+
+function supabasePost(path, data, extraHeaders) {
+  var headers = { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY, "Content-Type": "application/json" };
+  for (var k in extraHeaders) headers[k] = extraHeaders[k];
+  return UrlFetchApp.fetch(SUPABASE_URL + path, {
+    method: "post", headers: headers, payload: JSON.stringify(data), muteHttpExceptions: true,
+  });
+}
+
+function supabaseDelete(path) {
+  return UrlFetchApp.fetch(SUPABASE_URL + path, {
+    method: "delete",
+    headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY },
+    muteHttpExceptions: true,
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+// STEP 3: Push the "Training Records" sheet → Supabase
+// ════════════════════════════════════════════════════════════
+// Reads every row of the Training Records sheet (QR-scan history:
+// arrival time, session, attendee, date, left early, reason, notes,
+// end time, session length, pass/fail, reviewed by) and inserts each
+// as a training_records row in Supabase.
+//
+// Requires migration 004_record_review_columns.sql to be applied.
+//
+// This wipes all existing training_records first, so run it AFTER
+// pushMergedToSupabase if you want the Merged-sheet latest-completion
+// data — or INSTEAD of pushMergedToSupabase if the Training Records
+// sheet is your source of truth for attendance history.
+// ════════════════════════════════════════════════════════════
+function pushTrainingRecordsToSupabase() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Training Records");
+  if (!sheet) {
+    notify_("Error", "Training Records sheet not found.");
+    return;
+  }
+
+  if (!confirm_(
+    "Push Training Records → Supabase",
+    "This will DELETE existing training_records (source = 'training_records_sheet')\n" +
+    "in Supabase, then push every row of the Training Records sheet\n" +
+    "as an individual attendance record (with pass/fail, arrival\n" +
+    "time, end time, session length, left-early flag, reason, and\n" +
+    "reviewer).\n\n" +
+    "Run migration 004_record_review_columns.sql first if you haven't.\n\n" +
+    "Continue?"
+  )) return;
+
+  var data = sheet.getDataRange().getValues();
+  if (data.length < 2) { notify_("Empty", "Training Records sheet is empty"); return; }
+
+  // Manual name fix map — lowercase sheet name → canonical name
+  var nameFixMap = loadAttendeeNameFixes_(ss);
+
+  // Column layout (from Core.gs doPost):
+  //   A(0) Arrival Time | B(1) Session | C(2) Attendee | D(3) Date
+  //   E(4) Left Early   | F(5) Reason  | G(6) Notes    | H(7) End Time
+  //   I(8) Session Length | J(9) Pass/Fail | K(10) Reviewed By
+  var ARRIVAL_C = 0, SESSION_C = 1, ATTENDEE_C = 2, DATE_C = 3,
+      LEFTEARLY_C = 4, REASON_C = 5, NOTES_C = 6, ENDTIME_C = 7,
+      SESSLEN_C = 8, PASSFAIL_C = 9, REVIEWER_C = 10;
+
+  // Fetch training types (for session-name → training_type_id lookup)
+  var ttResp = supabaseGet("/rest/v1/training_types?select=id,name,column_key&is_active=eq.true&limit=200");
+  var trainingTypes = JSON.parse(ttResp.getContentText());
+  var ttByName = {}; // lowercase name → { id }
+  var ttByColKey = {}; // lowercase column_key → { id }
+  for (var t = 0; t < trainingTypes.length; t++) {
+    ttByName[String(trainingTypes[t].name || "").toLowerCase()] = trainingTypes[t];
+    ttByColKey[String(trainingTypes[t].column_key || "").toLowerCase()] = trainingTypes[t];
+  }
+
+  // Fetch training aliases for fuzzy session-name matching
+  var aliasResp = supabaseGet("/rest/v1/training_aliases?select=training_type_id,alias&limit=500");
+  var aliases = JSON.parse(aliasResp.getContentText());
+  var ttByAlias = {};
+  for (var a = 0; a < aliases.length; a++) {
+    ttByAlias[String(aliases[a].alias || "").toLowerCase()] = aliases[a].training_type_id;
+  }
+
+  function resolveTrainingTypeId_(sessionName) {
+    var s = String(sessionName || "").trim().toLowerCase();
+    if (!s) return null;
+    if (ttByName[s]) return ttByName[s].id;
+    if (ttByColKey[s]) return ttByColKey[s].id;
+    if (ttByAlias[s]) return ttByAlias[s];
+    // Try matching via SESSION_TO_COLUMN (Config.gs)
+    try {
+      var cols = (typeof SESSION_TO_COLUMN !== "undefined") ? SESSION_TO_COLUMN[sessionName] : null;
+      if (cols && cols.length > 0) {
+        var firstCol = String(cols[0] || "").toLowerCase();
+        if (ttByColKey[firstCol]) return ttByColKey[firstCol].id;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  // Fetch nicknames table for bidirectional name expansion.
+  // Schema: nicknames(name TEXT, alias TEXT) — e.g. name='Christopher' alias='Chris'.
+  // We build a bidirectional map: "chris" ↔ "christopher", "mike" ↔ "michael", etc.
+  var nickMap = {}; // lower(name) → Set of lower(alias or name)
+  function addNickPair_(a, b) {
+    var al = String(a || "").trim().toLowerCase();
+    var bl = String(b || "").trim().toLowerCase();
+    if (!al || !bl) return;
+    if (!nickMap[al]) nickMap[al] = {};
+    if (!nickMap[bl]) nickMap[bl] = {};
+    nickMap[al][bl] = true;
+    nickMap[bl][al] = true;
+    nickMap[al][al] = true;
+    nickMap[bl][bl] = true;
+  }
+  var nickOffset = 0;
+  while (true) {
+    var nickResp = supabaseGet("/rest/v1/nicknames?select=name,alias&limit=1000&offset=" + nickOffset);
+    var nickRows = JSON.parse(nickResp.getContentText());
+    if (nickRows.length === 0) break;
+    for (var ni = 0; ni < nickRows.length; ni++) {
+      addNickPair_(nickRows[ni].name, nickRows[ni].alias);
+    }
+    nickOffset += nickRows.length;
+    if (nickRows.length < 1000) break;
+  }
+  function expandFirstName_(first) {
+    var key = String(first || "").trim().toLowerCase();
+    if (!key) return [];
+    if (nickMap[key]) {
+      var out = [];
+      for (var k in nickMap[key]) out.push(k);
+      return out;
+    }
+    return [key];
+  }
+
+  // Normalize a name chunk for key building: lowercase + strip punctuation
+  // (apostrophes, periods, dashes) so "Ny'Lexis" matches "NyLexis",
+  // "O'Brien" matches "OBrien", "St. John" matches "St John", etc.
+  function normKey_(s) {
+    return String(s || "")
+      .toLowerCase()
+      .replace(/[''`´.,\-]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  // Fetch employees (paginated). Build multiple lookups:
+  //   1. (last|first) normalized (lowercased + punctuation stripped)
+  //   2. (last|nickname) for "Michael \"Mike\"" / "Michael (Mike)" style names
+  //   3. (last|bareFirst) where bareFirst strips any middle initial
+  //   4. (last|nickname-alias) via the nicknames table (chris↔christopher)
+  //   5. employees.aliases[] — per-employee full-name aliases (bridges
+  //      legal name vs preferred name, e.g. "Mary Thompson" → Cindy)
+  //   6. firstNameIndex[first] → [{id, last, first}, ...] for last-resort
+  //      single-match-by-first-name fallback
+  var empLookup = {};          // normalized "last|first" → id
+  var aliasLookup = {};        // normalized full alias → id
+  var firstNameIndex = {};
+  var allEmployees = []; // normalized list for fuzzy fallback
+  var offset = 0;
+  while (true) {
+    var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name,aliases&limit=1000&offset=" + offset);
+    var empList = JSON.parse(empResp.getContentText());
+    if (empList.length === 0) break;
+    for (var el = 0; el < empList.length; el++) {
+      var rawLast = String(empList[el].last_name || "").trim();
+      var rawFirst = String(empList[el].first_name || "").trim();
+      if (!rawLast) continue;
+
+      var lastK = normKey_(rawLast);
+      var firstK = normKey_(rawFirst);
+
+      allEmployees.push({ id: empList[el].id, lastK: lastK, firstK: firstK });
+
+      // Index every stored alias under the full-alias lookup so
+      // "Mary Thompson" → Cindy Thompson resolves directly.
+      var empAliases = empList[el].aliases || [];
+      for (var ai = 0; ai < empAliases.length; ai++) {
+        var ak = normKey_(empAliases[ai]);
+        if (ak && !aliasLookup[ak]) aliasLookup[ak] = empList[el].id;
+      }
+
+      function addEmpKey_(last, first) {
+        if (!last || !first) return;
+        var k = last + "|" + first;
+        if (!empLookup[k]) empLookup[k] = empList[el].id;
+      }
+
+      // Primary
+      addEmpKey_(lastK, firstK);
+
+      // Strip trailing initials: "Aletha C" → "aletha"
+      var bareFirst = firstK.replace(/\s+[a-z]$/i, "").trim();
+      if (bareFirst && bareFirst !== firstK) addEmpKey_(lastK, bareFirst);
+
+      // Pull nicknames out of quotes or parens: Michael "Mike" → "mike", "michael"
+      var nickMatch = firstK.match(/["'(]([^"')]+)["')]/);
+      var nickInQuotes = nickMatch && nickMatch[1] ? normKey_(nickMatch[1]) : "";
+      if (nickInQuotes) addEmpKey_(lastK, nickInQuotes);
+      var beforeNick = firstK.replace(/\s*["'(][^"')]+["')].*$/, "").trim();
+      if (beforeNick && beforeNick !== firstK) addEmpKey_(lastK, beforeNick);
+
+      // Nickname table expansion on every first-name variant we have so far
+      var variants = {};
+      variants[firstK] = true;
+      if (bareFirst) variants[bareFirst] = true;
+      if (nickInQuotes) variants[nickInQuotes] = true;
+      if (beforeNick) variants[beforeNick] = true;
+      var expandedSet = {};
+      for (var v in variants) {
+        var exp = expandFirstName_(v);
+        for (var ei = 0; ei < exp.length; ei++) expandedSet[exp[ei]] = true;
+      }
+      for (var ek in expandedSet) addEmpKey_(lastK, ek);
+
+      // First-name index for fallback
+      for (var fk in expandedSet) {
+        if (!firstNameIndex[fk]) firstNameIndex[fk] = [];
+        firstNameIndex[fk].push({ id: empList[el].id, last: lastK, first: firstK });
+      }
+    }
+    offset += empList.length;
+    if (empList.length < 1000) break;
+  }
+
+  function lookupByLastFirst_(last, first) {
+    if (!last || !first) return null;
+    var lastN = normKey_(last);
+    var firstN = normKey_(first);
+    if (!lastN || !firstN) return null;
+
+    // 1) direct
+    if (empLookup[lastN + "|" + firstN]) return empLookup[lastN + "|" + firstN];
+
+    // 2) strip trailing initial on attendee side
+    var bare = firstN.replace(/\s+[a-z]$/i, "").trim();
+    if (bare && bare !== firstN && empLookup[lastN + "|" + bare]) {
+      return empLookup[lastN + "|" + bare];
+    }
+
+    // 3) expand attendee first-name through nickname table
+    var expanded = expandFirstName_(firstN);
+    for (var ei = 0; ei < expanded.length; ei++) {
+      if (empLookup[lastN + "|" + expanded[ei]]) return empLookup[lastN + "|" + expanded[ei]];
+    }
+    if (bare && bare !== firstN) {
+      var expanded2 = expandFirstName_(bare);
+      for (var ei2 = 0; ei2 < expanded2.length; ei2++) {
+        if (empLookup[lastN + "|" + expanded2[ei2]]) return empLookup[lastN + "|" + expanded2[ei2]];
+      }
+    }
+
+    return null;
+  }
+
+  // Fuzzy typo fallback: look for the single closest employee
+  // within Levenshtein edit distance 2. Used only as a last resort
+  // because a bad fuzzy match would silently attach attendance to
+  // the wrong person.
+  //
+  // Rules:
+  //   - last-name distance ≤ 2  AND
+  //   - first-name distance ≤ 2 (after nickname expansion) AND
+  //   - combined distance ≤ 3                                AND
+  //   - exactly one employee has the minimum score (no ambiguity)
+  //   - AND that score is strictly lower than the runner-up
+  function fuzzyLookup_(lastGuess, firstGuess) {
+    var lastN = normKey_(lastGuess);
+    var firstN = normKey_(firstGuess);
+    if (!lastN || !firstN) return null;
+
+    var firstVariants = expandFirstName_(firstN);
+    firstVariants.push(firstN);
+
+    var MAX_EACH = 2;
+    var MAX_TOTAL = 3;
+
+    var best = null;
+    var bestScore = 999;
+    var runnerUp = 999;
+
+    for (var ei = 0; ei < allEmployees.length; ei++) {
+      var emp = allEmployees[ei];
+      // Quick reject on very different lengths
+      if (Math.abs(emp.lastK.length - lastN.length) > MAX_EACH) continue;
+
+      var lastDist = levenshtein_(emp.lastK, lastN, MAX_EACH);
+      if (lastDist > MAX_EACH) continue;
+
+      // Try each first-name variant, keep the smallest distance
+      var firstDist = MAX_EACH + 1;
+      for (var fvi = 0; fvi < firstVariants.length; fvi++) {
+        var fv = firstVariants[fvi];
+        if (Math.abs(emp.firstK.length - fv.length) > MAX_EACH) continue;
+        var d = levenshtein_(emp.firstK, fv, MAX_EACH);
+        if (d < firstDist) firstDist = d;
+        if (firstDist === 0) break;
+      }
+      if (firstDist > MAX_EACH) continue;
+
+      var total = lastDist + firstDist;
+      if (total > MAX_TOTAL) continue;
+
+      if (total < bestScore) {
+        runnerUp = bestScore;
+        bestScore = total;
+        best = emp;
+      } else if (total < runnerUp) {
+        runnerUp = total;
+      }
+    }
+
+    // Require a clear winner: best must beat runner-up by at least 1.
+    if (best && bestScore < runnerUp) return best.id;
+    return null;
+  }
+
+  // List of {employeeId, aliasToAdd} pairs — populated whenever the
+  // matcher resolves a name via the fix sheet. After the main insert
+  // loop we batch-write these to Supabase so the mapping sticks.
+  var aliasesToPersist = [];
+
+  function resolveEmployeeId_(attendee) {
+    if (!attendee) return null;
+    var trimmed = String(attendee).trim();
+    if (!trimmed) return null;
+    var originalNorm = normAttendeeKey_(trimmed);
+
+    // Case 0a: direct alias hit — this attendee is already registered
+    // as an alias on an employee in Supabase, bypass everything else.
+    if (aliasLookup[originalNorm]) return aliasLookup[originalNorm];
+
+    // Case 0b: manual override from the "Attendee Name Fixes" sheet.
+    // If the user has mapped this sheet name to a canonical name, try
+    // the canonical name through the rest of the matcher. When it
+    // resolves, also queue the original attendee string to be added
+    // to that employee's aliases[] so future runs don't need the fix.
+    var fromFixSheet = false;
+    var fix = nameFixMap[originalNorm];
+    if (fix) {
+      trimmed = String(fix).trim();
+      fromFixSheet = true;
+    }
+
+    // Every successful return goes through this helper so we can
+    // queue an alias write back to Supabase when the resolution
+    // came from the fix sheet.
+    function found_(id) {
+      if (!id) return null;
+      if (fromFixSheet && attendee && !aliasLookup[originalNorm]) {
+        aliasesToPersist.push({ id: id, alias: String(attendee).trim() });
+        aliasLookup[originalNorm] = id; // don't re-queue on next row
+      }
+      return id;
+    }
+
+    // Case A: "Last, First" (canonical form from the sheet)
+    if (trimmed.indexOf(",") > -1) {
+      var parts = trimmed.split(",");
+      var ln = parts[0].trim();
+      var fn = parts.slice(1).join(",").trim();
+      var id = lookupByLastFirst_(ln, fn);
+      if (id) return found_(id);
+    }
+
+    // Case B: "First Last" or "First Middle Last"
+    var sp = trimmed.split(/\s+/);
+    if (sp.length >= 2) {
+      // Try (last = last token, first = everything before)
+      var tryLast1 = sp[sp.length - 1];
+      var tryFirst1 = sp.slice(0, sp.length - 1).join(" ");
+      var id1 = lookupByLastFirst_(tryLast1, tryFirst1);
+      if (id1) return found_(id1);
+
+      // Try (last = last 2 tokens) for names like "von der Lage"
+      if (sp.length >= 3) {
+        var tryLast2 = sp.slice(sp.length - 2).join(" ");
+        var tryFirst2 = sp.slice(0, sp.length - 2).join(" ");
+        var id2 = lookupByLastFirst_(tryLast2, tryFirst2);
+        if (id2) return found_(id2);
+      }
+
+      // Try (first = first token, last = everything after)
+      var tryFirst3 = sp[0];
+      var tryLast3 = sp.slice(1).join(" ");
+      var id3 = lookupByLastFirst_(tryLast3, tryFirst3);
+      if (id3) return found_(id3);
+
+      // Fallback: first-name-only match (using nickname expansion)
+      var firstVariants = expandFirstName_(normKey_(tryFirst3));
+      var candidates = [];
+      for (var fvi = 0; fvi < firstVariants.length; fvi++) {
+        var bucket = firstNameIndex[firstVariants[fvi]] || [];
+        for (var bi = 0; bi < bucket.length; bi++) candidates.push(bucket[bi]);
+      }
+      if (candidates.length === 1) return found_(candidates[0].id);
+      if (candidates.length > 1) {
+        var tail = normKey_(sp.slice(1).join(" "));
+        for (var ci = 0; ci < candidates.length; ci++) {
+          if (candidates[ci].last === tail || tail.indexOf(candidates[ci].last) >= 0) {
+            return found_(candidates[ci].id);
+          }
+        }
+      }
+    }
+
+    // Case C: single token — first-name only (with nickname expansion)
+    var singleVariants = expandFirstName_(normKey_(trimmed));
+    var singleCandidates = [];
+    for (var svi = 0; svi < singleVariants.length; svi++) {
+      var b2 = firstNameIndex[singleVariants[svi]] || [];
+      for (var b2i = 0; b2i < b2.length; b2i++) singleCandidates.push(b2[b2i]);
+    }
+    if (singleCandidates.length === 1) return found_(singleCandidates[0].id);
+
+    // Case D: fuzzy typo fallback. Try every reasonable (last, first)
+    // split of the attendee name and keep the single closest match.
+    // Only used when everything else failed.
+    var fuzzyCandidates = [];
+    if (trimmed.indexOf(",") > -1) {
+      var fparts = trimmed.split(",");
+      fuzzyCandidates.push([fparts[0].trim(), fparts.slice(1).join(",").trim()]);
+    }
+    var fsp = trimmed.split(/\s+/);
+    if (fsp.length >= 2) {
+      fuzzyCandidates.push([fsp[fsp.length - 1], fsp.slice(0, fsp.length - 1).join(" ")]);
+      if (fsp.length >= 3) {
+        fuzzyCandidates.push([fsp.slice(fsp.length - 2).join(" "), fsp.slice(0, fsp.length - 2).join(" ")]);
+      }
+      fuzzyCandidates.push([fsp.slice(1).join(" "), fsp[0]]);
+    }
+    for (var fci = 0; fci < fuzzyCandidates.length; fci++) {
+      var fId = fuzzyLookup_(fuzzyCandidates[fci][0], fuzzyCandidates[fci][1]);
+      if (fId) return found_(fId);
+    }
+
+    return null;
+  }
+
+  // Wipe only this source's existing training_records, so merged-sheet
+  // completion dates from pushMergedToSupabase don't get destroyed
+  // when we refresh the attendance history.
+  supabaseDelete("/rest/v1/training_records?source=eq.training_records_sheet");
+
+  // Build payload, deduping by (emp, tt, date) as we go so the
+  // sheet can have repeated sign-ins for the same person/session/date
+  // without blowing the unique index.
+  var payload = [];
+  var seenRecordKey = {};
+  var skippedNoEmp = 0, skippedNoTT = 0, skippedNoDate = 0, dedupedInSheet = 0;
+  var unmatchedNames = {}; // attendee → count
+  var unmatchedSessions = {}; // session → count
+  var failedBatches = 0;
+  var failedRows = 0;
+
+  for (var r = 1; r < data.length; r++) {
+    var row = data[r];
+    var attendee = String(row[ATTENDEE_C] || "").trim();
+    var session  = String(row[SESSION_C]  || "").trim();
+    var rawDate  = row[DATE_C];
+
+    if (!attendee || !session || !rawDate) continue;
+
+    var empId = resolveEmployeeId_(attendee);
+    if (!empId) {
+      skippedNoEmp++;
+      unmatchedNames[attendee] = (unmatchedNames[attendee] || 0) + 1;
+      continue;
+    }
+
+    var ttId = resolveTrainingTypeId_(session);
+    if (!ttId) {
+      skippedNoTT++;
+      unmatchedSessions[session] = (unmatchedSessions[session] || 0) + 1;
+      continue;
+    }
+
+    var d = tryParseDate_(rawDate);
+    if (!d) { skippedNoDate++; continue; }
+    var isoDate = Utilities.formatDate(d, "America/New_York", "yyyy-MM-dd");
+
+    var recKey = empId + "|" + ttId + "|" + isoDate;
+    if (seenRecordKey[recKey]) {
+      dedupedInSheet++;
+      continue;
+    }
+    seenRecordKey[recKey] = true;
+
+    payload.push({
+      employee_id: empId,
+      training_type_id: ttId,
+      completion_date: isoDate,
+      source: "training_records_sheet",
+      arrival_time:   String(row[ARRIVAL_C]   || "") || null,
+      left_early:     String(row[LEFTEARLY_C] || "") || null,
+      reason:         String(row[REASON_C]    || "") || null,
+      notes:          String(row[NOTES_C]     || "") || null,
+      end_time:       String(row[ENDTIME_C]   || "") || null,
+      session_length: String(row[SESSLEN_C]   || "") || null,
+      pass_fail:      String(row[PASSFAIL_C]  || "") || null,
+      reviewed_by:    String(row[REVIEWER_C]  || "") || null,
+    });
+  }
+
+  // Batch insert. Small batch (25) because each INSERT fires the
+  // apply_auto_fill trigger. Uses ignore-duplicates + on_conflict so
+  // a duplicate row doesn't sink the whole batch (belt + suspenders
+  // with the in-memory dedupe above).
+  var inserted = 0;
+  var BATCH = 25;
+  for (var p = 0; p < payload.length; p += BATCH) {
+    var batch = payload.slice(p, p + BATCH);
+    var resp = supabasePost(
+      "/rest/v1/training_records?on_conflict=employee_id,training_type_id,completion_date",
+      batch,
+      { "Prefer": "resolution=ignore-duplicates,return=minimal" }
+    );
+    if (resp.getResponseCode() >= 200 && resp.getResponseCode() < 300) {
+      inserted += batch.length;
+    } else {
+      failedBatches++;
+      failedRows += batch.length;
+      Logger.log("Batch failed (" + resp.getResponseCode() + "): " + resp.getContentText());
+    }
+    Utilities.sleep(100);
+  }
+
+  // Persist fix-sheet-resolved aliases back to employees.aliases so
+  // the next run matches them without needing the fix sheet.
+  var aliasesAdded = 0;
+  var seenAliasPersist = {};
+  for (var api = 0; api < aliasesToPersist.length; api++) {
+    var pair = aliasesToPersist[api];
+    var dedupeKey = pair.id + "|" + pair.alias.toLowerCase();
+    if (seenAliasPersist[dedupeKey]) continue;
+    seenAliasPersist[dedupeKey] = true;
+    var addResp = UrlFetchApp.fetch(
+      SUPABASE_URL + "/rest/v1/rpc/add_employee_alias",
+      {
+        method: "post",
+        headers: {
+          "apikey": SUPABASE_KEY,
+          "Authorization": "Bearer " + SUPABASE_KEY,
+          "Content-Type": "application/json",
+        },
+        payload: JSON.stringify({ emp_id: pair.id, new_alias: pair.alias }),
+        muteHttpExceptions: true,
+      }
+    );
+    if (addResp.getResponseCode() >= 200 && addResp.getResponseCode() < 300) {
+      aliasesAdded++;
+    } else {
+      Logger.log("add_employee_alias failed (" + addResp.getResponseCode() + "): " + addResp.getContentText());
+    }
+    Utilities.sleep(50);
+  }
+
+  // Write unmatched attendees to the Attendee Name Fixes sheet so
+  // the user can map them manually. Preserves any canonical names
+  // they've already filled in from a previous run.
+  var fixCount = 0;
+  if (Object.keys(unmatchedNames).length > 0) {
+    try {
+      fixCount = writeUnmatchedAttendeesToFixSheet_(ss, unmatchedNames);
+    } catch (fixErr) {
+      Logger.log("Could not write name fix sheet: " + fixErr.toString());
+    }
+  }
+
+  // Build detailed report
+  var msg = "Training Records Push Complete!\n\n" +
+    "Rows in sheet: " + (data.length - 1) + "\n" +
+    "Inserted: " + inserted + "\n" +
+    "Skipped (duplicate in sheet): " + dedupedInSheet + "\n" +
+    "Skipped (no employee match): " + skippedNoEmp + "\n" +
+    "Skipped (no training type match): " + skippedNoTT + "\n" +
+    "Skipped (bad date): " + skippedNoDate;
+
+  if (aliasesAdded > 0) {
+    msg += "\n\n✓ Registered " + aliasesAdded + " fix-sheet name(s) as permanent aliases.";
+  }
+
+  if (failedBatches > 0) {
+    msg += "\n\n⚠ " + failedBatches + " batch(es) (" + failedRows + " rows) failed on insert — check View → Logs.";
+  }
+
+  if (fixCount > 0) {
+    msg += "\n\n" + fixCount + " unmatched attendee name(s) written to the '" +
+      NAME_FIX_SHEET + "' sheet.\n" +
+      "Fill in column B (Canonical Name) with the correct name " +
+      "('Last, First' matching an employee on the Training sheet), then " +
+      "re-run this push to match them.";
+  }
+
+  // Show all unmatched sessions (no fix sheet needed — add them as
+  // training_types in Supabase or add aliases there).
+  var sessionEntries = [];
+  for (var ss2 in unmatchedSessions) sessionEntries.push({ name: ss2, count: unmatchedSessions[ss2] });
+  sessionEntries.sort(function(a, b) { return b.count - a.count; });
+  if (sessionEntries.length > 0) {
+    msg += "\n\nUnmatched session names:";
+    for (var sn = 0; sn < sessionEntries.length; sn++) {
+      msg += "\n  " + sessionEntries[sn].name + " (" + sessionEntries[sn].count + ")";
+    }
+  }
+
+  notify_("Done", msg);
+}

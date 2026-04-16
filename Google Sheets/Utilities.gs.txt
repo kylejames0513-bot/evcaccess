@@ -1,0 +1,178 @@
+// ============================================================
+// EVC Training System — Utilities
+// ============================================================
+// HR Program Coordinator: Kyle Mahoney
+// Emory Valley Center
+// ============================================================
+//
+// Shared helper functions used by Core.gs.
+//
+// CONTENTS:
+//   - Date parsing & formatting
+//   - Column lookup
+//   - Excusal & failure code checking
+//   - String similarity (Dice coefficient)
+//   - Time parsing
+//
+// ============================================================
+
+
+// ************************************************************
+//   DATE PARSING
+// ************************************************************
+
+function parseToDate(val) {
+  if (!val) return null;
+  if (val instanceof Date && !isNaN(val.getTime())) return val;
+
+  var str = val.toString().trim();
+  if (!str) return null;
+
+  var slashMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slashMatch) {
+    var mo = parseInt(slashMatch[1]);
+    var da = parseInt(slashMatch[2]);
+    var yr = parseInt(slashMatch[3]);
+    if (yr < 100) yr += 2000;
+    var d = new Date(yr, mo - 1, da);
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  var d2 = new Date(str);
+  if (!isNaN(d2.getTime())) {
+    if (d2.getFullYear() >= 2000 && d2.getFullYear() <= 2099) return d2;
+  }
+
+  return null;
+}
+
+
+// ************************************************************
+//   DATE FORMATTING
+// ************************************************************
+
+function formatBackfillDate(dateVal) {
+  if (!dateVal) return "";
+
+  var d;
+  if (dateVal instanceof Date) {
+    d = dateVal;
+  } else {
+    d = new Date(dateVal.toString() + "T12:00:00");
+  }
+
+  if (isNaN(d.getTime())) return dateVal.toString();
+
+  var mo = d.getMonth() + 1;
+  var da = d.getDate();
+  var yr = d.getFullYear().toString().slice(-2);
+  return mo + "/" + da + "/" + yr;
+}
+
+
+// ************************************************************
+//   COLUMN & VALUE LOOKUP
+// ************************************************************
+
+function findColumnIndex(headers, possibleNames) {
+  for (var h = 0; h < headers.length; h++) {
+    var headerVal = String(headers[h] || "").trim().toUpperCase();
+    for (var p = 0; p < possibleNames.length; p++) {
+      if (headerVal === possibleNames[p].toUpperCase()) {
+        return h;
+      }
+    }
+  }
+  return -1;
+}
+
+function getExcusalCode(str) {
+  if (!str) return null;
+  var upper = str.toString().trim().toUpperCase();
+  if (EXCUSAL_MAP_[upper]) return upper;
+  return null;
+}
+
+
+// ************************************************************
+//   FAILURE CODE DETECTION
+// ************************************************************
+
+function isFailureCode(str) {
+  var u = str.toString().trim().toUpperCase();
+  if (u === "FAILED" || /^FAILED X\d$/.test(u)) return true;
+  if (u === "FS" || u === "FAIL") return true;
+  if (/^FX\d/.test(u)) return true;
+  if (/^F\s*X\s*\d/.test(u)) return true;
+  return false;
+}
+
+
+// ************************************************************
+//   STRING SIMILARITY — Dice coefficient
+// ************************************************************
+
+function stringSimilarity(a, b) {
+  if (a === b) return 1.0;
+  if (a.length < 2 || b.length < 2) return 0.0;
+
+  var bigrams = {};
+  for (var i = 0; i < a.length - 1; i++) {
+    var bg = a.substring(i, i + 2);
+    bigrams[bg] = (bigrams[bg] || 0) + 1;
+  }
+
+  var intersect = 0;
+  for (var j = 0; j < b.length - 1; j++) {
+    var bg2 = b.substring(j, j + 2);
+    if (bigrams[bg2] && bigrams[bg2] > 0) {
+      intersect++;
+      bigrams[bg2]--;
+    }
+  }
+
+  return (2.0 * intersect) / (a.length + b.length - 2);
+}
+
+/**
+ * Levenshtein distance — counts minimum edits (insert, delete, replace)
+ * to transform string a into string b. Better than bigrams for
+ * transposed letters (Chole→Chloe) and short names.
+ */
+function levenshteinDistance_(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  var matrix = [];
+  for (var i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (var j = 0; j <= a.length; j++) matrix[0][j] = j;
+
+  for (var i = 1; i <= b.length; i++) {
+    for (var j = 1; j <= a.length; j++) {
+      var cost = b.charAt(i - 1) === a.charAt(j - 1) ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,      // deletion
+        matrix[i][j - 1] + 1,      // insertion
+        matrix[i - 1][j - 1] + cost // substitution
+      );
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+// ************************************************************
+//   TIME PARSING
+// ************************************************************
+
+function parseTimeToMinutes(str) {
+  if (!str) return -1;
+  var match = str.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (!match) return -1;
+  var h = parseInt(match[1]);
+  var m = parseInt(match[2]);
+  var ampm = match[3].toUpperCase();
+  if (ampm === "PM" && h !== 12) h += 12;
+  if (ampm === "AM" && h === 12) h = 0;
+  return h * 60 + m;
+}
