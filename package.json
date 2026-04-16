@@ -12,6 +12,8 @@
     "vercel:env:pull": "npx vercel env pull .env.local --yes",
     "supabase:link": "supabase link",
     "db:push": "supabase db push",
+    "db:ensure-hr-user": "node scripts/ensure-general-hr-user.cjs",
+    "db:setup": "npm run db:push && npm run db:ensure-hr-user",
     "gen:types": "supabase gen types typescript --linked > src/types/supabase.gen.ts"
   },
   "dependencies": {
@@ -60,6 +62,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.21",
+    "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "postcss": "^8.5.3",

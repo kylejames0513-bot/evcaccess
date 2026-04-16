@@ -1,6 +1,6 @@
--- GoTrue reads auth.users token columns as non-NULL strings; SQL-seeded users often leave them NULL,
--- which causes "Database error querying schema" on password login.
--- See https://github.com/supabase/auth/issues/1940
+-- If an older migration inserted general-hr@training-hub.local with NULL token columns,
+-- GoTrue returns "Database error querying schema" on login. Coalesce to empty strings.
+-- Safe no-op when that user does not exist or columns are already non-null.
 
 update auth.users
 set
