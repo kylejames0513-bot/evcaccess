@@ -46,3 +46,7 @@ next-env.d.ts
 
 .vercel-env-list.json
 
+# data sources (real employee data, never commit)
+data/sources/*
+!data/sources/.gitkeep
+
