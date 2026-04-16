@@ -65,13 +65,13 @@ export interface Database {
       };
       new_hires: {
         Row: { id: string; employee_id: string | null; legal_last_name: string; legal_first_name: string; preferred_name: string | null; position: string | null; department: string | null; supervisor_id: string | null; supervisor_name_raw: string | null; offer_accepted_date: string | null; planned_start_date: string | null; actual_start_date: string | null; source: string | null; recruiter: string | null; stage: string; stage_entry_date: string | null; probation_end_date: string | null; hire_month: string | null; hire_year: number | null; ingest_source: string | null; created_at: string; updated_at: string; };
-        Insert: { id?: string; legal_last_name: string; legal_first_name: string; preferred_name?: string | null; position?: string | null; department?: string | null; supervisor_name_raw?: string | null; planned_start_date?: string | null; offer_accepted_date?: string | null; source?: string | null; stage?: string; ingest_source?: string | null; };
+        Insert: { id?: string; legal_last_name: string; legal_first_name: string; preferred_name?: string | null; position?: string | null; department?: string | null; supervisor_id?: string | null; supervisor_name_raw?: string | null; planned_start_date?: string | null; offer_accepted_date?: string | null; actual_start_date?: string | null; source?: string | null; recruiter?: string | null; stage?: string; stage_entry_date?: string | null; probation_end_date?: string | null; hire_month?: string | null; hire_year?: number | null; ingest_source?: string | null; };
         Update: Partial<Database["public"]["Tables"]["new_hires"]["Insert"]>;
         Relationships: [];
       };
       separations: {
-        Row: { id: string; employee_id: string | null; legal_name: string; position: string | null; department: string | null; hire_date: string | null; separation_date: string; tenure_days: number | null; separation_type: string | null; reason_primary: string | null; reason_secondary: string | null; rehire_eligible: string | null; exit_interview_status: string; hr_notes: string | null; calendar_year: number | null; evc_fiscal_year: number | null; ingest_source: string | null; created_at: string; };
-        Insert: { id?: string; legal_name: string; separation_date: string; position?: string | null; department?: string | null; hire_date?: string | null; separation_type?: string | null; reason_primary?: string | null; rehire_eligible?: string | null; exit_interview_status?: string; hr_notes?: string | null; ingest_source?: string | null; };
+        Row: { id: string; employee_id: string | null; legal_name: string; position: string | null; department: string | null; supervisor_id: string | null; supervisor_name_raw: string | null; hire_date: string | null; separation_date: string; tenure_days: number | null; separation_type: string | null; reason_primary: string | null; reason_secondary: string | null; rehire_eligible: string | null; rehire_notes: string | null; exit_interview_status: string; exit_interview_doc_url: string | null; final_pay_date: string | null; pto_payout: number | null; benefits_term_date: string | null; cobra_mailed_date: string | null; hr_notes: string | null; calendar_year: number | null; evc_fiscal_year: number | null; ingest_source: string | null; created_at: string; };
+        Insert: { id?: string; legal_name: string; separation_date: string; position?: string | null; department?: string | null; supervisor_name_raw?: string | null; hire_date?: string | null; separation_type?: string | null; reason_primary?: string | null; reason_secondary?: string | null; rehire_eligible?: string | null; rehire_notes?: string | null; exit_interview_status?: string; final_pay_date?: string | null; pto_payout?: number | null; benefits_term_date?: string | null; cobra_mailed_date?: string | null; hr_notes?: string | null; ingest_source?: string | null; };
         Update: Partial<Database["public"]["Tables"]["separations"]["Insert"]>;
         Relationships: [];
       };
@@ -85,6 +85,18 @@ export interface Database {
         Row: { id: string; ingestion_run_id: string | null; source: string | null; reason: string | null; raw_payload: Json | null; suggested_match_employee_id: string | null; suggested_match_score: number | null; resolved: boolean; resolved_at: string | null; resolved_by: string | null; resolution_notes: string | null; created_at: string; };
         Insert: { id?: string; ingestion_run_id?: string | null; source?: string | null; reason?: string | null; raw_payload?: Json | null; suggested_match_employee_id?: string | null; suggested_match_score?: number | null; resolved?: boolean; };
         Update: Partial<Database["public"]["Tables"]["review_queue"]["Insert"]>;
+        Relationships: [];
+      };
+      new_hire_checklist: {
+        Row: { id: string; new_hire_id: string; stage: string; item_name: string; required: boolean; completed: boolean; completed_on: string | null; completed_by: string | null; doc_url: string | null; notes: string | null; };
+        Insert: { id?: string; new_hire_id: string; stage: string; item_name: string; required?: boolean; completed?: boolean; completed_on?: string | null; completed_by?: string | null; doc_url?: string | null; notes?: string | null; };
+        Update: Partial<Database["public"]["Tables"]["new_hire_checklist"]["Insert"]>;
+        Relationships: [];
+      };
+      offboarding_checklist: {
+        Row: { id: string; separation_id: string; item_name: string; required: boolean; completed: boolean; completed_on: string | null; completed_by: string | null; notes: string | null; };
+        Insert: { id?: string; separation_id: string; item_name: string; required?: boolean; completed?: boolean; completed_on?: string | null; completed_by?: string | null; notes?: string | null; };
+        Update: Partial<Database["public"]["Tables"]["offboarding_checklist"]["Insert"]>;
         Relationships: [];
       };
       name_aliases: {

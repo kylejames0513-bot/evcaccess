@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { FileUploadDropzone } from "@/components/training-hub/file-upload-dropzone";
 
 export default async function IngestionPage() {
   const supabase = await createSupabaseServerClient();
@@ -37,20 +37,25 @@ export default async function IngestionPage() {
         </p>
       </div>
 
-      {/* Manual sync panel */}
+      {/* File upload drop zone */}
+      <div className="space-y-3">
+        <p className="caption">Upload a file</p>
+        <FileUploadDropzone />
+      </div>
+
+      {/* Manual sync CLI panel */}
       <div className="rounded-lg border border-[--rule] bg-[--surface] p-6 space-y-4">
-        <p className="caption">Manual sync</p>
+        <p className="caption">Manual sync via CLI</p>
         <p className="text-sm text-[--ink-soft]">
-          Use the CLI to run ingestion manually. Automated sync runs nightly via Vercel cron.
+          Place files in <code className="font-mono text-xs bg-[--surface-alt] px-1.5 py-0.5 rounded">data/sources/</code> and run:
         </p>
         <div className="bg-[--surface-alt] rounded-md p-4 font-mono text-xs text-[--ink-soft] space-y-1">
           <p>npm run ingest:seed &nbsp;&nbsp;&nbsp;# First-time load all sources</p>
-          <p>npm run ingest:refresh # Pull Google Sheets (A + B)</p>
+          <p>npm run ingest:refresh # Pull Google Sheets (Sources A + B)</p>
           <p>npm run ingest:dry-run # Preview without writing</p>
         </div>
         <p className="text-xs text-[--ink-muted]">
-          Or use the Imports page to upload XLSX/CSV files directly.{" "}
-          <Link href="/imports" className="text-[--accent] hover:underline">Open imports</Link>
+          Automated sync runs nightly via Vercel cron.
         </p>
       </div>
 

@@ -879,8 +879,11 @@ function pushMergedToSupabase() {
   }
 
   // ─── Step 5: Push excusals ───
+  // Dedupe within batch by (employee_id, training_id) — the DELETE in step 3
+  // already cleared old merged_sheet excusals.
   var excPayload = [];
   var excSkippedNoEmp = 0, excSkippedNoTT = 0;
+  var excSeen = {};
   for (var xc = 0; xc < excusalList.length; xc++) {
     var exc = excusalList[xc];
     var k2 = (exc.lastName + "|" + exc.firstName).toLowerCase();
@@ -888,6 +891,9 @@ function pushMergedToSupabase() {
     if (!empId2) { excSkippedNoEmp++; continue; }
     var tt2 = ttByKey[exc.colKey.toLowerCase()];
     if (!tt2) { excSkippedNoTT++; continue; }
+    var dedupKey = empId2 + "|" + tt2.id;
+    if (excSeen[dedupKey]) continue; // skip intra-batch duplicates
+    excSeen[dedupKey] = true;
     excPayload.push({
       employee_id: empId2,
       training_id: tt2.id,
@@ -902,9 +908,9 @@ function pushMergedToSupabase() {
   for (var xb = 0; xb < excPayload.length; xb += EXC_BATCH) {
     var xBatch = excPayload.slice(xb, xb + EXC_BATCH);
     var xResp = supabasePost(
-      "/rest/v1/completions?on_conflict=employee_id,training_id",
+      "/rest/v1/completions",
       xBatch,
-      { "Prefer": "resolution=merge-duplicates" }
+      {}
     );
     if (xResp.getResponseCode() >= 200 && xResp.getResponseCode() < 300) {
       excInserted += xBatch.length;

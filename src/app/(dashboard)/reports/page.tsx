@@ -1,34 +1,96 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+export const dynamic = "force-dynamic";
 
 export default async function ReportsPage() {
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("org_id")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (!profile?.org_id) redirect("/onboarding");
+
+  const reports = [
+    {
+      title: "Compliance audit PDF",
+      description: "Full employee × training matrix with status, last completion, and expiration. Formatted for regulators.",
+      href: "/api/reports/compliance-pdf",
+      category: "Compliance",
+      format: "PDF",
+    },
+    {
+      title: "Compliance snapshot (CSV)",
+      description: "Current compliance status per employee-training pair. One row per cell in the matrix.",
+      href: "/api/exports/compliance-csv",
+      category: "Compliance",
+      format: "CSV",
+    },
+    {
+      title: "Attendance log (CSV)",
+      description: "Every training completion on record, including source and notes.",
+      href: "/api/exports/attendance-csv",
+      category: "Training",
+      format: "CSV",
+    },
+    {
+      title: "Separations (CSV)",
+      description: "Every departure with tenure, reasons, rehire eligibility, and FY classification.",
+      href: "/api/exports/separations-csv",
+      category: "Separations",
+      format: "CSV",
+    },
+    {
+      title: "Merged employees (CSV)",
+      description: "Employee roster formatted for round-trip with the EVC merged sheet.",
+      href: "/api/exports/merged-employees-csv",
+      category: "Roster",
+      format: "CSV",
+    },
+  ];
+
+  const byCategory = new Map<string, typeof reports>();
+  for (const r of reports) {
+    if (!byCategory.has(r.category)) byCategory.set(r.category, []);
+    byCategory.get(r.category)!.push(r);
+  }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Reports</h1>
-        <p className="text-sm text-[#8b8fa3]">PDF and CSV exports for audits and regulators.</p>
+        <p className="caption">Exports</p>
+        <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
+          Reports
+        </h1>
+        <p className="font-display text-sm italic text-[--ink-soft] mt-1">
+          Generate PDF and CSV exports for audits, regulators, and archives.
+        </p>
       </div>
-      <div className="flex flex-wrap gap-3">
-        <Button asChild className="rounded-lg bg-[#3b82f6] text-white hover:bg-[#2563eb]">
-          <Link href="/api/reports/compliance-pdf" target="_blank" rel="noreferrer">
-            Compliance audit PDF
-          </Link>
-        </Button>
-      </div>
+
+      {Array.from(byCategory.entries()).map(([category, list]) => (
+        <section key={category} className="space-y-3">
+          <p className="caption">{category}</p>
+          <div className="grid gap-3 md:grid-cols-2">
+            {list.map(r => (
+              <Link
+                key={r.title}
+                href={r.href}
+                target="_blank"
+                rel="noreferrer"
+                className="group rounded-lg border border-[--rule] bg-[--surface] p-5 hover:border-[--accent]/50 transition-colors"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="font-display text-base font-medium group-hover:text-[--accent]">
+                    {r.title}
+                  </h3>
+                  <span className="rounded-full bg-[--surface-alt] px-2 py-0.5 text-[10px] font-medium tracking-wide text-[--ink-muted]">
+                    {r.format}
+                  </span>
+                </div>
+                <p className="text-sm text-[--ink-soft] mt-2">{r.description}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ))}
     </div>
   );
 }
