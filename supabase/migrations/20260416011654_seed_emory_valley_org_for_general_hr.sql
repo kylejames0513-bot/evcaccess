@@ -1,4 +1,4 @@
--- Default tenant for the shared General HR account (synthetic email in src/lib/auth/general-hr.ts).
+-- Default tenant for the shared General HR account (email in src/lib/auth/general-hr.ts).
 -- Idempotent: safe to re-run after db reset.
 
 insert into public.organizations (name, slug, regulator, fiscal_year_start_month)
