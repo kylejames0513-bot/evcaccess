@@ -343,27 +343,119 @@ export interface Database {
         Relationships: [];
       };
       unresolved_people: {
-        Row: Record<string, unknown>;
-        Insert: Record<string, unknown>;
-        Update: Record<string, unknown>;
+        Row: {
+          id: string;
+          org_id: string;
+          raw_name: string;
+          raw_source: string;
+          source_ref: string | null;
+          reason: string;
+          suggested_employee_id: string | null;
+          confidence: number | null;
+          resolved: boolean;
+          resolved_to_employee_id: string | null;
+          resolved_at: string | null;
+          resolved_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          raw_name: string;
+          raw_source: string;
+          source_ref?: string | null;
+          reason: string;
+          suggested_employee_id?: string | null;
+          confidence?: number | null;
+          resolved?: boolean;
+          resolved_to_employee_id?: string | null;
+          resolved_at?: string | null;
+          resolved_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["unresolved_people"]["Insert"]>;
         Relationships: [];
       };
       unknown_trainings: {
-        Row: Record<string, unknown>;
-        Insert: Record<string, unknown>;
-        Update: Record<string, unknown>;
+        Row: {
+          id: string;
+          org_id: string;
+          raw_training_name: string;
+          raw_source: string;
+          source_ref: string | null;
+          suggested_training_type_id: string | null;
+          confidence: number | null;
+          resolved: boolean;
+          resolved_to_training_type_id: string | null;
+          resolved_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          raw_training_name: string;
+          raw_source: string;
+          source_ref?: string | null;
+          suggested_training_type_id?: string | null;
+          confidence?: number | null;
+          resolved?: boolean;
+          resolved_to_training_type_id?: string | null;
+          resolved_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["unknown_trainings"]["Insert"]>;
         Relationships: [];
       };
       name_aliases: {
-        Row: Record<string, unknown>;
-        Insert: Record<string, unknown>;
-        Update: Record<string, unknown>;
+        Row: {
+          id: string;
+          employee_id: string;
+          alias: string;
+          created_by: string | null;
+          notes: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          employee_id: string;
+          alias: string;
+          created_by?: string | null;
+          notes?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["name_aliases"]["Insert"]>;
         Relationships: [];
       };
       exemptions: {
-        Row: Record<string, unknown>;
-        Insert: Record<string, unknown>;
-        Update: Record<string, unknown>;
+        Row: {
+          id: string;
+          employee_id: string;
+          training_type_id: string;
+          reason: string;
+          granted_by: string | null;
+          granted_at: string;
+          expires_on: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          employee_id: string;
+          training_type_id: string;
+          reason: string;
+          granted_by?: string | null;
+          granted_at?: string;
+          expires_on?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["exemptions"]["Insert"]>;
         Relationships: [];
       };
       audit_log: {
@@ -395,15 +487,71 @@ export interface Database {
         Relationships: [];
       };
       notification_queue: {
-        Row: Record<string, unknown>;
-        Insert: Record<string, unknown>;
-        Update: Record<string, unknown>;
+        Row: {
+          id: string;
+          org_id: string;
+          recipient_email: string;
+          subject: string;
+          body: string;
+          template: string;
+          payload: Json;
+          scheduled_for: string;
+          sent_at: string | null;
+          status: NotificationStatus;
+          failure_reason: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          recipient_email: string;
+          subject: string;
+          body: string;
+          template?: string;
+          payload?: Json;
+          scheduled_for?: string;
+          sent_at?: string | null;
+          status?: NotificationStatus;
+          failure_reason?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["notification_queue"]["Insert"]>;
         Relationships: [];
       };
       recurring_class_templates: {
-        Row: Record<string, unknown>;
-        Insert: Record<string, unknown>;
-        Update: Record<string, unknown>;
+        Row: {
+          id: string;
+          org_id: string;
+          training_type_id: string;
+          name: string;
+          rule_json: Json;
+          start_time: string | null;
+          end_time: string | null;
+          location: string;
+          instructor: string;
+          capacity: number;
+          active: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          org_id: string;
+          training_type_id: string;
+          name: string;
+          rule_json?: Json;
+          start_time?: string | null;
+          end_time?: string | null;
+          location?: string;
+          instructor?: string;
+          capacity?: number;
+          active?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["recurring_class_templates"]["Insert"]>;
         Relationships: [];
       };
     };
@@ -419,6 +567,16 @@ export interface Database {
         Returns: string;
       };
     };
-    Enums: Record<string, never>;
+    Enums: {
+      app_role: AppRole;
+      employee_status: EmployeeStatus;
+      completion_source: CompletionSource;
+      class_status: ClassStatus;
+      enrollment_priority: EnrollmentPriority;
+      pass_fail: PassFail;
+      import_source: ImportSource;
+      import_run_status: ImportRunStatus;
+      notification_status: NotificationStatus;
+    };
   };
 }
