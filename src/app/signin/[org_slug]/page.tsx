@@ -25,13 +25,16 @@ export default async function PublicSignInPage({
   if (!org) notFound();
 
   return (
-    <div className="min-h-screen px-4 py-10" style={{ backgroundColor: "var(--bg)", color: "var(--ink)" }}>
+    <div className="min-h-screen px-4 py-10 bg-[--bg] text-[--ink]">
       <div className="mx-auto max-w-lg space-y-8">
         <header className="text-center">
-          <p className="caption text-sm" style={{ color: "var(--ink-muted)" }}>Sign in</p>
-          <h1 className="font-display mt-2 text-2xl font-semibold">{org.name}</h1>
+          <p className="caption">Training sign-in</p>
+          <h1 className="font-display mt-2 text-2xl font-medium">{org.name}</h1>
+          <p className="text-sm text-[--ink-muted] mt-1">
+            Select your training session and enter your name.
+          </p>
         </header>
-        <KioskSignInForm orgSlug={org_slug} classes={[]} />
+        <KioskSignInForm orgSlug={org_slug} />
       </div>
     </div>
   );
