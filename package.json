@@ -8,6 +8,10 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --import tsx --test src/lib/compliance.node-test.ts",
+    "vercel:link": "npx vercel link",
+    "vercel:env:pull": "npx vercel env pull .env.local --yes",
+    "supabase:link": "supabase link",
+    "db:push": "supabase db push",
     "gen:types": "supabase gen types typescript --linked > src/types/supabase.gen.ts"
   },
   "dependencies": {
@@ -55,10 +59,11 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "eslint": "^9",
     "autoprefixer": "^10.4.21",
+    "eslint": "^9",
     "eslint-config-next": "16.2.4",
     "postcss": "^8.5.3",
+    "supabase": "^2.91.2",
     "tailwindcss": "^3.4.17",
     "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.19.3",
