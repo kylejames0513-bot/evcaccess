@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   QrCode,
   Settings,
+  ShieldCheck,
   Upload,
   UserCircle2,
   UserPlus,
@@ -45,6 +46,7 @@ const operate = [
 const manage = [
   { href: "/employees", label: "Employees", icon: Users },
   { href: "/trainings", label: "Training catalog", icon: BookOpen },
+  { href: "/requirements", label: "Requirements", icon: ShieldCheck },
   { href: "/classes", label: "Classes", icon: CalendarDays },
   { href: "/signin-queue", label: "Sign-ins", icon: ClipboardCheck },
   { href: "/imports", label: "File imports", icon: Upload },
