@@ -28,14 +28,24 @@ export async function POST(request: NextRequest) {
 
   const response = NextResponse.json({ ok: true as const });
   const supabase = createServerClient<Database>(url, anonKey, {
+    cookieOptions: {
+      secure: process.env.VERCEL === "1" || process.env.NODE_ENV === "production",
+    },
     cookies: {
       getAll() {
         return request.cookies.getAll();
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet, responseHeaders) {
         cookiesToSet.forEach(({ name, value, options }) => {
           response.cookies.set(name, value, options);
         });
+        if (responseHeaders && typeof responseHeaders === "object") {
+          for (const [key, value] of Object.entries(responseHeaders)) {
+            if (typeof value === "string") {
+              response.headers.set(key, value);
+            }
+          }
+        }
       },
     },
   });

@@ -11,16 +11,26 @@ export async function middleware(request: NextRequest) {
     return supabaseResponse;
   }
   const supabase = createServerClient<Database>(url, anon, {
+    cookieOptions: {
+      secure: process.env.VERCEL === "1" || process.env.NODE_ENV === "production",
+    },
     cookies: {
       getAll() {
         return request.cookies.getAll();
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet, responseHeaders) {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
         supabaseResponse = NextResponse.next({ request });
         cookiesToSet.forEach(({ name, value, options }) =>
           supabaseResponse.cookies.set(name, value, options)
         );
+        if (responseHeaders && typeof responseHeaders === "object") {
+          for (const [key, value] of Object.entries(responseHeaders)) {
+            if (typeof value === "string") {
+              supabaseResponse.headers.set(key, value);
+            }
+          }
+        }
       },
     },
   });

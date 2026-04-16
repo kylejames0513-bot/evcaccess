@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -14,7 +13,6 @@ const schema = z.object({
 });
 
 export function LoginForm() {
-  const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
   const form = useForm<z.infer<typeof schema>>({
     resolver: zodResolver(schema),
@@ -23,19 +21,24 @@ export function LoginForm() {
 
   async function onSubmit(values: z.infer<typeof schema>) {
     setMessage(null);
-    const res = await fetch("/api/auth/hr-login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: values.password }),
-      credentials: "same-origin",
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      setMessage(body?.error ?? "Could not sign in.");
-      return;
+    try {
+      const res = await fetch("/api/auth/hr-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: values.password }),
+        credentials: "same-origin",
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        setMessage(body?.error ?? "Could not sign in.");
+        return;
+      }
+      // Full navigation so Set-Cookie from the API route is committed before RSC runs
+      // (soft navigation can race the session cookie on some browsers / Vercel).
+      window.location.assign("/");
+    } catch {
+      setMessage("Network error. Try again.");
     }
-    router.replace("/");
-    router.refresh();
   }
 
   return (
