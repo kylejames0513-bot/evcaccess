@@ -53,7 +53,7 @@ export interface Database {
       };
       completions: {
         Row: { id: string; employee_id: string; training_id: string; completed_on: string | null; expires_on: string | null; status: string; exempt_reason: string | null; source: string | null; source_row_hash: string | null; notes: string | null; certificate_url: string | null; session_id: string | null; created_at: string; };
-        Insert: { id?: string; employee_id: string; training_id: string; completed_on?: string | null; status?: string; source?: string | null; source_row_hash?: string | null; notes?: string | null; };
+        Insert: { id?: string; employee_id: string; training_id: string; completed_on?: string | null; status?: string; exempt_reason?: string | null; source?: string | null; source_row_hash?: string | null; notes?: string | null; certificate_url?: string | null; session_id?: string | null; };
         Update: Partial<Database["public"]["Tables"]["completions"]["Insert"]>;
         Relationships: [];
       };

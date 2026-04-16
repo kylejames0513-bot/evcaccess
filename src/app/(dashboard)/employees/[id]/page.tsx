@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { logCompletionAction } from "@/app/actions/completion";
+import { addExemptionAction, removeExemptionAction } from "@/app/actions/exemption";
 
 export const dynamic = "force-dynamic";
 
@@ -145,6 +146,61 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
           <button type="submit" className="rounded-md bg-[--accent] px-4 py-2 text-sm font-medium text-[--primary-foreground] hover:bg-[--accent]/90">
             Record completion
           </button>
+        </form>
+      </div>
+
+      {/* Exemptions */}
+      <div>
+        <p className="caption mb-3">Exemptions</p>
+        {(() => {
+          const exemptions = (completions ?? []).filter(c => c.status === "exempt" && c.source === "manual_exemption");
+          return exemptions.length > 0 ? (
+            <div className="rounded-lg border border-[--rule] bg-[--surface] mb-4">
+              <ul className="divide-y divide-[--rule]">
+                {exemptions.map((ex, i) => {
+                  const tr = typeMap.get(ex.training_id);
+                  return (
+                    <li key={`ex-${ex.id}-${i}`} className="flex items-center justify-between px-5 py-3">
+                      <div>
+                        <span className="text-sm font-medium">{tr?.title ?? "Unknown training"}</span>
+                        {ex.exempt_reason && (
+                          <span className="text-xs text-[--ink-muted] ml-2">— {ex.exempt_reason}</span>
+                        )}
+                      </div>
+                      <form action={removeExemptionAction}>
+                        <input type="hidden" name="completion_id" value={ex.id} />
+                        <input type="hidden" name="employee_id" value={emp.id} />
+                        <button type="submit" className="text-xs text-[--alert] hover:underline">Remove</button>
+                      </form>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null;
+        })()}
+        <form action={addExemptionAction} className="rounded-lg border border-[--rule] bg-[--surface] p-5 space-y-3">
+          <input type="hidden" name="employee_id" value={emp.id} />
+          <div className="grid gap-3 md:grid-cols-3">
+            <div>
+              <label className="caption block mb-1">Exempt from training</label>
+              <select name="training_id" required className="w-full rounded-md border border-[--rule] bg-[--bg] px-3 py-2 text-sm">
+                <option value="">Select training…</option>
+                {(allTrainings ?? []).map(t => (
+                  <option key={t.id} value={t.id}>{t.title} ({t.code})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="caption block mb-1">Reason</label>
+              <input name="reason" className="w-full rounded-md border border-[--rule] bg-[--bg] px-3 py-2 text-sm" placeholder="e.g., Administrative role, medical" />
+            </div>
+            <div className="flex items-end">
+              <button type="submit" className="rounded-md border border-[--alert] text-[--alert] px-4 py-2 text-sm font-medium hover:bg-[--alert-soft]">
+                Add exemption
+              </button>
+            </div>
+          </div>
         </form>
       </div>
     </div>
