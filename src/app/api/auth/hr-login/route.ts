@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/database.types";
 import { GENERAL_HR_AUTH_EMAIL } from "@/lib/auth/general-hr";
 import { supabaseCookieSecureFromRequest } from "@/lib/supabase/cookie-secure";
-import { getSupabaseAnonKeyForServerAuth, getSupabaseUrlForServerAuth } from "@/lib/supabase/public-config";
+import { getSupabasePublicAnonKey, getSupabasePublicUrl } from "@/lib/supabase/public-config";
 
 export async function POST(request: NextRequest) {
   let password: string;
@@ -18,8 +18,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
   }
 
-  const url = getSupabaseUrlForServerAuth();
-  const anonKey = getSupabaseAnonKeyForServerAuth();
+  const url = getSupabasePublicUrl();
+  const anonKey = getSupabasePublicAnonKey();
   if (!url || !anonKey) {
     return NextResponse.json(
       { error: "Server misconfigured: missing Supabase URL or anon/publishable key." },

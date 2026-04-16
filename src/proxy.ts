@@ -4,14 +4,14 @@ import type { Database } from "@/lib/database.types";
 import { supabaseCookieSecureFromRequest } from "@/lib/supabase/cookie-secure";
 import { getSupabasePublicAnonKey, getSupabasePublicUrl } from "@/lib/supabase/public-config";
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
   const url = getSupabasePublicUrl();
   const anon = getSupabasePublicAnonKey();
   if (!url || !anon) {
     if (process.env.NODE_ENV === "development") {
       console.warn(
-        "[middleware] Missing Supabase URL or anon/publishable key. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (or SUPABASE_*). Session refresh skipped."
+        "[proxy] Missing Supabase URL or anon/publishable key. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (or SUPABASE_*). Session refresh skipped."
       );
     }
     return supabaseResponse;

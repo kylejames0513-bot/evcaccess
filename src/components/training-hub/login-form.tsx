@@ -1,16 +1,48 @@
 "use client";
 
-import { useActionState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { hrPasswordLoginAction } from "@/app/actions/hr-login";
+import { GENERAL_HR_AUTH_EMAIL } from "@/lib/auth/general-hr";
+import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 export function LoginForm() {
-  const [state, formAction, pending] = useActionState(hrPasswordLoginAction, null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    const password = String(new FormData(e.currentTarget).get("password") ?? "");
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    setPending(true);
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { error: signError } = await supabase.auth.signInWithPassword({
+        email: GENERAL_HR_AUTH_EMAIL,
+        password,
+      });
+      if (signError) {
+        setError(signError.message);
+        setPending(false);
+        return;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sign-in failed.");
+      setPending(false);
+      return;
+    }
+    // Full navigation so the next document request includes auth cookies.
+    // Server Actions + redirect() can drop Supabase cookies on Next.js 16 in some deployments.
+    window.location.assign("/");
+  }
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form onSubmit={onSubmit} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="password">HR password</Label>
         <Input
@@ -23,7 +55,7 @@ export function LoginForm() {
           className="border-[#2a2e3d] bg-[#0f1117]"
         />
       </div>
-      {state?.error ? <p className="text-sm text-[#ef4444]">{state.error}</p> : null}
+      {error ? <p className="text-sm text-[#ef4444]">{error}</p> : null}
       <Button
         type="submit"
         disabled={pending}
