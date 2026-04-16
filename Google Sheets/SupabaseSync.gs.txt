@@ -682,7 +682,7 @@ function pushMergedToSupabase() {
   }
 
   // Fetch training types (look up by column_key)
-  var ttResp = supabaseGet("/rest/v1/trainings?select=id,name,column_key&active=eq.true&limit=200");
+  var ttResp = supabaseGet("/rest/v1/trainings?select=id,title,column_key&active=eq.true&limit=200");
   var trainingTypes = JSON.parse(ttResp.getContentText());
   var ttByKey = {}; // lowercase col key → { id }
   for (var t = 0; t < trainingTypes.length; t++) {
@@ -1275,7 +1275,7 @@ function pushTrainingRecordsToSupabase() {
       SESSLEN_C = 8, PASSFAIL_C = 9, REVIEWER_C = 10;
 
   // Fetch training types (for session-name → training_id lookup)
-  var ttResp = supabaseGet("/rest/v1/trainings?select=id,name,column_key&active=eq.true&limit=200");
+  var ttResp = supabaseGet("/rest/v1/trainings?select=id,title,column_key&active=eq.true&limit=200");
   var trainingTypes = JSON.parse(ttResp.getContentText());
   var ttByName = {}; // lowercase name → { id }
   var ttByColKey = {}; // lowercase column_key → { id }
