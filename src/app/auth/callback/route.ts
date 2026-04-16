@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/database.types";
+import { supabaseCookieSecureFromRequest } from "@/lib/supabase/cookie-secure";
 import { getSupabasePublicAnonKey, getSupabasePublicUrl } from "@/lib/supabase/public-config";
 
 function safeNextPath(next: string | null): string {
@@ -24,7 +25,9 @@ export async function GET(request: NextRequest) {
 
   const supabase = createServerClient<Database>(url, anonKey, {
     cookieOptions: {
-      secure: process.env.VERCEL === "1" || process.env.NODE_ENV === "production",
+      secure: supabaseCookieSecureFromRequest(request),
+      sameSite: "lax",
+      path: "/",
     },
     cookies: {
       getAll() {

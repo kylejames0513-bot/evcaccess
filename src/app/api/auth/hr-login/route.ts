@@ -2,6 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/database.types";
 import { GENERAL_HR_AUTH_EMAIL } from "@/lib/auth/general-hr";
+import { supabaseCookieSecureFromRequest } from "@/lib/supabase/cookie-secure";
 import { getSupabaseAnonKeyForServerAuth, getSupabaseUrlForServerAuth } from "@/lib/supabase/public-config";
 
 export async function POST(request: NextRequest) {
@@ -29,7 +30,9 @@ export async function POST(request: NextRequest) {
   const response = NextResponse.json({ ok: true as const });
   const supabase = createServerClient<Database>(url, anonKey, {
     cookieOptions: {
-      secure: process.env.VERCEL === "1" || process.env.NODE_ENV === "production",
+      secure: supabaseCookieSecureFromRequest(request),
+      sameSite: "lax",
+      path: "/",
     },
     cookies: {
       getAll() {

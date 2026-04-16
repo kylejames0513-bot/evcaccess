@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { Database } from "@/lib/database.types";
+import { supabaseCookieSecureFromHeaders } from "@/lib/supabase/cookie-secure";
 import { getSupabasePublicAnonKey, getSupabasePublicUrl } from "@/lib/supabase/public-config";
 
 export async function createSupabaseServerClient() {
@@ -12,7 +13,13 @@ export async function createSupabaseServerClient() {
       "Missing Supabase URL or anon key. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (or SUPABASE_URL + SUPABASE_ANON_KEY from Vercel)."
     );
   }
+  const secure = await supabaseCookieSecureFromHeaders();
   return createServerClient<Database>(url, anon, {
+    cookieOptions: {
+      secure,
+      sameSite: "lax",
+      path: "/",
+    },
     cookies: {
       getAll() {
         return cookieStore.getAll();

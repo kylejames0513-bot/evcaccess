@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/database.types";
+import { supabaseCookieSecureFromRequest } from "@/lib/supabase/cookie-secure";
 import { getSupabasePublicAnonKey, getSupabasePublicUrl } from "@/lib/supabase/public-config";
 
 export async function middleware(request: NextRequest) {
@@ -17,7 +18,9 @@ export async function middleware(request: NextRequest) {
   }
   const supabase = createServerClient<Database>(url, anon, {
     cookieOptions: {
-      secure: process.env.VERCEL === "1" || process.env.NODE_ENV === "production",
+      secure: supabaseCookieSecureFromRequest(request),
+      sameSite: "lax",
+      path: "/",
     },
     cookies: {
       getAll() {

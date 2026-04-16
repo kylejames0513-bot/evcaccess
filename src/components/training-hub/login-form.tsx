@@ -29,10 +29,18 @@ export function LoginForm() {
         credentials: "same-origin",
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        setMessage(body?.error ?? "Could not sign in.");
+        const text = await res.text();
+        let msg = "Could not sign in.";
+        try {
+          const body = JSON.parse(text) as { error?: string };
+          if (body?.error) msg = body.error;
+        } catch {
+          if (text.trim()) msg = text.slice(0, 200);
+        }
+        setMessage(msg);
         return;
       }
+      await res.json().catch(() => null);
       // Full navigation so Set-Cookie from the API route is committed before RSC runs
       // (soft navigation can race the session cookie on some browsers / Vercel).
       window.location.assign("/");
