@@ -1,0 +1,2 @@
+-- Optional: add demo fixtures for local development.
+-- Keep production seeding behind explicit scripts or feature flags.

@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --import tsx --test src/lib/compliance.node-test.ts",
+    "gen:types": "supabase gen types typescript --linked > src/types/supabase.gen.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
@@ -30,10 +32,12 @@
     "@tanstack/react-table": "^8.21.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "html5-qrcode": "^2.3.8",
     "lucide-react": "^1.8.0",
     "next": "16.2.4",
+    "next-themes": "^0.4.6",
     "papaparse": "^5.5.3",
     "qrcode": "^1.5.4",
     "react": "19.2.4",
@@ -41,20 +45,23 @@
     "react-hook-form": "^7.72.1",
     "recharts": "^3.8.1",
     "shadcn": "^4.2.0",
+    "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
-    "tw-animate-css": "^1.4.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/papaparse": "^5.5.2",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
+    "autoprefixer": "^10.4.21",
     "eslint-config-next": "16.2.4",
-    "tailwindcss": "^4",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "tailwindcss-animate": "^1.0.7",
+    "tsx": "^4.19.3",
     "typescript": "^5"
   }
 }
