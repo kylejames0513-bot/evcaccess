@@ -8,6 +8,11 @@ export async function middleware(request: NextRequest) {
   const url = getSupabasePublicUrl();
   const anon = getSupabasePublicAnonKey();
   if (!url || !anon) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn(
+        "[middleware] Missing Supabase URL or anon/publishable key. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (or SUPABASE_*). Session refresh skipped."
+      );
+    }
     return supabaseResponse;
   }
   const supabase = createServerClient<Database>(url, anon, {

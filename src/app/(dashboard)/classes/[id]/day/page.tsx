@@ -2,13 +2,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  ClassDayAttendanceTable,
+  type ClassDayAttendanceRow,
+} from "@/components/training-hub/class-day-attendance-table";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export default async function ClassDayPage({
@@ -51,6 +47,17 @@ export default async function ClassDayPage({
       : { data: [] as { id: string; first_name: string; last_name: string; paylocity_id: string }[] };
   const empMap = new Map((emps ?? []).map((e) => [e.id, e]));
 
+  const rows: ClassDayAttendanceRow[] = (enrollments ?? []).map((row) => {
+    const e = empMap.get(row.employee_id);
+    return {
+      enrollmentId: row.id,
+      employeeLabel: e ? `${e.last_name}, ${e.first_name}` : "Unknown",
+      paylocityId: e?.paylocity_id ?? "—",
+      attended: row.attended,
+      pass_fail: row.pass_fail,
+    };
+  });
+
   return (
     <div className="space-y-6">
       <Button asChild variant="ghost" className="px-0 text-[#3b82f6]">
@@ -59,44 +66,11 @@ export default async function ClassDayPage({
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Class day</h1>
         <p className="text-sm text-[#8b8fa3]">
-          Tablet friendly roster for {cls.scheduled_date}. Enroll staff on the roster builder, then track attendance here.
+          Tablet friendly roster for {cls.scheduled_date}. Enroll staff on the roster builder, then track
+          attendance here.
         </p>
       </div>
-      <div className="overflow-hidden rounded-xl border border-[#2a2e3d]">
-        <Table>
-          <TableHeader>
-            <TableRow className="border-[#2a2e3d] hover:bg-transparent">
-              <TableHead className="text-[#8b8fa3]">Employee</TableHead>
-              <TableHead className="text-[#8b8fa3]">Paylocity ID</TableHead>
-              <TableHead className="text-[#8b8fa3]">Attended</TableHead>
-              <TableHead className="text-[#8b8fa3]">Result</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(enrollments ?? []).length ? (
-              (enrollments ?? []).map((row) => {
-                const e = empMap.get(row.employee_id);
-                return (
-                  <TableRow key={row.id} className="border-[#2a2e3d]">
-                    <TableCell className="text-[#e8eaed]">
-                      {e ? `${e.last_name}, ${e.first_name}` : "Unknown"}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-[#8b8fa3]">{e?.paylocity_id}</TableCell>
-                    <TableCell className="text-[#8b8fa3]">{row.attended === null ? "—" : row.attended ? "Yes" : "No"}</TableCell>
-                    <TableCell className="text-[#8b8fa3]">{row.pass_fail ?? "—"}</TableCell>
-                  </TableRow>
-                );
-              })
-            ) : (
-              <TableRow>
-                <TableCell colSpan={4} className="h-28 text-center text-[#8b8fa3]">
-                  No enrollments yet. Add people from the roster builder for this class.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      <ClassDayAttendanceTable classId={cls.id} rows={rows} />
     </div>
   );
 }

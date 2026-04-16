@@ -12,6 +12,7 @@ export type CompletionSource =
   | "signin"
   | "import_paylocity"
   | "import_phs"
+  | "import_evc_training"
   | "manual"
   | "class_roster";
 export type ClassStatus =
@@ -25,7 +26,12 @@ export type EnrollmentPriority =
   | "expiring_soon"
   | "refresher";
 export type PassFail = "pass" | "fail" | "no_show";
-export type ImportSource = "paylocity" | "phs" | "manual_csv";
+export type ImportSource =
+  | "paylocity"
+  | "phs"
+  | "manual_csv"
+  | "evc_training_xlsx"
+  | "evc_merged_employees_xlsx";
 export type ImportRunStatus = "running" | "success" | "partial" | "failed";
 export type NotificationStatus = "pending" | "sent" | "failed";
 

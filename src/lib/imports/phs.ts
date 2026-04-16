@@ -78,6 +78,8 @@ export function previewPhsImport(
       noop,
       unresolvedPeople: unresolved,
       unknownTrainings: unknown,
+      wouldUpsertEmployees: 0,
+      invalidEmployeeRows: 0,
     },
   };
 }

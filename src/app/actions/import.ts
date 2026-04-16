@@ -8,13 +8,24 @@ import type { ImportPreview } from "@/lib/imports/types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const previewSchema = z.object({
-  source: z.enum(["paylocity", "phs", "manual_csv"]),
+  source: z.enum([
+    "paylocity",
+    "phs",
+    "manual_csv",
+    "evc_training_xlsx",
+    "evc_merged_employees_xlsx",
+  ]),
   filename: z.string(),
   rows: z.array(
     z.object({
       key: z.string(),
       employeePaylocityId: z.string().optional(),
       employeeName: z.string().optional(),
+      employeeFirstName: z.string().optional(),
+      employeeLastName: z.string().optional(),
+      hireDate: z.string().optional(),
+      employeeStatus: z.enum(["active", "on_leave", "terminated"]).optional(),
+      location: z.string().optional(),
       trainingName: z.string().optional(),
       completedOn: z.string().optional(),
       action: z.enum([
@@ -22,6 +33,8 @@ const previewSchema = z.object({
         "noop_duplicate",
         "unresolved_person",
         "unknown_training",
+        "upsert_employee",
+        "invalid_employee_row",
       ]),
       detail: z.string().optional(),
     })
@@ -32,6 +45,8 @@ const previewSchema = z.object({
     noop: z.number(),
     unresolvedPeople: z.number(),
     unknownTrainings: z.number(),
+    wouldUpsertEmployees: z.number(),
+    invalidEmployeeRows: z.number(),
   }),
 });
 
@@ -66,5 +81,6 @@ export async function commitImportAction(json: string) {
   revalidatePath("/imports");
   revalidatePath("/compliance");
   revalidatePath("/review");
+  revalidatePath("/employees");
   redirect("/imports?success=1");
 }

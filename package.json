@@ -14,7 +14,8 @@
     "db:push": "supabase db push",
     "db:ensure-hr-user": "node scripts/ensure-general-hr-user.cjs",
     "db:setup": "npm run db:push && npm run db:ensure-hr-user",
-    "gen:types": "supabase gen types typescript --linked > src/types/supabase.gen.ts"
+    "gen:types": "supabase gen types typescript --linked > src/types/supabase.gen.ts",
+    "inspect:evc-xlsx": "node scripts/inspect-evc-workbook.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
@@ -53,6 +54,7 @@
     "shadcn": "^4.2.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
+    "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {
