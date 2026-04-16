@@ -21,9 +21,9 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   legal_first_name: ["first name", "legal first", "f name", "first", "firstname", "legal_first_name"],
   preferred_name: ["preferred name", "nickname", "preferred", "pref name", "preferred_name"],
   known_aliases: ["known aliases", "aliases", "alias", "known_aliases"],
-  position: ["position", "job title", "title", "job", "role"],
+  position: ["position", "position title", "job title"],
   department: ["department", "dept", "department description"],
-  location: ["location", "division", "site", "loc"],
+  location: ["location", "division", "division description", "site"],
   supervisor_name: ["supervisor", "supervisor name", "manager", "supervisor_name"],
   supervisor_id_raw: ["supervisor id", "supervisor_employee_id", "mgr id"],
   status: ["status", "active", "employment status"],
@@ -39,7 +39,7 @@ function detectColumns(headers: string[]): Map<string, number> {
 
   for (const [canonical, aliases] of Object.entries(COLUMN_ALIASES)) {
     for (let i = 0; i < normalizedHeaders.length; i++) {
-      if (aliases.some((a) => normalizedHeaders[i] === a || normalizedHeaders[i].includes(a))) {
+      if (aliases.some((a) => normalizedHeaders[i] === a)) {
         mapping.set(canonical, i);
         break;
       }

@@ -327,6 +327,10 @@ function buildMergedSheet() {
   // Optional: Middle Name + Preferred Name (or Preferred/First Name).
   // When present, the sync will auto-register aliases whenever the
   // legal first name or middle name differs from the preferred name.
+  var deptCol = findCol_(trH, "Department Description");
+  if (deptCol < 0) deptCol = findCol_(trH, "Department");
+  var posCol = findCol_(trH, "Position Title");
+  if (posCol < 0) posCol = findCol_(trH, "Position");
   var midCol = findCol_(trH, "Middle Name");
   if (midCol < 0) midCol = findCol_(trH, "Middle");
   var prefCol = findCol_(trH, "Preferred/First Name");
@@ -360,6 +364,8 @@ function buildMergedSheet() {
 
     var active = actCol >= 0 ? String(row[actCol] || "").trim().toUpperCase() === "Y" : true;
     var dept = divCol >= 0 ? String(row[divCol] || "").trim() : "";
+    var deptDesc = deptCol >= 0 ? String(row[deptCol] || "").trim() : "";
+    var posTitle = posCol >= 0 ? String(row[posCol] || "").trim() : "";
     var empNum = idCol >= 0 ? String(row[idCol] || "").trim() : "";
     var hd = "";
     if (hireCol >= 0 && row[hireCol]) {
@@ -430,7 +436,9 @@ function buildMergedSheet() {
     employees[empKey] = {
       last_name: ln,
       first_name: fn,
-      department: dept,
+      division: dept,
+      department: deptDesc,
+      position: posTitle,
       hire_date: hd,
       is_active: active,
       employee_number: empNum,
@@ -570,7 +578,7 @@ function buildMergedSheet() {
     merged = ss.insertSheet(MERGED_SHEET);
   }
 
-  var headerRow = ["ID", "L NAME", "F NAME", "ACTIVE", "Division", "Hire Date", "Aliases"].concat(MERGED_TRAINING_COLS);
+  var headerRow = ["ID", "L NAME", "F NAME", "ACTIVE", "Division", "Department", "Position Title", "Hire Date", "Aliases"].concat(MERGED_TRAINING_COLS);
   merged.getRange(1, 1, 1, headerRow.length).setValues([headerRow]);
   merged.getRange(1, 1, 1, headerRow.length).setFontWeight("bold").setBackground("#1e3a5f").setFontColor("#ffffff");
   merged.setFrozenRows(1);
@@ -587,7 +595,9 @@ function buildMergedSheet() {
       emp.last_name,
       emp.first_name,
       emp.is_active ? "Y" : "N",
-      emp.department,
+      emp.division || "",
+      emp.department || "",
+      emp.position || "",
       emp.hire_date,
       (emp.aliases || []).join("; "),
     ];
@@ -662,6 +672,9 @@ function pushMergedToSupabase() {
   var fnC = findCol_(headers, "F NAME");
   var actC = findCol_(headers, "ACTIVE");
   var divC = findCol_(headers, "Division");
+  var deptC = findCol_(headers, "Department");
+  var posC = findCol_(headers, "Position Title");
+  if (posC < 0) posC = findCol_(headers, "Position");
   var hireC = findCol_(headers, "Hire Date");
   var aliasC = findCol_(headers, "Aliases");
 
@@ -672,7 +685,7 @@ function pushMergedToSupabase() {
   var unmatchedHeaders = [];
   for (var h = 0; h < headers.length; h++) {
     var hdr = String(headers[h] || "").trim();
-    if (!hdr || h === idC || h === lnC || h === fnC || h === actC || h === divC || h === hireC || h === aliasC) continue;
+    if (!hdr || h === idC || h === lnC || h === fnC || h === actC || h === divC || h === deptC || h === posC || h === hireC || h === aliasC) continue;
     var key = matchTrainingCol_(hdr);
     if (key) {
       colMap[key] = h;
@@ -714,6 +727,8 @@ function pushMergedToSupabase() {
 
     var active = actC >= 0 ? String(row[actC] || "").trim().toUpperCase() === "Y" : true;
     var dept = divC >= 0 ? String(row[divC] || "").trim() : "";
+    var deptDesc = deptC >= 0 ? String(row[deptC] || "").trim() : "";
+    var posTitle = posC >= 0 ? String(row[posC] || "").trim() : "";
     var empNum = idC >= 0 ? String(row[idC] || "").trim() : "";
     var hd = null;
     if (hireC >= 0 && row[hireC]) {
@@ -738,7 +753,9 @@ function pushMergedToSupabase() {
       last_name: ln,
       first_name: fn,
       is_active: active,
-      department: dept || null,
+      department: deptDesc || dept || null,
+      location: dept || null,
+      position: posTitle || null,
       hire_date: hd,
       employee_number: empNum || null,
       aliases: aliasList,
