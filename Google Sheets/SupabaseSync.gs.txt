@@ -10,8 +10,8 @@
 //      Clears Supabase training data, pushes employees + records + excusals
 // ============================================================
 
-const SUPABASE_URL = "https://xkfvipcxnzwyskknkmpj.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrZnZpcGN4bnp3eXNra25rbXBqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTY5NjU5MCwiZXhwIjoyMDkxMjcyNTkwfQ.VjmNtuLvrZoSEGiSLAcHHBBsbx-I72jSH5eIoOHejrk";
+const SUPABASE_URL = "https://eqyooxxovdrstkejaebv.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxeW9veHhvdmRyc3RrZWphZWJ2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NjI4OTc1NSwiZXhwIjoyMDkxODY1NzU1fQ.swk7ZWw9vf361C9ec0OFPqhq6AnD7aJjjCyM3ZFqtVs";
 
 const MERGED_SHEET = "Merged";
 const NAME_FIX_SHEET = "Attendee Name Fixes";
@@ -682,7 +682,7 @@ function pushMergedToSupabase() {
   }
 
   // Fetch training types (look up by column_key)
-  var ttResp = supabaseGet("/rest/v1/training_types?select=id,name,column_key&is_active=eq.true&limit=200");
+  var ttResp = supabaseGet("/rest/v1/trainings?select=id,name,column_key&active=eq.true&limit=200");
   var trainingTypes = JSON.parse(ttResp.getContentText());
   var ttByKey = {}; // lowercase col key → { id }
   for (var t = 0; t < trainingTypes.length; t++) {
@@ -819,11 +819,11 @@ function pushMergedToSupabase() {
   if (Object.keys(empLookup).length < employees.length) {
     var offset = 0;
     while (true) {
-      var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name&limit=1000&offset=" + offset);
+      var empResp = supabaseGet("/rest/v1/employees?select=id,legal_first_name,legal_last_name&limit=1000&offset=" + offset);
       var empList = JSON.parse(empResp.getContentText());
       if (empList.length === 0) break;
       for (var el = 0; el < empList.length; el++) {
-        var key2 = (String(empList[el].last_name || "") + "|" + String(empList[el].first_name || "")).toLowerCase();
+        var key2 = (String(empList[el].legal_last_name || "") + "|" + String(empList[el].legal_first_name || "")).toLowerCase();
         if (!empLookup[key2]) empLookup[key2] = empList[el].id;
       }
       offset += empList.length;
@@ -838,8 +838,8 @@ function pushMergedToSupabase() {
   // don't get destroyed by running this sync. Also delete any
   // auto_fill rows that were cascaded from merged_sheet inserts
   // so we don't leave orphans.
-  supabaseDelete("/rest/v1/training_records?source=in.(merged_sheet,auto_fill)");
-  supabaseDelete("/rest/v1/excusals?source=eq.merged_sheet");
+  supabaseDelete("/rest/v1/completions?source=in.(merged_sheet,auto_fill)&status=neq.exempt");
+  supabaseDelete("/rest/v1/completions?source=eq.merged_sheet&status=eq.exempt");
 
   // ─── Step 4: Push training records ───
   var recPayload = [];
@@ -853,8 +853,8 @@ function pushMergedToSupabase() {
     if (!tt) { skippedNoTT++; continue; }
     recPayload.push({
       employee_id: empId,
-      training_type_id: tt.id,
-      completion_date: rec.date,
+      training_id: tt.id,
+      completed_on: rec.date,
       source: "merged_sheet",
     });
   }
@@ -866,7 +866,7 @@ function pushMergedToSupabase() {
   for (var rb = 0; rb < recPayload.length; rb += REC_BATCH) {
     var rBatch = recPayload.slice(rb, rb + REC_BATCH);
     var rResp = supabasePost(
-      "/rest/v1/training_records?on_conflict=employee_id,training_type_id,completion_date",
+      "/rest/v1/completions?on_conflict=employee_id,training_id,completed_on,source",
       rBatch,
       { "Prefer": "resolution=merge-duplicates" }
     );
@@ -890,8 +890,9 @@ function pushMergedToSupabase() {
     if (!tt2) { excSkippedNoTT++; continue; }
     excPayload.push({
       employee_id: empId2,
-      training_type_id: tt2.id,
-      reason: exc.reason,
+      training_id: tt2.id,
+      status: "exempt",
+      exempt_reason: exc.reason,
       source: "merged_sheet",
     });
   }
@@ -901,7 +902,7 @@ function pushMergedToSupabase() {
   for (var xb = 0; xb < excPayload.length; xb += EXC_BATCH) {
     var xBatch = excPayload.slice(xb, xb + EXC_BATCH);
     var xResp = supabasePost(
-      "/rest/v1/excusals?on_conflict=employee_id,training_type_id",
+      "/rest/v1/completions?on_conflict=employee_id,training_id",
       xBatch,
       { "Prefer": "resolution=merge-duplicates" }
     );
@@ -1273,8 +1274,8 @@ function pushTrainingRecordsToSupabase() {
       LEFTEARLY_C = 4, REASON_C = 5, NOTES_C = 6, ENDTIME_C = 7,
       SESSLEN_C = 8, PASSFAIL_C = 9, REVIEWER_C = 10;
 
-  // Fetch training types (for session-name → training_type_id lookup)
-  var ttResp = supabaseGet("/rest/v1/training_types?select=id,name,column_key&is_active=eq.true&limit=200");
+  // Fetch training types (for session-name → training_id lookup)
+  var ttResp = supabaseGet("/rest/v1/trainings?select=id,name,column_key&active=eq.true&limit=200");
   var trainingTypes = JSON.parse(ttResp.getContentText());
   var ttByName = {}; // lowercase name → { id }
   var ttByColKey = {}; // lowercase column_key → { id }
@@ -1284,11 +1285,11 @@ function pushTrainingRecordsToSupabase() {
   }
 
   // Fetch training aliases for fuzzy session-name matching
-  var aliasResp = supabaseGet("/rest/v1/training_aliases?select=training_type_id,alias&limit=500");
+  var aliasResp = supabaseGet("/rest/v1/training_aliases?select=training_id,alias&limit=500");
   var aliases = JSON.parse(aliasResp.getContentText());
   var ttByAlias = {};
   for (var a = 0; a < aliases.length; a++) {
-    ttByAlias[String(aliases[a].alias || "").toLowerCase()] = aliases[a].training_type_id;
+    ttByAlias[String(aliases[a].alias || "").toLowerCase()] = aliases[a].training_id;
   }
 
   function resolveTrainingTypeId_(sessionName) {
@@ -1371,12 +1372,12 @@ function pushTrainingRecordsToSupabase() {
   var allEmployees = []; // normalized list for fuzzy fallback
   var offset = 0;
   while (true) {
-    var empResp = supabaseGet("/rest/v1/employees?select=id,first_name,last_name,aliases&limit=1000&offset=" + offset);
+    var empResp = supabaseGet("/rest/v1/employees?select=id,legal_first_name,legal_last_name,known_aliases&limit=1000&offset=" + offset);
     var empList = JSON.parse(empResp.getContentText());
     if (empList.length === 0) break;
     for (var el = 0; el < empList.length; el++) {
-      var rawLast = String(empList[el].last_name || "").trim();
-      var rawFirst = String(empList[el].first_name || "").trim();
+      var rawLast = String(empList[el].legal_last_name || "").trim();
+      var rawFirst = String(empList[el].legal_first_name || "").trim();
       if (!rawLast) continue;
 
       var lastK = normKey_(rawLast);
@@ -1386,7 +1387,7 @@ function pushTrainingRecordsToSupabase() {
 
       // Index every stored alias under the full-alias lookup so
       // "Mary Thompson" → Cindy Thompson resolves directly.
-      var empAliases = empList[el].aliases || [];
+      var empAliases = empList[el].known_aliases || [];
       for (var ai = 0; ai < empAliases.length; ai++) {
         var ak = normKey_(empAliases[ai]);
         if (ak && !aliasLookup[ak]) aliasLookup[ak] = empList[el].id;
@@ -1652,7 +1653,7 @@ function pushTrainingRecordsToSupabase() {
   // Wipe only this source's existing training_records, so merged-sheet
   // completion dates from pushMergedToSupabase don't get destroyed
   // when we refresh the attendance history.
-  supabaseDelete("/rest/v1/training_records?source=eq.training_records_sheet");
+  supabaseDelete("/rest/v1/completions?source=eq.training_records_sheet");
 
   // Build payload, deduping by (emp, tt, date) as we go so the
   // sheet can have repeated sign-ins for the same person/session/date
@@ -1700,8 +1701,8 @@ function pushTrainingRecordsToSupabase() {
 
     payload.push({
       employee_id: empId,
-      training_type_id: ttId,
-      completion_date: isoDate,
+      training_id: ttId,
+      completed_on: isoDate,
       source: "training_records_sheet",
       arrival_time:   String(row[ARRIVAL_C]   || "") || null,
       left_early:     String(row[LEFTEARLY_C] || "") || null,
@@ -1723,7 +1724,7 @@ function pushTrainingRecordsToSupabase() {
   for (var p = 0; p < payload.length; p += BATCH) {
     var batch = payload.slice(p, p + BATCH);
     var resp = supabasePost(
-      "/rest/v1/training_records?on_conflict=employee_id,training_type_id,completion_date",
+      "/rest/v1/completions?on_conflict=employee_id,training_id,completed_on,source",
       batch,
       { "Prefer": "resolution=ignore-duplicates,return=minimal" }
     );
