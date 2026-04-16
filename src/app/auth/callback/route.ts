@@ -33,10 +33,17 @@ export async function GET(request: NextRequest) {
       getAll() {
         return request.cookies.getAll();
       },
-      setAll(cookiesToSet) {
+      setAll(cookiesToSet, responseHeaders) {
         cookiesToSet.forEach(({ name, value, options }) => {
           response.cookies.set(name, value, options);
         });
+        if (responseHeaders && typeof responseHeaders === "object") {
+          for (const [key, value] of Object.entries(responseHeaders)) {
+            if (typeof value === "string") {
+              response.headers.set(key, value);
+            }
+          }
+        }
       },
     },
   });

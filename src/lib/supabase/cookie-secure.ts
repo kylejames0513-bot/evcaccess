@@ -28,5 +28,6 @@ export async function supabaseCookieSecureFromHeaders(): Promise<boolean> {
   }
   const host = (h.get("x-forwarded-host") ?? h.get("host") ?? "").toLowerCase();
   if (host.startsWith("localhost") || host.startsWith("127.0.0.1")) return false;
-  return false;
+  // Non-localhost host without explicit x-forwarded-proto — assume production HTTPS.
+  return true;
 }
