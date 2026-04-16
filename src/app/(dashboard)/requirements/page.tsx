@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createRequirementAction, deleteRequirementAction } from "@/app/actions/requirements";
+import { createRequirementAction, deleteRequirementAction, createExclusionAction, deleteExclusionAction } from "@/app/actions/requirements";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,18 @@ export default async function RequirementsPage() {
     .order("title");
 
   const trainingMap = new Map((trainings ?? []).map(t => [t.id, t]));
+
+  // Exclusions
+  const { data: exclusions } = await supabase
+    .from("exclusions")
+    .select("id, training_id, role, department, reason, created_at")
+    .order("created_at", { ascending: false });
+
+  const byTrainingExclusions = new Map<string, typeof exclusions>();
+  for (const e of exclusions ?? []) {
+    if (!byTrainingExclusions.has(e.training_id)) byTrainingExclusions.set(e.training_id, []);
+    byTrainingExclusions.get(e.training_id)!.push(e);
+  }
 
   // Get employee metadata with counts
   const { data: empMeta } = await supabase
@@ -273,6 +285,120 @@ export default async function RequirementsPage() {
               })}
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Exclusions section */}
+      <div className="space-y-6 border-t border-[--rule] pt-8">
+        <div>
+          <h2 className="font-display text-xl font-medium">Exclusions</h2>
+          <p className="font-display text-sm italic text-[--ink-soft] mt-1">
+            Exempt a specific department or position from a training requirement.
+          </p>
+        </div>
+
+        <div className="grid gap-8 lg:grid-cols-[2fr_3fr]">
+          {/* Add exclusion form */}
+          <div>
+            <p className="caption mb-3">Add an exclusion</p>
+            <form action={createExclusionAction} className="rounded-lg border border-[--rule] bg-[--surface] p-6 space-y-4">
+              <div>
+                <label className="caption block mb-1">Training to exclude from</label>
+                <select name="training_id" required className="w-full rounded-md border border-[--rule] bg-[--bg] px-3 py-2 text-sm">
+                  <option value="">Select training…</option>
+                  {(trainings ?? []).map(t => (
+                    <option key={t.id} value={t.id}>{t.title} ({t.code})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="caption block mb-1">Position to exclude</label>
+                <select name="role" className="w-full rounded-md border border-[--rule] bg-[--bg] px-3 py-2 text-sm">
+                  <option value="">Not position-specific</option>
+                  {positions.map(([pos, count]) => (
+                    <option key={pos} value={pos}>{pos} ({count})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="caption block mb-1">Department to exclude</label>
+                <select name="department" className="w-full rounded-md border border-[--rule] bg-[--bg] px-3 py-2 text-sm">
+                  <option value="">Not department-specific</option>
+                  {departments.map(([dept, count]) => (
+                    <option key={dept} value={dept}>{dept} ({count})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="caption block mb-1">Reason (optional)</label>
+                <input name="reason" placeholder="e.g., Administrative role, not direct care" className="w-full rounded-md border border-[--rule] bg-[--bg] px-3 py-2 text-sm" />
+              </div>
+              <button
+                type="submit"
+                className="w-full rounded-md bg-[--alert] px-4 py-2 text-sm font-medium text-white hover:bg-[--alert]/90"
+              >
+                Add exclusion
+              </button>
+              <p className="text-xs text-[--ink-muted]">
+                Must specify at least a position or department. Example: Exclude "Executive" department from Mealtime.
+              </p>
+            </form>
+          </div>
+
+          {/* Current exclusions */}
+          <div>
+            <p className="caption mb-3">Active exclusions · {(exclusions ?? []).length}</p>
+            {(exclusions ?? []).length === 0 ? (
+              <div className="rounded-lg border border-[--rule] bg-[--surface] p-8 text-center">
+                <p className="font-display italic text-[--ink-muted]">
+                  No exclusions yet. Everyone who matches a requirement must complete the training.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {Array.from(byTrainingExclusions.entries()).map(([trainingId, excs]) => {
+                  const training = trainingMap.get(trainingId);
+                  return (
+                    <div key={trainingId} className="rounded-lg border border-[--alert]/20 bg-[--alert-soft] overflow-hidden">
+                      <div className="px-5 py-3 border-b border-[--alert]/10 flex items-center justify-between">
+                        <div>
+                          <span className="font-medium text-[--alert]">{training?.title ?? "Unknown"}</span>
+                          <span className="ml-2 text-xs text-[--ink-muted] font-mono">{training?.code}</span>
+                        </div>
+                        <span className="caption text-[--alert]">{excs?.length ?? 0} exclusion{(excs?.length ?? 0) === 1 ? "" : "s"}</span>
+                      </div>
+                      <ul className="divide-y divide-[--alert]/10 bg-[--surface]">
+                        {(excs ?? []).map(exc => (
+                          <li key={exc.id} className="flex items-center justify-between px-5 py-3 hover:bg-[--surface-alt]">
+                            <div className="text-sm">
+                              <span className="text-[--ink]">
+                                {exc.role && exc.department
+                                  ? `${exc.role} in ${exc.department}`
+                                  : exc.role
+                                    ? `Position: ${exc.role}`
+                                    : exc.department
+                                      ? `Department: ${exc.department}`
+                                      : "—"}
+                              </span>
+                              {exc.reason && (
+                                <span className="text-[--ink-muted] ml-2 text-xs">— {exc.reason}</span>
+                              )}
+                            </div>
+                            <form action={deleteExclusionAction}>
+                              <input type="hidden" name="exclusion_id" value={exc.id} />
+                              <button type="submit" className="text-xs text-[--alert] hover:underline">
+                                Remove
+                              </button>
+                            </form>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

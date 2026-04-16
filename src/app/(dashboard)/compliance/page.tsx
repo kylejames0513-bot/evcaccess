@@ -30,6 +30,11 @@ export default async function CompliancePage() {
     .eq("active", true)
     .order("code");
 
+  // Exclusions
+  const { data: exclusions } = await supabase
+    .from("exclusions")
+    .select("training_id, role, department");
+
   // All completions
   const { data: completions } = await supabase
     .from("completions")
@@ -49,11 +54,34 @@ export default async function CompliancePage() {
   const soonDate = new Date(today);
   soonDate.setDate(soonDate.getDate() + 30);
 
+  const excls = exclusions ?? [];
+
+  // Helper: check if an employee is excluded from a training
+  function isExcluded(emp: { position: string | null; department: string | null }, trainingId: string): boolean {
+    for (const exc of excls) {
+      if (exc.training_id !== trainingId) continue;
+      const posMatch = !exc.role || exc.role === emp.position;
+      const deptMatch = !exc.department || exc.department === emp.department;
+      if (posMatch && deptMatch) return true;
+    }
+    return false;
+  }
+
   for (const emp of emps) {
     for (const req of reqs) {
       const posMatch = !req.role || req.role === emp.position;
       const deptMatch = !req.department || req.department === emp.department;
       if (!posMatch || !deptMatch) continue;
+
+      // Check exclusions — if this employee is excluded from this training, mark as EXEMPT
+      if (isExcluded(emp, req.training_id)) {
+        const key = `${emp.id}|${req.training_id}`;
+        if (!cells.has(key)) {
+          requiredTrainingIds.add(req.training_id);
+          cells.set(key, { status: "EXEMPT", completedOn: null, expiresOn: null, daysUntil: null });
+        }
+        continue;
+      }
 
       requiredTrainingIds.add(req.training_id);
       const key = `${emp.id}|${req.training_id}`;

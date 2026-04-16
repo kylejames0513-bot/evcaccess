@@ -87,6 +87,12 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["review_queue"]["Insert"]>;
         Relationships: [];
       };
+      exclusions: {
+        Row: { id: string; training_id: string; role: string | null; department: string | null; reason: string | null; created_at: string; };
+        Insert: { id?: string; training_id: string; role?: string | null; department?: string | null; reason?: string | null; };
+        Update: Partial<Database["public"]["Tables"]["exclusions"]["Insert"]>;
+        Relationships: [];
+      };
       new_hire_checklist: {
         Row: { id: string; new_hire_id: string; stage: string; item_name: string; required: boolean; completed: boolean; completed_on: string | null; completed_by: string | null; doc_url: string | null; notes: string | null; };
         Insert: { id?: string; new_hire_id: string; stage: string; item_name: string; required?: boolean; completed?: boolean; completed_on?: string | null; completed_by?: string | null; doc_url?: string | null; notes?: string | null; };
