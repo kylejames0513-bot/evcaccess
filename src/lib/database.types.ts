@@ -83,7 +83,7 @@ export interface Database {
       };
       review_queue: {
         Row: { id: string; ingestion_run_id: string | null; source: string | null; reason: string | null; raw_payload: Json | null; suggested_match_employee_id: string | null; suggested_match_score: number | null; resolved: boolean; resolved_at: string | null; resolved_by: string | null; resolution_notes: string | null; created_at: string; };
-        Insert: { id?: string; ingestion_run_id?: string | null; source?: string | null; reason?: string | null; raw_payload?: Json | null; suggested_match_employee_id?: string | null; suggested_match_score?: number | null; resolved?: boolean; };
+        Insert: { id?: string; ingestion_run_id?: string | null; source?: string | null; reason?: string | null; raw_payload?: Json | null; suggested_match_employee_id?: string | null; suggested_match_score?: number | null; resolved?: boolean; resolved_at?: string | null; resolved_by?: string | null; resolution_notes?: string | null; };
         Update: Partial<Database["public"]["Tables"]["review_queue"]["Insert"]>;
         Relationships: [];
       };

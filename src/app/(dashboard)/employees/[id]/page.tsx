@@ -1,118 +1,161 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { logCompletionAction } from "@/app/actions/completion";
 
-export default async function EmployeeDetailPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export const dynamic = "force-dynamic";
+
+export default async function EmployeeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: emp } = await supabase
-    .from("employees")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
+  const { data: emp } = await supabase.from("employees").select("*").eq("id", id).maybeSingle();
   if (!emp) notFound();
 
   const { data: completions } = await supabase
     .from("completions")
-    .select("completed_on, expires_on, source, training_id, status")
+    .select("id, completed_on, expires_on, source, training_id, status, exempt_reason, notes")
     .eq("employee_id", id)
     .order("completed_on", { ascending: false });
 
-  const typeIds = [...new Set((completions ?? []).map((c) => c.training_id))];
-  const { data: typeRows } =
-    typeIds.length > 0
-      ? await supabase.from("trainings").select("id, title").in("id", typeIds)
-      : { data: [] as { id: string; title: string }[] };
-  const typeName = new Map((typeRows ?? []).map((t) => [t.id, t.title]));
+  const typeIds = [...new Set((completions ?? []).map(c => c.training_id))];
+  const { data: typeRows } = typeIds.length > 0
+    ? await supabase.from("trainings").select("id, title, code").in("id", typeIds)
+    : { data: [] as { id: string; title: string; code: string }[] };
+  const typeMap = new Map((typeRows ?? []).map(t => [t.id, t]));
+
+  // All trainings for the completion form
+  const { data: allTrainings } = await supabase
+    .from("trainings")
+    .select("id, code, title")
+    .eq("active", true)
+    .order("title");
+
+  const name = emp.preferred_name
+    ? `${emp.preferred_name} ${emp.legal_last_name}`
+    : `${emp.legal_first_name} ${emp.legal_last_name}`;
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <Button asChild variant="ghost" className="mb-2 px-0" style={{ color: "var(--accent)" }}>
-            <Link href="/employees">Back to roster</Link>
-          </Button>
-          <h1
-            className="font-display text-2xl font-semibold tracking-tight"
-            style={{ color: "var(--ink)" }}
-          >
-            {emp.legal_first_name} {emp.legal_last_name}
-          </h1>
-          <p className="font-mono text-sm" style={{ color: "var(--ink-muted)" }}>
-            {emp.employee_id}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2 text-sm" style={{ color: "var(--ink-muted)" }}>
-            <span>{emp.position || "No position"}</span>
-            <span>&middot;</span>
-            <span>{emp.location || "No location"}</span>
-            <span>&middot;</span>
-            <Badge variant="secondary">{emp.status}</Badge>
-          </div>
-        </div>
+      <div>
+        <Link href="/employees" className="text-sm text-[--accent] hover:underline">← Roster</Link>
+        <h1 className="font-display text-[32px] font-medium leading-tight tracking-[-0.01em] mt-2">
+          {name}
+        </h1>
+        {emp.preferred_name && (
+          <p className="caption mt-1">Legal: {emp.legal_first_name} {emp.legal_last_name}</p>
+        )}
       </div>
 
-      <section>
-        <h2 className="mb-3 text-lg font-medium" style={{ color: "var(--ink)" }}>
-          Training history
-        </h2>
-        <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--rule)" }}>
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent" style={{ borderColor: "var(--rule)" }}>
-                <TableHead style={{ color: "var(--ink-muted)" }}>Training</TableHead>
-                <TableHead style={{ color: "var(--ink-muted)" }}>Completed</TableHead>
-                <TableHead style={{ color: "var(--ink-muted)" }}>Expires</TableHead>
-                <TableHead style={{ color: "var(--ink-muted)" }}>Source</TableHead>
-                <TableHead style={{ color: "var(--ink-muted)" }}>Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {(completions ?? []).length ? (
-                (completions ?? []).map((c, i) => (
-                  <TableRow key={`${c.completed_on}-${c.source}-${i}`} style={{ borderColor: "var(--rule)" }}>
-                    <TableCell style={{ color: "var(--ink)" }}>
-                      {typeName.get(c.training_id) ?? "Training"}
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">{c.completed_on ?? "\u2014"}</TableCell>
-                    <TableCell className="font-mono text-xs">{c.expires_on ?? "\u2014"}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" style={{ borderColor: "var(--rule)", color: "var(--ink-muted)" }}>
-                        {c.source ?? "\u2014"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell style={{ color: "var(--ink-muted)" }}>{c.status}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center" style={{ color: "var(--ink-muted)" }}>
-                    No completions yet. Import history or record a class.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </section>
+      {/* Profile */}
+      <div className="rounded-lg border border-[--rule] bg-[--surface] divide-y divide-[--rule]">
+        <Field label="Employee ID" value={emp.employee_id} />
+        <Field label="Position" value={emp.position} />
+        <Field label="Department" value={emp.department} />
+        <Field label="Location" value={emp.location} />
+        <Field label="Status" value={emp.status} />
+        <Field label="Hire date" value={emp.hire_date ? new Date(emp.hire_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null} />
+        <Field label="Termination date" value={emp.termination_date ? new Date(emp.termination_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null} />
+        <Field label="Email" value={emp.email} />
+        <Field label="Phone" value={emp.phone} />
+        <Field label="Aliases" value={(emp.known_aliases ?? []).length > 0 ? (emp.known_aliases as string[]).join("; ") : null} />
+      </div>
+
+      {/* Training history */}
+      <div>
+        <p className="caption mb-3">Training history · {(completions ?? []).length} records</p>
+        {(completions ?? []).length > 0 ? (
+          <div className="overflow-x-auto rounded-lg border border-[--rule] bg-[--surface]">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[--rule]">
+                  <th className="caption px-4 py-3 text-left">Training</th>
+                  <th className="caption px-4 py-3 text-left">Completed</th>
+                  <th className="caption px-4 py-3 text-left">Expires</th>
+                  <th className="caption px-4 py-3 text-left">Status</th>
+                  <th className="caption px-4 py-3 text-left">Source</th>
+                  <th className="caption px-4 py-3 text-left">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(completions ?? []).map((c, i) => {
+                  const tr = typeMap.get(c.training_id);
+                  return (
+                    <tr key={`${c.id}-${i}`} className="border-b border-[--rule] last:border-0 hover:bg-[--surface-alt]">
+                      <td className="px-4 py-3 font-medium">{tr?.title ?? "—"}</td>
+                      <td className="px-4 py-3 tabular-nums text-[--ink-soft]">
+                        {c.completed_on ? new Date(c.completed_on + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-[--ink-muted]">
+                        {c.expires_on ? new Date(c.expires_on + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                          c.status === "compliant" ? "bg-[--success-soft] text-[--success]" :
+                          c.status === "exempt" ? "bg-[--surface-alt] text-[--ink-muted]" :
+                          c.status === "failed" ? "bg-[--alert-soft] text-[--alert]" :
+                          "bg-[--surface-alt] text-[--ink-muted]"
+                        }`}>
+                          {c.status}{c.status === "exempt" && c.exempt_reason ? ` (${c.exempt_reason})` : ""}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-[--ink-muted]">{c.source ?? "—"}</td>
+                      <td className="px-4 py-3 text-[--ink-muted] max-w-[200px] truncate">{c.notes ?? ""}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-[--rule] bg-[--surface] p-8 text-center">
+            <p className="font-display italic text-[--ink-muted]">
+              No training records on file. Log a completion below or sync from the Attendance Tracker.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Log completion form */}
+      <div>
+        <p className="caption mb-3">Log a completion</p>
+        <form action={logCompletionAction} className="rounded-lg border border-[--rule] bg-[--surface] p-5 space-y-3">
+          <input type="hidden" name="employee_id" value={emp.id} />
+          <div className="grid gap-3 md:grid-cols-3">
+            <div>
+              <label className="caption block mb-1">Training</label>
+              <select name="training_id" required className="w-full rounded-md border border-[--rule] bg-[--bg] px-3 py-2 text-sm">
+                <option value="">Select training…</option>
+                {(allTrainings ?? []).map(t => (
+                  <option key={t.id} value={t.id}>{t.title} ({t.code})</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="caption block mb-1">Completed on</label>
+              <input name="completed_on" type="date" required className="w-full rounded-md border border-[--rule] bg-[--bg] px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label className="caption block mb-1">Notes (optional)</label>
+              <input name="notes" className="w-full rounded-md border border-[--rule] bg-[--bg] px-3 py-2 text-sm" placeholder="Session, instructor, etc." />
+            </div>
+          </div>
+          <button type="submit" className="rounded-md bg-[--accent] px-4 py-2 text-sm font-medium text-[--primary-foreground] hover:bg-[--accent]/90">
+            Record completion
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div className="flex px-6 py-3">
+      <dt className="caption w-36 shrink-0 pt-0.5">{label}</dt>
+      <dd className={value ? "text-sm text-[--ink]" : "text-sm text-[--ink-muted] italic"}>{value || "—"}</dd>
     </div>
   );
 }
