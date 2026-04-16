@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { GENERAL_HR_AUTH_EMAIL } from "@/lib/auth/general-hr";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,13 +23,15 @@ export function LoginForm() {
 
   async function onSubmit(values: z.infer<typeof schema>) {
     setMessage(null);
-    const supabase = createSupabaseBrowserClient();
-    const { error } = await supabase.auth.signInWithPassword({
-      email: GENERAL_HR_AUTH_EMAIL,
-      password: values.password,
+    const res = await fetch("/api/auth/hr-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: values.password }),
+      credentials: "same-origin",
     });
-    if (error) {
-      setMessage(error.message);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      setMessage(body?.error ?? "Could not sign in.");
       return;
     }
     router.replace("/");
