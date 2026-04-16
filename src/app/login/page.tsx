@@ -1,5 +1,7 @@
 import { LoginForm } from "@/components/training-hub/login-form";
 
+export const dynamic = "force-dynamic";
+
 export default function LoginPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-[#0f1117] px-4 text-[#e8eaed]">

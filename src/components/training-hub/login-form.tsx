@@ -1,69 +1,35 @@
 "use client";
 
-import { useState } from "react";
-import { z } from "zod";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-const schema = z.object({
-  password: z.string().min(8),
-});
+import { hrPasswordLoginAction } from "@/app/actions/hr-login";
 
 export function LoginForm() {
-  const [message, setMessage] = useState<string | null>(null);
-  const form = useForm<z.infer<typeof schema>>({
-    resolver: zodResolver(schema),
-    defaultValues: { password: "" },
-  });
-
-  async function onSubmit(values: z.infer<typeof schema>) {
-    setMessage(null);
-    try {
-      const res = await fetch("/api/auth/hr-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: values.password }),
-        credentials: "same-origin",
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        let msg = "Could not sign in.";
-        try {
-          const body = JSON.parse(text) as { error?: string };
-          if (body?.error) msg = body.error;
-        } catch {
-          if (text.trim()) msg = text.slice(0, 200);
-        }
-        setMessage(msg);
-        return;
-      }
-      await res.json().catch(() => null);
-      // Full navigation so Set-Cookie from the API route is committed before RSC runs
-      // (soft navigation can race the session cookie on some browsers / Vercel).
-      window.location.assign("/");
-    } catch {
-      setMessage("Network error. Try again.");
-    }
-  }
+  const [state, formAction, pending] = useActionState(hrPasswordLoginAction, null);
 
   return (
-    <form className="space-y-4" onSubmit={form.handleSubmit(onSubmit)}>
+    <form action={formAction} className="space-y-4">
       <div className="space-y-2">
         <Label htmlFor="password">HR password</Label>
         <Input
           id="password"
+          name="password"
           type="password"
           autoComplete="current-password"
+          required
+          minLength={8}
           className="border-[#2a2e3d] bg-[#0f1117]"
-          {...form.register("password")}
         />
       </div>
-      {message ? <p className="text-sm text-[#ef4444]">{message}</p> : null}
-      <Button type="submit" className="w-full rounded-lg bg-[#3b82f6] text-white hover:bg-[#2563eb]">
-        Enter
+      {state?.error ? <p className="text-sm text-[#ef4444]">{state.error}</p> : null}
+      <Button
+        type="submit"
+        disabled={pending}
+        className="w-full rounded-lg bg-[#3b82f6] text-white hover:bg-[#2563eb] disabled:opacity-60"
+      >
+        {pending ? "Signing in…" : "Enter"}
       </Button>
     </form>
   );
