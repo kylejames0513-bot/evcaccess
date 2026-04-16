@@ -1,104 +1,88 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { TrainingCatalogTable, type TrainingRow } from "@/components/training-hub/training-catalog-table";
+
+export const dynamic = "force-dynamic";
 
 export default async function TrainingsPage() {
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle();
 
-  const { data: rows } = await supabase
+  const { data: trainings } = await supabase
     .from("trainings")
-    .select("id, code, title, category, cadence_type, cadence_months, active, regulatory_citation")
-    .order("title");
+    .select("id, code, title, category, cadence_type, cadence_months, grace_days, regulatory_citation, active")
+    .order("code");
+
+  // Get completion counts per training
+  const trainingIds = (trainings ?? []).map(t => t.id);
+  const counts = new Map<string, number>();
+  if (trainingIds.length > 0) {
+    for (const tid of trainingIds) {
+      const { count } = await supabase
+        .from("completions")
+        .select("id", { count: "exact", head: true })
+        .eq("training_id", tid);
+      counts.set(tid, count ?? 0);
+    }
+  }
+
+  const rows: TrainingRow[] = (trainings ?? []).map(t => ({
+    id: t.id,
+    code: t.code,
+    title: t.title,
+    category: t.category,
+    cadence_type: t.cadence_type,
+    cadence_months: t.cadence_months,
+    grace_days: t.grace_days,
+    regulatory_citation: t.regulatory_citation,
+    active: t.active,
+    completionCount: counts.get(t.id) ?? 0,
+  }));
+
+  const unconfiguredCount = rows.filter(r => r.cadence_type === "unset").length;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="space-y-8">
+      <div className="flex items-end justify-between gap-3">
         <div>
-          <h1
-            className="font-display text-2xl font-semibold tracking-tight"
-            style={{ color: "var(--ink)" }}
-          >
-            Trainings
+          <p className="caption">Catalog</p>
+          <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
+            Training Catalog
           </h1>
-          <p className="caption text-sm" style={{ color: "var(--ink-muted)" }}>
-            Deactivate instead of delete. Requirements map roles to courses.
+          <p className="font-display text-sm italic text-[--ink-soft] mt-1">
+            Configure how often each training renews. Changes apply to every completion on record.
           </p>
         </div>
-        {profile?.role === "admin" ? (
-          <Button asChild className="rounded-lg text-white" style={{ backgroundColor: "var(--accent)" }}>
-            <Link href="/trainings/new">Add training</Link>
-          </Button>
-        ) : null}
+        <Link
+          href="/trainings/new"
+          className="rounded-md bg-[--accent] px-4 py-2 text-sm font-medium text-[--primary-foreground] hover:bg-[--accent]/90"
+        >
+          Add training
+        </Link>
       </div>
-      <div
-        className="overflow-hidden rounded-xl border"
-        style={{ borderColor: "var(--rule)", backgroundColor: "var(--surface)" }}
-      >
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent" style={{ borderColor: "var(--rule)" }}>
-              <TableHead style={{ color: "var(--ink-muted)" }}>Code</TableHead>
-              <TableHead style={{ color: "var(--ink-muted)" }}>Title</TableHead>
-              <TableHead style={{ color: "var(--ink-muted)" }}>Category</TableHead>
-              <TableHead style={{ color: "var(--ink-muted)" }}>Cadence</TableHead>
-              <TableHead style={{ color: "var(--ink-muted)" }}>Months</TableHead>
-              <TableHead style={{ color: "var(--ink-muted)" }}>Citation</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(rows ?? []).length ? (
-              (rows ?? []).map((r) => (
-                <TableRow key={r.id} style={{ borderColor: "var(--rule)" }}>
-                  <TableCell className="font-mono text-xs" style={{ color: "var(--ink)" }}>
-                    <Link href={`/trainings/${r.id}`} style={{ color: "var(--accent)" }} className="hover:underline">
-                      {r.code}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="font-medium" style={{ color: "var(--ink)" }}>
-                    {r.title}
-                    {!r.active ? (
-                      <Badge className="ml-2 bg-[#5c6078]/20 text-[#8b8fa3]">Inactive</Badge>
-                    ) : null}
-                  </TableCell>
-                  <TableCell style={{ color: "var(--ink-muted)" }}>{r.category ?? "\u2014"}</TableCell>
-                  <TableCell style={{ color: "var(--ink-muted)" }}>{r.cadence_type}</TableCell>
-                  <TableCell className="font-mono text-xs" style={{ color: "var(--ink)" }}>
-                    {r.cadence_months ?? "\u2014"}
-                  </TableCell>
-                  <TableCell className="max-w-xs truncate" style={{ color: "var(--ink-muted)" }}>
-                    {r.regulatory_citation ?? "\u2014"}
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={6} className="h-28 text-center" style={{ color: "var(--ink-muted)" }}>
-                  No trainings yet. Admins can add the catalog here.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+
+      {/* Summary strip */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <StatCard label="Total" value={rows.length} />
+        <StatCard label="Configured" value={rows.filter(r => r.cadence_type !== "unset" && r.active).length} />
+        <StatCard label="Unconfigured" value={unconfiguredCount} warn={unconfiguredCount > 0} />
+        <StatCard label="Inactive" value={rows.filter(r => !r.active).length} />
       </div>
+
+      <TrainingCatalogTable rows={rows} />
+    </div>
+  );
+}
+
+function StatCard({ label, value, warn = false }: { label: string; value: number; warn?: boolean }) {
+  return (
+    <div className="rounded-lg border border-[--rule] bg-[--surface] p-4">
+      <p className="caption">{label}</p>
+      <p className={`font-display text-2xl font-medium mt-1 tabular-nums ${warn ? "text-[--warn]" : ""}`}>
+        {value}
+      </p>
     </div>
   );
 }

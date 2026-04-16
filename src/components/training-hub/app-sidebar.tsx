@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BarChart3,
   BookOpen,
   CalendarDays,
   ClipboardCheck,
@@ -10,7 +11,6 @@ import {
   Database,
   History,
   LayoutDashboard,
-  Mail,
   QrCode,
   Settings,
   Upload,
@@ -38,6 +38,7 @@ const operate = [
   { href: "/new-hires", label: "New hires", icon: UserPlus },
   { href: "/separations", label: "Separations", icon: UserMinus },
   { href: "/compliance", label: "Compliance", icon: ClipboardList },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/attendance-log", label: "Attendance log", icon: History },
 ];
 
