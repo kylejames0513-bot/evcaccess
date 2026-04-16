@@ -101,6 +101,7 @@ export async function ingest(options: {
     console.log(`[newHireTracker] ${month} ${year ?? "?"}: processing...`);
 
     // Process new hires (rows 5-29) and transfers (rows 34-58)
+    // Transfer columns: #, Dept, Last, First, From, To, MCF Received, Effective Date, Lift Van, Job Desc/MOU, UKERU, Mealtime, Delegations, ITSP, Therapies, Status
     const ranges = [
       { start: 4, end: 29, type: "new_hire" as const },
       { start: 33, end: 58, type: "transfer" as const },
@@ -129,11 +130,55 @@ export async function ingest(options: {
           continue;
         }
 
+        // Read onboarding item values
+        const bkgrd = String(row[COL.BKGRD] ?? "").trim();
+        const assignedRaw = row[COL.ASSIGNED];
+        const assigned = parseDate(assignedRaw as string | number);
+        const relias = String(row[COL.RELIAS] ?? "").trim();
+        const threePhase = String(row[COL.THREE_PHASE] ?? "").trim();
+        const jobDesc = String(row[COL.JOB_DESC] ?? "").trim();
+        const cpr = String(row[COL.CPR] ?? "").trim();
+        const med = String(row[COL.MED] ?? "").trim();
+        const ukeru = String(row[COL.UKERU] ?? "").trim();
+        const mealtime = String(row[COL.MEALTIME] ?? "").trim();
+        const therapy = row[COL.THERAPY] != null ? String(row[COL.THERAPY]).trim() : "";
+        const itsp = row[COL.ITSP] != null ? String(row[COL.ITSP]).trim() : "";
+        const delegation = row[COL.DELEGATION] != null ? String(row[COL.DELEGATION]).trim() : "";
+
         if (dryRun) {
           console.log(`  [DRY] ${range.type}: ${firstName} ${lastName} (${dept}) DOH=${doh ? toISODate(doh) : "?"}`);
           stats.inserted++;
           continue;
         }
+
+        const record = {
+          legal_first_name: firstName,
+          legal_last_name: lastName,
+          department: dept || null,
+          position: location || null,
+          location_title: location || null,
+          offer_accepted_date: doh ? toISODate(doh) : null,
+          planned_start_date: doh ? toISODate(doh) : null,
+          actual_start_date: doh ? toISODate(doh) : null,
+          assigned_date: assigned ? toISODate(assigned) : null,
+          stage: statusRaw === "ACTIVE" ? "complete" : "offer_accepted",
+          hire_month: month,
+          hire_year: year,
+          hire_type: range.type === "transfer" ? "transfer" : "new_hire",
+          ingest_source: "tracker_xlsm",
+          background_check: bkgrd || null,
+          relias: relias || null,
+          three_phase: threePhase || null,
+          job_desc: jobDesc || null,
+          cpr_status: cpr || null,
+          med_cert_status: med || null,
+          ukeru_status: ukeru || null,
+          mealtime_status: mealtime || null,
+          lift_van_status: "",
+          therapy_status: therapy || null,
+          itsp_status: itsp || null,
+          delegation_status: delegation || null,
+        };
 
         // Upsert new_hires record
         const { data: existing } = await supabase
@@ -145,27 +190,10 @@ export async function ingest(options: {
           .maybeSingle();
 
         if (existing) {
-          await supabase.from("new_hires").update({
-            department: dept || null,
-            position: location || null,
-            offer_accepted_date: doh ? toISODate(doh) : null,
-            stage: statusRaw === "ACTIVE" ? "complete" : "offer_accepted",
-          }).eq("id", existing.id);
+          await supabase.from("new_hires").update(record).eq("id", existing.id);
           stats.updated++;
         } else {
-          await supabase.from("new_hires").insert({
-            legal_first_name: firstName,
-            legal_last_name: lastName,
-            department: dept || null,
-            position: location || null,
-            offer_accepted_date: doh ? toISODate(doh) : null,
-            planned_start_date: doh ? toISODate(doh) : null,
-            actual_start_date: doh ? toISODate(doh) : null,
-            stage: statusRaw === "ACTIVE" ? "complete" : "offer_accepted",
-            hire_month: month,
-            hire_year: year,
-            ingest_source: "tracker_xlsm",
-          });
+          await supabase.from("new_hires").insert(record);
           stats.inserted++;
         }
 

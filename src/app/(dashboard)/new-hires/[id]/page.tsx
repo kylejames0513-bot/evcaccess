@@ -1,25 +1,43 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { transitionStageAction, toggleChecklistItemAction, addChecklistItemAction } from "@/app/actions/new-hire";
 
 export const dynamic = "force-dynamic";
 
-const STAGES = [
-  { key: "offer_accepted", label: "Offer Accepted" },
-  { key: "pre_hire_docs", label: "Pre-Hire Docs" },
-  { key: "day_one_setup", label: "Day One Setup" },
-  { key: "orientation", label: "Orientation" },
-  { key: "thirty_day", label: "30-Day Check" },
-  { key: "sixty_day", label: "60-Day Check" },
-  { key: "ninety_day", label: "90-Day Check" },
-  { key: "complete", label: "Complete" },
+type OnboardingItem = {
+  key: string;
+  label: string;
+  type: "manual" | "training";
+  blockOnboarding: boolean;
+};
+
+const NH_ITEMS: OnboardingItem[] = [
+  { key: "background_check", label: "Background Check", type: "manual", blockOnboarding: true },
+  { key: "relias", label: "Relias", type: "manual", blockOnboarding: true },
+  { key: "three_phase", label: "3-Phase", type: "manual", blockOnboarding: true },
+  { key: "job_desc", label: "Job Description", type: "manual", blockOnboarding: true },
+  { key: "cpr_status", label: "CPR/FA", type: "training", blockOnboarding: true },
+  { key: "med_cert_status", label: "Med Cert", type: "training", blockOnboarding: false },
+  { key: "ukeru_status", label: "UKERU", type: "training", blockOnboarding: true },
+  { key: "mealtime_status", label: "Mealtime", type: "training", blockOnboarding: true },
+  { key: "lift_van_status", label: "Lift/Van Training", type: "training", blockOnboarding: false },
+  { key: "therapy_status", label: "Therapy", type: "training", blockOnboarding: false },
+  { key: "itsp_status", label: "ITSP", type: "training", blockOnboarding: false },
+  { key: "delegation_status", label: "Delegation", type: "training", blockOnboarding: false },
 ];
 
-const EXIT_STAGES = [
-  { key: "withdrew", label: "Withdrew" },
-  { key: "terminated_in_probation", label: "Terminated in Probation" },
+const TR_ITEMS: OnboardingItem[] = [
+  { key: "lift_van_status", label: "Lift/Van", type: "training", blockOnboarding: false },
+  { key: "job_desc", label: "Job Desc/MOU", type: "manual", blockOnboarding: true },
+  { key: "ukeru_status", label: "UKERU", type: "training", blockOnboarding: false },
+  { key: "mealtime_status", label: "Mealtime", type: "training", blockOnboarding: false },
+  { key: "delegation_status", label: "Delegations", type: "training", blockOnboarding: false },
+  { key: "itsp_status", label: "ITSP", type: "training", blockOnboarding: false },
+  { key: "therapy_status", label: "Therapies", type: "training", blockOnboarding: false },
 ];
+
+const STATUS_OPTIONS = ["", "Yes", "No", "N/A", "In Progress", "Scheduled", "Pending"];
 
 export default async function NewHireDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -27,36 +45,47 @@ export default async function NewHireDetailPage({ params }: { params: Promise<{ 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: hire } = await supabase
-    .from("new_hires")
-    .select("id, legal_first_name, legal_last_name, preferred_name, position, department, supervisor_name_raw, stage, stage_entry_date, offer_accepted_date, planned_start_date, actual_start_date, source, recruiter, hire_month, hire_year, created_at")
-    .eq("id", id)
-    .maybeSingle();
-
+  const { data: hire } = await supabase.from("new_hires").select("*").eq("id", id).maybeSingle();
   if (!hire) notFound();
 
-  const { data: checklist } = await supabase
-    .from("new_hire_checklist")
-    .select("id, stage, item_name, required, completed, completed_on, completed_by, notes")
-    .eq("new_hire_id", id)
-    .order("stage")
-    .order("required", { ascending: false });
+  const isTransfer = hire.hire_type === "transfer";
+  const items = isTransfer ? TR_ITEMS : NH_ITEMS;
+  const hireData = hire as Record<string, unknown>;
 
-  // Group checklist by stage
-  const checklistByStage = new Map<string, typeof checklist>();
-  for (const item of checklist ?? []) {
-    if (!checklistByStage.has(item.stage)) checklistByStage.set(item.stage, []);
-    checklistByStage.get(item.stage)!.push(item);
-  }
+  // Count completed onboarding items (blocking ones only)
+  const blockingItems = items.filter(i => i.blockOnboarding);
+  const completedBlocking = blockingItems.filter(i => {
+    const val = String(hireData[i.key] ?? "").trim().toUpperCase();
+    return ["YES", "Y", "PASS", "COMPLETE", "COMPLETED"].includes(val);
+  }).length;
+  const progress = blockingItems.length > 0 ? Math.round((completedBlocking / blockingItems.length) * 100) : 0;
 
-  const currentStageIdx = STAGES.findIndex(s => s.key === hire.stage);
   const name = hire.preferred_name
     ? `${hire.preferred_name} ${hire.legal_last_name}`
     : `${hire.legal_first_name} ${hire.legal_last_name}`;
 
-  const daysInStage = hire.stage_entry_date
-    ? Math.floor((Date.now() - new Date(hire.stage_entry_date + "T00:00:00").getTime()) / (1000 * 60 * 60 * 24))
-    : 0;
+  async function updateField(formData: FormData) {
+    "use server";
+    const supabase = await createSupabaseServerClient();
+    const hireId = String(formData.get("hire_id") ?? "");
+    const field = String(formData.get("field") ?? "");
+    const value = String(formData.get("value") ?? "");
+    if (!hireId || !field) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase.from("new_hires").update as any)({ [field]: value || null }).eq("id", hireId);
+    revalidatePath(`/new-hires/${hireId}`);
+  }
+
+  async function updateStage(formData: FormData) {
+    "use server";
+    const supabase = await createSupabaseServerClient();
+    const hireId = String(formData.get("hire_id") ?? "");
+    const stage = String(formData.get("stage") ?? "");
+    if (!hireId || !stage) return;
+    await supabase.from("new_hires").update({ stage, stage_entry_date: new Date().toISOString().slice(0, 10) }).eq("id", hireId);
+    revalidatePath(`/new-hires/${hireId}`);
+    revalidatePath("/new-hires");
+  }
 
   return (
     <div className="space-y-8">
@@ -64,171 +93,139 @@ export default async function NewHireDetailPage({ params }: { params: Promise<{ 
         <Link href="/new-hires" className="text-sm text-[--accent] hover:underline">← Pipeline</Link>
         <div className="mt-2 flex items-start justify-between gap-4">
           <div>
-            <h1 className="font-display text-[32px] font-medium leading-tight tracking-[-0.01em]">
-              {name}
-            </h1>
-            {hire.preferred_name && (
-              <p className="caption mt-1">Legal: {hire.legal_first_name} {hire.legal_last_name}</p>
-            )}
+            <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium mb-2 ${isTransfer ? "bg-[--warn-soft] text-[--warn]" : "bg-[--accent-soft] text-[--accent]"}`}>
+              {isTransfer ? "Transfer" : "New Hire"}
+            </span>
+            <h1 className="font-display text-[32px] font-medium leading-tight tracking-[-0.01em]">{name}</h1>
           </div>
           <div className="text-right">
-            <p className="caption">Current stage</p>
-            <p className="font-display text-lg mt-1">
-              {STAGES.find(s => s.key === hire.stage)?.label ?? EXIT_STAGES.find(s => s.key === hire.stage)?.label ?? hire.stage}
-            </p>
-            <p className="text-xs text-[--ink-muted] mt-1 tabular-nums">
-              {daysInStage} day{daysInStage === 1 ? "" : "s"} in stage
-            </p>
+            <p className="caption">Onboarding</p>
+            <p className="font-display text-2xl font-medium mt-1">{progress}%</p>
+            <p className="text-xs text-[--ink-muted]">{completedBlocking}/{blockingItems.length} required items</p>
           </div>
         </div>
       </div>
 
-      {/* Stage progress bar */}
-      {!["withdrew", "terminated_in_probation"].includes(hire.stage) && (
-        <div>
-          <div className="flex gap-1 mb-3">
-            {STAGES.map((s, i) => (
-              <div
-                key={s.key}
-                className={`flex-1 h-2 rounded-full transition-colors ${
-                  i <= currentStageIdx ? "bg-[--accent]" : "bg-[--surface-alt]"
-                }`}
-                title={s.label}
-              />
-            ))}
-          </div>
-          <div className="flex justify-between text-[10px] text-[--ink-muted]">
-            {STAGES.map(s => (
-              <span key={s.key} className={`${s.key === hire.stage ? "text-[--accent] font-medium" : ""}`}>{s.label}</span>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Progress bar */}
+      <div className="h-2 rounded-full bg-[--surface-alt] overflow-hidden">
+        <div className="h-full rounded-full bg-[--accent] transition-all" style={{ width: `${progress}%` }} />
+      </div>
 
       <div className="grid gap-8 lg:grid-cols-[2fr_3fr]">
-        {/* Left: Profile */}
+        {/* Left: Profile + stage */}
         <div className="space-y-6">
-          <div className="rounded-lg border border-[--rule] bg-[--surface] p-6">
-            <p className="caption mb-4">Profile</p>
-            <dl className="space-y-3 text-sm">
-              <Field label="Position" value={hire.position} />
-              <Field label="Department" value={hire.department} />
-              <Field label="Supervisor" value={hire.supervisor_name_raw} />
-              <Field label="Recruiter" value={hire.recruiter} />
-              <Field label="Source" value={hire.source} />
-              <Field label="Offer accepted" value={formatDate(hire.offer_accepted_date)} />
-              <Field label="Planned start" value={formatDate(hire.planned_start_date)} />
-              <Field label="Actual start" value={formatDate(hire.actual_start_date)} />
-              <Field label="Hire month/year" value={hire.hire_month && hire.hire_year ? `${hire.hire_month} ${hire.hire_year}` : null} />
+          <div className="rounded-lg border border-[--rule] bg-[--surface] p-6 space-y-3">
+            <p className="caption">Profile</p>
+            <dl className="space-y-2 text-sm">
+              <Row label="Department" value={hire.department} />
+              <Row label="Position" value={hire.location_title ?? hire.position} />
+              <Row label="Hire date" value={hire.offer_accepted_date ? new Date(hire.offer_accepted_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null} />
+              <Row label="Month" value={hire.hire_month && hire.hire_year ? `${hire.hire_month} ${hire.hire_year}` : null} />
+              {isTransfer && (
+                <>
+                  <Row label="From" value={hire.transfer_from} />
+                  <Row label="To" value={hire.transfer_to} />
+                  <Row label="MCF Received" value={hire.mcf_received_date ? new Date(hire.mcf_received_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null} />
+                  <Row label="Effective" value={hire.effective_date ? new Date(hire.effective_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null} />
+                </>
+              )}
+              <Row label="Status" value={hire.stage} />
             </dl>
           </div>
 
-          {/* Stage actions */}
-          <div className="rounded-lg border border-[--rule] bg-[--surface] p-6">
-            <p className="caption mb-3">Advance to next stage</p>
-            <form action={transitionStageAction} className="space-y-2">
+          <div className="rounded-lg border border-[--rule] bg-[--surface] p-6 space-y-3">
+            <p className="caption">Stage</p>
+            <form action={updateStage}>
               <input type="hidden" name="hire_id" value={hire.id} />
-              <select name="next_stage" className="w-full rounded-md border border-[--rule] bg-[--bg] px-3 py-2 text-sm" defaultValue={hire.stage}>
-                <optgroup label="Active stages">
-                  {STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-                </optgroup>
-                <optgroup label="Exit">
-                  {EXIT_STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-                </optgroup>
+              <select name="stage" defaultValue={hire.stage} className="w-full rounded-md border border-[--rule] bg-[--bg] px-3 py-2 text-sm mb-2">
+                <option value="offer_accepted">Offer Accepted</option>
+                <option value="pre_hire_docs">Pre-Hire Docs</option>
+                <option value="day_one_setup">Day One Setup</option>
+                <option value="orientation">Orientation</option>
+                <option value="thirty_day">30-Day Check</option>
+                <option value="sixty_day">60-Day Check</option>
+                <option value="ninety_day">90-Day Check</option>
+                <option value="complete">Complete</option>
+                <option value="withdrew">Withdrew</option>
+                <option value="terminated_in_probation">Terminated in Probation</option>
               </select>
               <button type="submit" className="w-full rounded-md bg-[--accent] px-4 py-2 text-sm font-medium text-[--primary-foreground] hover:bg-[--accent]/90">
-                Save stage
+                Update stage
               </button>
             </form>
           </div>
         </div>
 
-        {/* Right: Checklist */}
-        <div className="space-y-4">
-          <p className="caption">Checklists</p>
-          {checklistByStage.size === 0 ? (
-            <div className="rounded-lg border border-[--rule] bg-[--surface] p-8 text-center">
-              <p className="font-display italic text-[--ink-muted]">
-                No checklist items yet. Advance to the next stage to auto-generate default items.
-              </p>
-            </div>
-          ) : (
-            Array.from(checklistByStage.entries()).map(([stage, items]) => {
-              const stageLabel = STAGES.find(s => s.key === stage)?.label ?? stage;
-              const done = items?.filter(i => i.completed).length ?? 0;
-              const total = items?.length ?? 0;
+        {/* Right: Onboarding checklist */}
+        <div>
+          <p className="caption mb-3">
+            {isTransfer ? "Transfer checklist" : "Onboarding checklist"}
+          </p>
+          <div className="rounded-lg border border-[--rule] bg-[--surface] divide-y divide-[--rule]">
+            {items.map(item => {
+              const currentVal = String(hireData[item.key] ?? "").trim();
+              const isDone = ["YES", "Y", "PASS", "COMPLETE", "COMPLETED"].includes(currentVal.toUpperCase());
+              const isNA = ["N/A", "NA"].includes(currentVal.toUpperCase());
               return (
-                <div key={stage} className="rounded-lg border border-[--rule] bg-[--surface]">
-                  <div className="flex items-center justify-between px-6 py-3 border-b border-[--rule]">
-                    <h3 className="font-medium">{stageLabel}</h3>
-                    <span className="text-xs tabular-nums text-[--ink-muted]">{done} / {total}</span>
+                <div key={item.key} className="flex items-center gap-4 px-5 py-3">
+                  <div className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                    isDone ? "bg-[--accent] text-[--primary-foreground]" :
+                    isNA ? "bg-[--surface-alt] text-[--ink-muted]" :
+                    "bg-[--surface-alt] text-[--ink-muted]"
+                  }`}>
+                    {isDone ? "✓" : isNA ? "—" : "○"}
                   </div>
-                  <ul className="divide-y divide-[--rule]">
-                    {(items ?? []).map(item => (
-                      <li key={item.id} className="flex items-start gap-3 px-6 py-3">
-                        <form action={toggleChecklistItemAction}>
-                          <input type="hidden" name="item_id" value={item.id} />
-                          <input type="hidden" name="hire_id" value={hire.id} />
-                          <input type="hidden" name="completed" value={String(item.completed)} />
-                          <button
-                            type="submit"
-                            className={`mt-0.5 h-5 w-5 rounded border-2 flex items-center justify-center transition-colors ${
-                              item.completed
-                                ? "border-[--accent] bg-[--accent] text-[--primary-foreground]"
-                                : "border-[--rule] hover:border-[--accent]"
-                            }`}
-                          >
-                            {item.completed && <span className="text-xs">✓</span>}
-                          </button>
-                        </form>
-                        <div className="flex-1">
-                          <p className={`text-sm ${item.completed ? "line-through text-[--ink-muted]" : ""}`}>
-                            {item.item_name}
-                            {item.required && <span className="ml-2 text-[10px] text-[--ink-muted]">REQUIRED</span>}
-                          </p>
-                          {item.completed && item.completed_on && (
-                            <p className="text-xs text-[--ink-muted] mt-0.5 tabular-nums">
-                              Completed {formatDate(item.completed_on)} by {item.completed_by ?? "HR"}
-                            </p>
-                          )}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-medium ${isDone ? "text-[--accent]" : ""}`}>{item.label}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                        item.type === "training" ? "bg-[--accent-soft] text-[--accent]" : "bg-[--surface-alt] text-[--ink-muted]"
+                      }`}>
+                        {item.type === "training" ? "Training" : "Manual"}
+                      </span>
+                      {!item.blockOnboarding && (
+                        <span className="text-[10px] text-[--ink-muted]">optional</span>
+                      )}
+                    </div>
+                  </div>
+                  <form action={updateField} className="shrink-0 flex items-center gap-1">
+                    <input type="hidden" name="hire_id" value={hire.id} />
+                    <input type="hidden" name="field" value={item.key} />
+                    <select
+                      name="value"
+                      defaultValue={currentVal}
+                      className={`rounded-md border px-2 py-1 text-xs font-medium ${
+                        isDone ? "border-[--accent] bg-[--accent-soft] text-[--accent]" :
+                        isNA ? "border-[--rule] bg-[--surface-alt] text-[--ink-muted]" :
+                        currentVal === "In Progress" ? "border-[--warn] bg-[--warn-soft] text-[--warn]" :
+                        "border-[--rule] bg-[--bg] text-[--ink]"
+                      }`}
+                    >
+                      {STATUS_OPTIONS.map(opt => (
+                        <option key={opt} value={opt}>{opt || "—"}</option>
+                      ))}
+                    </select>
+                    <button type="submit" className="rounded border border-[--rule] px-1.5 py-1 text-[10px] text-[--ink-muted] hover:bg-[--surface-alt]">✓</button>
+                  </form>
                 </div>
               );
-            })
-          )}
-
-          {/* Add custom item */}
-          <form action={addChecklistItemAction} className="flex gap-2">
-            <input type="hidden" name="hire_id" value={hire.id} />
-            <input type="hidden" name="stage" value={hire.stage} />
-            <input
-              name="item_name"
-              placeholder="Add custom checklist item…"
-              className="flex-1 rounded-md border border-[--rule] bg-[--surface] px-3 py-2 text-sm"
-            />
-            <button type="submit" className="rounded-md border border-[--rule] bg-[--surface] px-4 py-2 text-sm hover:bg-[--surface-alt]">
-              Add
-            </button>
-          </form>
+            })}
+          </div>
+          <p className="text-xs text-[--ink-muted] mt-2">
+            Med Cert is tracked but doesn't block onboarding completion.
+            Training items auto-update when synced from the Attendance Tracker.
+          </p>
         </div>
       </div>
     </div>
   );
 }
 
-function Field({ label, value }: { label: string; value: string | null | undefined }) {
+function Row({ label, value }: { label: string; value: string | null | undefined }) {
   return (
     <div className="flex">
-      <dt className="caption w-32 shrink-0 pt-0.5">{label}</dt>
+      <dt className="caption w-28 shrink-0 pt-0.5">{label}</dt>
       <dd className={value ? "text-[--ink]" : "text-[--ink-muted] italic"}>{value || "—"}</dd>
     </div>
   );
-}
-
-function formatDate(d: string | null | undefined): string | null {
-  if (!d) return null;
-  return new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
