@@ -50,19 +50,19 @@ export default async function RequirementsPage() {
   }
   const positions = Array.from(positionCounts.entries()).sort((a, b) => b[1] - a[1]);
 
-  // Count employees per department
-  const deptCounts = new Map<string, number>();
-  for (const e of allEmps) {
-    if (e.department) deptCounts.set(e.department, (deptCounts.get(e.department) ?? 0) + 1);
-  }
-  const departments = Array.from(deptCounts.entries()).sort((a, b) => b[1] - a[1]);
-
-  // Count employees per division/location
+  // Count employees per division (location field = real org department like "Residential")
   const divCounts = new Map<string, number>();
   for (const e of allEmps) {
     if (e.location) divCounts.set(e.location, (divCounts.get(e.location) ?? 0) + 1);
   }
-  const divisions = Array.from(divCounts.entries()).sort((a, b) => b[1] - a[1]);
+  const departments = Array.from(divCounts.entries()).sort((a, b) => b[1] - a[1]);
+
+  // Count employees per specific location/house (department field)
+  const houseCounts = new Map<string, number>();
+  for (const e of allEmps) {
+    if (e.department) houseCounts.set(e.department, (houseCounts.get(e.department) ?? 0) + 1);
+  }
+  const divisions = Array.from(houseCounts.entries()).sort((a, b) => b[1] - a[1]);
 
   // Group requirements by training
   const byTraining = new Map<string, typeof requirements>();
@@ -75,7 +75,7 @@ export default async function RequirementsPage() {
   function countMatching(role: string | null, dept: string | null): number {
     return allEmps.filter(e => {
       if (role && e.position !== role) return false;
-      if (dept && e.department !== dept) return false;
+      if (dept && e.department !== dept && e.location !== dept) return false;
       return true;
     }).length;
   }
@@ -122,9 +122,9 @@ export default async function RequirementsPage() {
 
             {/* Department select */}
             <div>
-              <label className="caption block mb-1">Department</label>
+              <label className="caption block mb-1">Division / Department</label>
               <select name="department" className="w-full rounded-md border border-[--rule] bg-[--bg] px-3 py-2 text-sm">
-                <option value="">All departments ({allEmps.length} employees)</option>
+                <option value="">All divisions ({allEmps.length} employees)</option>
                 {departments.map(([dept, count]) => (
                   <option key={dept} value={dept}>{dept} ({count} employee{count === 1 ? "" : "s"})</option>
                 ))}

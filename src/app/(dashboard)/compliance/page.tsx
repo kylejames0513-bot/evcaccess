@@ -57,11 +57,11 @@ export default async function CompliancePage() {
   const excls = exclusions ?? [];
 
   // Helper: check if an employee is excluded from a training
-  function isExcluded(emp: { position: string | null; department: string | null }, trainingId: string): boolean {
+  function isExcluded(emp: { position: string | null; department: string | null; location: string | null }, trainingId: string): boolean {
     for (const exc of excls) {
       if (exc.training_id !== trainingId) continue;
       const posMatch = !exc.role || exc.role === emp.position;
-      const deptMatch = !exc.department || exc.department === emp.department;
+      const deptMatch = !exc.department || exc.department === emp.department || exc.department === emp.location;
       if (posMatch && deptMatch) return true;
     }
     return false;
@@ -70,10 +70,10 @@ export default async function CompliancePage() {
   for (const emp of emps) {
     for (const req of reqs) {
       const posMatch = !req.role || req.role === emp.position;
-      const deptMatch = !req.department || req.department === emp.department;
+      // Match department against both department AND location (division)
+      const deptMatch = !req.department || req.department === emp.department || req.department === emp.location;
       if (!posMatch || !deptMatch) continue;
 
-      // Check exclusions — if this employee is excluded from this training, mark as EXEMPT
       if (isExcluded(emp, req.training_id)) {
         const key = `${emp.id}|${req.training_id}`;
         if (!cells.has(key)) {
