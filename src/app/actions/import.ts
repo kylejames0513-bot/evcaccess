@@ -26,6 +26,8 @@ const previewSchema = z.object({
       hireDate: z.string().optional(),
       employeeStatus: z.enum(["active", "on_leave", "terminated"]).optional(),
       location: z.string().optional(),
+      employeeDepartment: z.string().optional(),
+      employeePosition: z.string().optional(),
       trainingName: z.string().optional(),
       completedOn: z.string().optional(),
       action: z.enum([

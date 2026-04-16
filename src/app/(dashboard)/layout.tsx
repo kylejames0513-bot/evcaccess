@@ -23,9 +23,13 @@ export default async function DashboardLayout({
 
   const { data: org } = await supabase
     .from("organizations")
-    .select("name")
+    .select("name, slug")
     .eq("id", profile.org_id)
     .maybeSingle();
 
-  return <DashboardShell orgName={org?.name ?? "Organization"}>{children}</DashboardShell>;
+  return (
+    <DashboardShell orgName={org?.name ?? "Organization"} orgSlug={org?.slug ?? ""}>
+      {children}
+    </DashboardShell>
+  );
 }

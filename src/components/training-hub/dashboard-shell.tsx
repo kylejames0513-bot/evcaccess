@@ -7,16 +7,18 @@ import { Separator } from "@/components/ui/separator";
 
 export function DashboardShell({
   orgName,
+  orgSlug,
   children,
 }: {
   orgName: string;
+  orgSlug: string;
   children: React.ReactNode;
 }) {
   return (
     <SidebarProvider>
-      <AppSidebar orgName={orgName} />
+      <AppSidebar orgName={orgName} orgSlug={orgSlug} />
       <SidebarInset className="bg-[#0f1117] text-[#e8eaed]">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-[#2a2e3d] px-4">
+        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b border-[#2a2e3d] bg-[#0f1117] px-4">
           <SidebarTrigger className="text-[#e8eaed]" />
           <Separator orientation="vertical" className="h-6 bg-[#2a2e3d]" />
           <div className="flex flex-1 items-center justify-between gap-4">
@@ -27,7 +29,7 @@ export function DashboardShell({
             <div className="text-xs text-[#5c6078]">Training Hub</div>
           </div>
         </header>
-        <main className="flex-1 space-y-6 p-6">{children}</main>
+        <div className="min-w-0 flex-1 overflow-x-auto space-y-6 p-6">{children}</div>
       </SidebarInset>
     </SidebarProvider>
   );

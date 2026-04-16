@@ -5,9 +5,12 @@ import { usePathname } from "next/navigation";
 import {
   BookOpen,
   CalendarDays,
+  ClipboardCheck,
   ClipboardList,
+  History,
   LayoutDashboard,
   Mail,
+  QrCode,
   Settings,
   Upload,
   UserCircle2,
@@ -31,6 +34,8 @@ const operate = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/compliance", label: "Compliance", icon: ClipboardList },
   { href: "/classes", label: "Classes", icon: CalendarDays },
+  { href: "/signin-queue", label: "Sign-ins", icon: ClipboardCheck },
+  { href: "/attendance-log", label: "Attendance log", icon: History },
 ];
 
 const manage = [
@@ -47,7 +52,7 @@ const configure = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
-export function AppSidebar({ orgName }: { orgName: string }) {
+export function AppSidebar({ orgName, orgSlug }: { orgName: string; orgSlug: string }) {
   const pathname = usePathname();
   const Item = ({
     href,
@@ -90,6 +95,23 @@ export function AppSidebar({ orgName }: { orgName: string }) {
             {operate.map((l) => (
               <Item key={l.href} {...l} />
             ))}
+            {orgSlug && (
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  render={
+                    <a
+                      href={`/signin/${orgSlug}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex w-full items-center gap-2"
+                    >
+                      <QrCode className="size-4 text-[#8b8fa3]" />
+                      <span>Kiosk</span>
+                    </a>
+                  }
+                />
+              </SidebarMenuItem>
+            )}
           </SidebarMenu>
         </SidebarGroup>
         <SidebarGroup>

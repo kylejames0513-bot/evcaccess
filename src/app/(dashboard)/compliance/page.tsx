@@ -22,7 +22,7 @@ export default async function CompliancePage() {
 
   const { data: employees } = await supabase
     .from("employees")
-    .select("id, paylocity_id, first_name, last_name, position")
+    .select("id, paylocity_id, first_name, last_name, position, department, location")
     .eq("org_id", orgId)
     .eq("status", "active")
     .order("last_name");
@@ -36,7 +36,7 @@ export default async function CompliancePage() {
 
   const { data: requirements } = await supabase
     .from("training_requirements")
-    .select("training_type_id, position")
+    .select("training_type_id, position, department, division")
     .eq("org_id", orgId);
 
   const { data: completions } = await supabase
@@ -62,7 +62,7 @@ export default async function CompliancePage() {
   const matrix = buildComplianceMatrix({
     employees: employees ?? [],
     trainings: trainings ?? [],
-    requirements: (requirements ?? []) as { training_type_id: string; position: string | null }[],
+    requirements: (requirements ?? []) as { training_type_id: string; position: string | null; department: string | null; division: string | null }[],
     completions: (completions ?? []) as {
       employee_id: string;
       training_type_id: string;

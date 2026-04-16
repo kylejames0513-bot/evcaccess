@@ -7,6 +7,8 @@ export type MatrixEmployee = {
   first_name: string;
   last_name: string;
   position: string;
+  department: string;
+  location: string;
 };
 
 export type MatrixTraining = { id: string; name: string };
@@ -19,7 +21,7 @@ export type MatrixCell = {
 export function buildComplianceMatrix(input: {
   employees: MatrixEmployee[];
   trainings: MatrixTraining[];
-  requirements: { training_type_id: string; position: string | null }[];
+  requirements: { training_type_id: string; position: string | null; department: string | null; division: string | null }[];
   completions: {
     employee_id: string;
     training_type_id: string;
@@ -62,7 +64,9 @@ export function buildComplianceMatrix(input: {
           ? true
           : reqs.some(
               (r) =>
-                r.position === null || r.position === "" || r.position === e.position
+                (r.position === null || r.position === "" || r.position === e.position) &&
+                (r.department === null || r.department === "" || r.department === e.department) &&
+                (r.division === null || r.division === "" || r.division === e.location)
             );
       const ex = exSet.has(`${e.id}:${t.id}`);
       const list = compByEmpTrain.get(`${e.id}:${t.id}`) ?? [];

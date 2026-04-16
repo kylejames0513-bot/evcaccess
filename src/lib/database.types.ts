@@ -98,6 +98,7 @@ export interface Database {
           preferred_name: string | null;
           email: string | null;
           position: string;
+          department: string;
           location: string;
           hire_date: string;
           termination_date: string | null;
@@ -115,6 +116,7 @@ export interface Database {
           preferred_name?: string | null;
           email?: string | null;
           position?: string;
+          department?: string;
           location?: string;
           hire_date: string;
           termination_date?: string | null;
@@ -162,6 +164,8 @@ export interface Database {
           org_id: string;
           training_type_id: string;
           position: string | null;
+          department: string | null;
+          division: string | null;
           due_within_days_of_hire: number | null;
           created_at: string;
           updated_at: string;
@@ -171,6 +175,8 @@ export interface Database {
           org_id: string;
           training_type_id: string;
           position?: string | null;
+          department?: string | null;
+          division?: string | null;
           due_within_days_of_hire?: number | null;
           created_at?: string;
           updated_at?: string;
