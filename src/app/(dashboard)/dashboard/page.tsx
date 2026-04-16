@@ -54,10 +54,13 @@ export default async function DashboardPage() {
     .select("employee_id, training_type_id, completed_on, expires_on, source")
     .eq("org_id", profile.org_id);
 
-  const { data: allExemptions } = await supabase
-    .from("exemptions")
-    .select("employee_id, training_type_id, expires_on")
-    .eq("org_id", profile.org_id);
+  const empIds = (allEmployees ?? []).map(e => e.id);
+  const { data: allExemptions } = empIds.length > 0
+    ? await supabase
+        .from("exemptions")
+        .select("employee_id, training_type_id, expires_on")
+        .in("employee_id", empIds)
+    : { data: [] as { employee_id: string; training_type_id: string; expires_on: string | null }[] };
 
   const matrix = buildComplianceMatrix({
     employees: (allEmployees ?? []).map(e => ({

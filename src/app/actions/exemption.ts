@@ -14,16 +14,14 @@ export async function createExemptionAction(formData: FormData) {
     .eq("id", user.id)
     .maybeSingle();
   if (!profile?.org_id) redirect("/onboarding");
-  if (profile.role === "viewer") return { error: "Viewers cannot manage exemptions." };
+  if (profile.role === "viewer") redirect("/employees");
 
   const employee_id = String(formData.get("employee_id") ?? "").trim();
   const training_type_id = String(formData.get("training_type_id") ?? "").trim();
   const reason = String(formData.get("reason") ?? "").trim();
   const expires_on = String(formData.get("expires_on") ?? "").trim() || null;
 
-  if (!employee_id || !training_type_id || !reason) {
-    return { error: "Employee, training type, and reason are required." };
-  }
+  if (!employee_id || !training_type_id || !reason) return;
 
   const { error } = await supabase.from("exemptions").insert({
     employee_id,
@@ -33,10 +31,9 @@ export async function createExemptionAction(formData: FormData) {
     expires_on,
   });
 
-  if (error) return { error: error.message };
+  if (error) return;
   revalidatePath(`/employees/${employee_id}`);
   revalidatePath("/compliance");
-  return { ok: true };
 }
 
 export async function deleteExemptionAction(formData: FormData) {
@@ -49,15 +46,14 @@ export async function deleteExemptionAction(formData: FormData) {
     .eq("id", user.id)
     .maybeSingle();
   if (!profile?.org_id) redirect("/onboarding");
-  if (profile.role === "viewer") return { error: "Viewers cannot manage exemptions." };
+  if (profile.role === "viewer") redirect("/employees");
 
   const exemption_id = String(formData.get("exemption_id") ?? "").trim();
   const employee_id = String(formData.get("employee_id") ?? "").trim();
-  if (!exemption_id) return { error: "Missing exemption ID." };
+  if (!exemption_id) return;
 
   const { error } = await supabase.from("exemptions").delete().eq("id", exemption_id);
-  if (error) return { error: error.message };
+  if (error) return;
   revalidatePath(`/employees/${employee_id}`);
   revalidatePath("/compliance");
-  return { ok: true };
 }

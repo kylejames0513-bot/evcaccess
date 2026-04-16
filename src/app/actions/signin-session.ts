@@ -14,27 +14,25 @@ export async function resolveSigninSessionAction(formData: FormData) {
     .eq("id", user.id)
     .maybeSingle();
   if (!profile?.org_id) redirect("/onboarding");
-  if (profile.role === "viewer") return { error: "Viewers cannot resolve sign-ins." };
+  if (profile.role === "viewer") redirect("/signin-queue");
 
   const session_id = String(formData.get("session_id") ?? "").trim();
   const employee_id = String(formData.get("employee_id") ?? "").trim();
-  if (!session_id || !employee_id) return { error: "Session and employee are required." };
+  if (!session_id || !employee_id) return;
 
-  // Fetch the session to get class info
   const { data: session } = await supabase
     .from("signin_sessions")
     .select("id, class_id, org_id")
     .eq("id", session_id)
     .eq("org_id", profile.org_id)
     .maybeSingle();
-  if (!session) return { error: "Sign-in session not found." };
+  if (!session) return;
 
-  // Mark resolved
   const { error } = await supabase
     .from("signin_sessions")
     .update({ employee_id, resolved: true })
     .eq("id", session_id);
-  if (error) return { error: error.message };
+  if (error) return;
 
   // If session has a class, create a completion record
   if (session.class_id) {
@@ -58,5 +56,4 @@ export async function resolveSigninSessionAction(formData: FormData) {
 
   revalidatePath("/signin-queue");
   revalidatePath("/attendance-log");
-  return { ok: true };
 }
