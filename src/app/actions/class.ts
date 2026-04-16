@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export async function createClassAction(formData: FormData) {
+export async function createClassAction(formData: FormData): Promise<void> {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -18,24 +18,23 @@ export async function createClassAction(formData: FormData) {
   if (!profile?.org_id) redirect("/onboarding");
   if (profile.role === "viewer") redirect("/classes/new?error=" + encodeURIComponent("Viewers cannot schedule."));
 
-  const training_type_id = String(formData.get("training_type_id") ?? "");
-  const scheduled_date = String(formData.get("scheduled_date") ?? "");
+  const training_id = String(formData.get("training_id") ?? "");
+  const scheduled_start = String(formData.get("scheduled_start") ?? "");
   const location = String(formData.get("location") ?? "");
-  const instructor = String(formData.get("instructor") ?? "");
+  const trainer_name = String(formData.get("trainer_name") ?? "");
   const capacity = Number(formData.get("capacity") ?? 0);
-  if (!training_type_id || !scheduled_date) {
+  if (!training_id || !scheduled_start) {
     redirect("/classes/new?error=" + encodeURIComponent("Training and date are required."));
   }
 
   const { data, error } = await supabase
-    .from("classes")
+    .from("sessions")
     .insert({
-      org_id: profile.org_id,
-      training_type_id,
-      scheduled_date,
+      training_id,
+      scheduled_start,
       location,
-      instructor,
-      capacity: Number.isFinite(capacity) ? capacity : 0,
+      trainer_name,
+      capacity: Number.isFinite(capacity) ? capacity : null,
       status: "scheduled",
     })
     .select("id")

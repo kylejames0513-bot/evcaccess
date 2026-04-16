@@ -7,6 +7,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   ClipboardList,
+  Database,
   History,
   LayoutDashboard,
   Mail,
@@ -14,6 +15,8 @@ import {
   Settings,
   Upload,
   UserCircle2,
+  UserPlus,
+  UserMinus,
   Users,
 } from "lucide-react";
 import {
@@ -31,24 +34,25 @@ import {
 import { cn } from "@/lib/utils";
 
 const operate = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Home", icon: LayoutDashboard },
+  { href: "/new-hires", label: "New hires", icon: UserPlus },
+  { href: "/separations", label: "Separations", icon: UserMinus },
   { href: "/compliance", label: "Compliance", icon: ClipboardList },
-  { href: "/classes", label: "Classes", icon: CalendarDays },
-  { href: "/signin-queue", label: "Sign-ins", icon: ClipboardCheck },
   { href: "/attendance-log", label: "Attendance log", icon: History },
 ];
 
 const manage = [
   { href: "/employees", label: "Employees", icon: Users },
-  { href: "/trainings", label: "Training types", icon: BookOpen },
-  { href: "/imports", label: "Imports", icon: Upload },
-  { href: "/review", label: "Resolution", icon: UserCircle2 },
+  { href: "/trainings", label: "Training catalog", icon: BookOpen },
+  { href: "/classes", label: "Classes", icon: CalendarDays },
+  { href: "/signin-queue", label: "Sign-ins", icon: ClipboardCheck },
+  { href: "/imports", label: "File imports", icon: Upload },
 ];
 
 const configure = [
-  { href: "/notifications", label: "Notifications", icon: Mail },
+  { href: "/ingestion", label: "Ingestion", icon: Database },
+  { href: "/review", label: "Review queue", icon: UserCircle2 },
   { href: "/reports", label: "Reports", icon: ClipboardList },
-  { href: "/run-log", label: "Run log", icon: ClipboardList },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

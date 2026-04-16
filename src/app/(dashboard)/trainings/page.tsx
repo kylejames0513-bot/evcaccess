@@ -20,65 +20,79 @@ export default async function TrainingsPage() {
   if (!user) redirect("/login");
   const { data: profile } = await supabase
     .from("profiles")
-    .select("org_id, role")
+    .select("role")
     .eq("id", user.id)
     .maybeSingle();
-  if (!profile?.org_id) redirect("/onboarding");
 
   const { data: rows } = await supabase
-    .from("training_types")
-    .select("id, name, category, expiration_months, is_required, archived, regulatory_source")
-    .eq("org_id", profile.org_id)
-    .order("name");
+    .from("trainings")
+    .select("id, code, title, category, cadence_type, cadence_months, active, regulatory_citation")
+    .order("title");
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Training types</h1>
-          <p className="text-sm text-[#8b8fa3]">Archive instead of delete. Requirements map positions to courses.</p>
+          <h1
+            className="font-display text-2xl font-semibold tracking-tight"
+            style={{ color: "var(--ink)" }}
+          >
+            Trainings
+          </h1>
+          <p className="caption text-sm" style={{ color: "var(--ink-muted)" }}>
+            Deactivate instead of delete. Requirements map roles to courses.
+          </p>
         </div>
-        {profile.role === "admin" ? (
-          <Button asChild className="rounded-lg bg-[#3b82f6] text-white hover:bg-[#2563eb]">
-            <Link href="/trainings/new">Add training type</Link>
+        {profile?.role === "admin" ? (
+          <Button asChild className="rounded-lg text-white" style={{ backgroundColor: "var(--accent)" }}>
+            <Link href="/trainings/new">Add training</Link>
           </Button>
         ) : null}
       </div>
-      <div className="overflow-hidden rounded-xl border border-[#2a2e3d] bg-[#1e2230]">
+      <div
+        className="overflow-hidden rounded-xl border"
+        style={{ borderColor: "var(--rule)", backgroundColor: "var(--surface)" }}
+      >
         <Table>
           <TableHeader>
-            <TableRow className="border-[#2a2e3d] hover:bg-transparent">
-              <TableHead className="text-[#8b8fa3]">Name</TableHead>
-              <TableHead className="text-[#8b8fa3]">Category</TableHead>
-              <TableHead className="text-[#8b8fa3]">Months</TableHead>
-              <TableHead className="text-[#8b8fa3]">Required</TableHead>
-              <TableHead className="text-[#8b8fa3]">Regulator</TableHead>
+            <TableRow className="hover:bg-transparent" style={{ borderColor: "var(--rule)" }}>
+              <TableHead style={{ color: "var(--ink-muted)" }}>Code</TableHead>
+              <TableHead style={{ color: "var(--ink-muted)" }}>Title</TableHead>
+              <TableHead style={{ color: "var(--ink-muted)" }}>Category</TableHead>
+              <TableHead style={{ color: "var(--ink-muted)" }}>Cadence</TableHead>
+              <TableHead style={{ color: "var(--ink-muted)" }}>Months</TableHead>
+              <TableHead style={{ color: "var(--ink-muted)" }}>Citation</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {(rows ?? []).length ? (
               (rows ?? []).map((r) => (
-                <TableRow key={r.id} className="border-[#2a2e3d]">
-                  <TableCell className="font-medium text-[#e8eaed]">
-                    <Link href={`/trainings/${r.id}`} className="text-[#3b82f6] hover:underline">
-                      {r.name}
+                <TableRow key={r.id} style={{ borderColor: "var(--rule)" }}>
+                  <TableCell className="font-mono text-xs" style={{ color: "var(--ink)" }}>
+                    <Link href={`/trainings/${r.id}`} style={{ color: "var(--accent)" }} className="hover:underline">
+                      {r.code}
                     </Link>
-                    {r.archived ? (
-                      <Badge className="ml-2 bg-[#5c6078]/20 text-[#8b8fa3]">Archived</Badge>
+                  </TableCell>
+                  <TableCell className="font-medium" style={{ color: "var(--ink)" }}>
+                    {r.title}
+                    {!r.active ? (
+                      <Badge className="ml-2 bg-[#5c6078]/20 text-[#8b8fa3]">Inactive</Badge>
                     ) : null}
                   </TableCell>
-                  <TableCell className="text-[#8b8fa3]">{r.category}</TableCell>
-                  <TableCell className="font-mono text-xs text-[#e8eaed]">
-                    {r.expiration_months ?? "—"}
+                  <TableCell style={{ color: "var(--ink-muted)" }}>{r.category ?? "\u2014"}</TableCell>
+                  <TableCell style={{ color: "var(--ink-muted)" }}>{r.cadence_type}</TableCell>
+                  <TableCell className="font-mono text-xs" style={{ color: "var(--ink)" }}>
+                    {r.cadence_months ?? "\u2014"}
                   </TableCell>
-                  <TableCell>{r.is_required ? "Yes" : "No"}</TableCell>
-                  <TableCell className="max-w-xs truncate text-[#8b8fa3]">{r.regulatory_source}</TableCell>
+                  <TableCell className="max-w-xs truncate" style={{ color: "var(--ink-muted)" }}>
+                    {r.regulatory_citation ?? "\u2014"}
+                  </TableCell>
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={5} className="h-28 text-center text-[#8b8fa3]">
-                  No training types yet. Admins can add the catalog here.
+                <TableCell colSpan={6} className="h-28 text-center" style={{ color: "var(--ink-muted)" }}>
+                  No trainings yet. Admins can add the catalog here.
                 </TableCell>
               </TableRow>
             )}

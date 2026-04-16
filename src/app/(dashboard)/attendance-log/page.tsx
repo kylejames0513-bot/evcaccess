@@ -7,81 +7,92 @@ export default async function AttendanceLogPage() {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("org_id")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (!profile?.org_id) redirect("/onboarding");
 
   const { data: completions } = await supabase
     .from("completions")
-    .select("id, employee_id, training_type_id, completed_on, expires_on, source, notes")
-    .eq("org_id", profile.org_id)
+    .select("id, employee_id, training_id, completed_on, expires_on, source, status, notes")
     .order("completed_on", { ascending: false })
     .limit(200);
 
   const { data: employees } = await supabase
     .from("employees")
-    .select("id, first_name, last_name")
-    .eq("org_id", profile.org_id);
+    .select("id, legal_last_name, legal_first_name");
 
-  const { data: trainingTypes } = await supabase
-    .from("training_types")
-    .select("id, name")
-    .eq("org_id", profile.org_id);
+  const { data: trainings } = await supabase
+    .from("trainings")
+    .select("id, title, code");
 
-  const empMap = new Map(employees?.map(e => [e.id, `${e.last_name}, ${e.first_name}`]) ?? []);
-  const ttMap = new Map(trainingTypes?.map(t => [t.id, t.name]) ?? []);
+  const empMap = new Map(employees?.map(e => [e.id, `${e.legal_last_name}, ${e.legal_first_name}`]) ?? []);
+  const ttMap = new Map(trainings?.map(t => [t.id, t.title]) ?? []);
 
-  const sourceLabel = (s: string) => {
+  const sourceLabel = (s: string | null) => {
     switch (s) {
-      case "signin": return "Kiosk";
-      case "import_paylocity": return "Paylocity";
-      case "import_phs": return "PHS";
-      case "import_evc_training": return "EVC Import";
+      case "attendance_tracker": return "Google Sheet";
       case "manual": return "Manual";
-      case "class_roster": return "Class";
-      default: return s;
+      case "qr_signin": return "QR Sign-in";
+      case "tracker_xlsm": return "NH Tracker";
+      default: return s ?? "—";
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-[#e8eaed]">Attendance Log</h1>
-        <p className="mt-1 text-sm text-[#8b8fa3]">
-          Training completions across all sources. Showing last 200 records.
+        <p className="caption">Training</p>
+        <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
+          Attendance Log
+        </h1>
+        <p className="font-display text-sm italic text-[--ink-soft] mt-1">
+          Every training completion on record, newest first.
         </p>
       </div>
 
       {completions && completions.length > 0 ? (
-        <div className="rounded-lg border border-[#2a2e3d] overflow-hidden">
+        <div className="overflow-x-auto rounded-lg border border-[--rule] bg-[--surface]">
           <table className="w-full text-sm">
-            <thead className="bg-[#1a1d27] text-[#8b8fa3]">
-              <tr>
-                <th className="px-4 py-2 text-left">Date</th>
-                <th className="px-4 py-2 text-left">Employee</th>
-                <th className="px-4 py-2 text-left">Training</th>
-                <th className="px-4 py-2 text-left">Source</th>
-                <th className="px-4 py-2 text-left">Expires</th>
+            <thead>
+              <tr className="border-b border-[--rule]">
+                <th className="caption px-4 py-3 text-left">Date</th>
+                <th className="caption px-4 py-3 text-left">Employee</th>
+                <th className="caption px-4 py-3 text-left">Training</th>
+                <th className="caption px-4 py-3 text-left">Status</th>
+                <th className="caption px-4 py-3 text-left">Source</th>
+                <th className="caption px-4 py-3 text-left">Expires</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#2a2e3d]">
+            <tbody>
               {completions.map((c) => (
-                <tr key={c.id}>
-                  <td className="px-4 py-2 text-[#8b8fa3]">{c.completed_on}</td>
-                  <td className="px-4 py-2">{empMap.get(c.employee_id) ?? c.employee_id}</td>
-                  <td className="px-4 py-2">{ttMap.get(c.training_type_id) ?? c.training_type_id}</td>
-                  <td className="px-4 py-2 text-[#8b8fa3]">{sourceLabel(c.source)}</td>
-                  <td className="px-4 py-2 text-[#8b8fa3]">{c.expires_on ?? "—"}</td>
+                <tr key={c.id} className="border-b border-[--rule] last:border-0 hover:bg-[--surface-alt] transition-colors">
+                  <td className="px-4 py-3 tabular-nums text-[--ink-soft]">
+                    {c.completed_on ? new Date(c.completed_on + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                  </td>
+                  <td className="px-4 py-3">{empMap.get(c.employee_id) ?? c.employee_id}</td>
+                  <td className="px-4 py-3">{ttMap.get(c.training_id) ?? c.training_id}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
+                      c.status === "compliant" ? "bg-[--success-soft] text-[--success]" :
+                      c.status === "failed" ? "bg-[--alert-soft] text-[--alert]" :
+                      c.status === "exempt" ? "bg-[--surface-alt] text-[--ink-muted]" :
+                      "bg-[--surface-alt] text-[--ink-muted]"
+                    }`}>
+                      {c.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-[--ink-muted]">{sourceLabel(c.source)}</td>
+                  <td className="px-4 py-3 tabular-nums text-[--ink-muted]">
+                    {c.expires_on ? new Date(c.expires_on + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       ) : (
-        <p className="text-sm text-[#8b8fa3]">No training completions recorded yet.</p>
+        <div className="rounded-lg border border-[--rule] bg-[--surface] p-12 text-center">
+          <p className="font-display italic text-[--ink-muted]">
+            No training completions recorded yet. Run your first ingestion to populate.
+          </p>
+        </div>
       )}
     </div>
   );

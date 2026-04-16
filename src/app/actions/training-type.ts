@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export async function createTrainingTypeAction(formData: FormData) {
+export async function createTrainingTypeAction(formData: FormData): Promise<void> {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -19,20 +19,29 @@ export async function createTrainingTypeAction(formData: FormData) {
   if (profile.role !== "admin") {
     redirect("/trainings/new?error=" + encodeURIComponent("Only admins can edit the catalog."));
   }
-  const name = String(formData.get("name") ?? "").trim();
-  const category = String(formData.get("category") ?? "").trim();
-  const expiration_months = formData.get("expiration_months");
-  const months =
-    expiration_months === "" || expiration_months === null
+
+  const code = String(formData.get("code") ?? "").trim();
+  const title = String(formData.get("title") ?? "").trim();
+  const category = String(formData.get("category") ?? "").trim() || null;
+  const cadence_type = String(formData.get("cadence_type") ?? "recurring").trim();
+  const cadence_months_raw = formData.get("cadence_months");
+  const cadence_months =
+    cadence_months_raw === "" || cadence_months_raw === null
       ? null
-      : Number(expiration_months);
-  const { error } = await supabase.from("training_types").insert({
-    org_id: profile.org_id,
-    name,
+      : Number(cadence_months_raw);
+
+  if (!code || !title) {
+    redirect("/trainings/new?error=" + encodeURIComponent("Code and title are required."));
+  }
+
+  const { error } = await supabase.from("trainings").insert({
+    code,
+    title,
     category,
-    expiration_months: Number.isFinite(months as number) ? (months as number) : null,
+    cadence_type,
+    cadence_months: Number.isFinite(cadence_months as number) ? (cadence_months as number) : null,
     description: String(formData.get("description") ?? ""),
-    regulatory_source: String(formData.get("regulatory_source") ?? ""),
+    regulatory_citation: String(formData.get("regulatory_citation") ?? "") || null,
   });
   if (error) redirect("/trainings/new?error=" + encodeURIComponent(error.message));
   revalidatePath("/trainings");

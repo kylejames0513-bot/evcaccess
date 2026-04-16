@@ -2,30 +2,22 @@
 @tailwind components;
 @tailwind utilities;
 
-/* =========================================================
-   HR Hub Design System — Editorial Software Palette
-   References: NYT product, Linear, Notion, Readwise
-   ========================================================= */
-
 :root {
-  /* Core palette */
-  --bg:          #FAF8F5;
-  --surface:     #FFFFFF;
-  --surface-alt: #F2EFE9;
-  --ink:         #1C1B1A;
-  --ink-soft:    #4A4744;
-  --ink-muted:   #8A847D;
-  --rule:        #E8E3DB;
-  --accent:      #2C5F4F;
-  --accent-soft: #E5EDE9;
-  --warn:        #B8743A;
-  --warn-soft:   #FDF3E9;
-  --alert:       #A33B2A;
-  --alert-soft:  #FDEEEB;
-  --success:     #4A6B3A;
-  --success-soft: #EEF3EB;
-
-  /* shadcn compat tokens */
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --surface-alt: #1e2230;
+  --ink: #e8eaed;
+  --ink-soft: #b0b3ba;
+  --ink-muted: #6b6f7b;
+  --rule: #2a2e3d;
+  --accent: #4ade80;
+  --accent-soft: rgba(74, 222, 128, 0.1);
+  --warn: #f59e0b;
+  --warn-soft: rgba(245, 158, 11, 0.1);
+  --alert: #ef4444;
+  --alert-soft: rgba(239, 68, 68, 0.1);
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.1);
   --background: var(--bg);
   --foreground: var(--ink);
   --card: var(--surface);
@@ -33,7 +25,7 @@
   --popover: var(--surface);
   --popover-foreground: var(--ink);
   --primary: var(--accent);
-  --primary-foreground: #FFFFFF;
+  --primary-foreground: #0f1117;
   --secondary: var(--surface-alt);
   --secondary-foreground: var(--ink);
   --muted: var(--surface-alt);
@@ -41,81 +33,35 @@
   --accent-ui: var(--accent-soft);
   --accent-foreground: var(--accent);
   --destructive: var(--alert);
-  --destructive-foreground: #FFFFFF;
+  --destructive-foreground: #ffffff;
   --border: var(--rule);
   --input: var(--rule);
   --ring: var(--accent);
-
-  /* Chart colors */
   --chart-1: var(--accent);
   --chart-2: var(--ink-muted);
   --chart-3: var(--warn);
   --chart-4: var(--alert);
-  --chart-5: var(--success);
-
+  --chart-5: #8b5cf6;
   --radius: 0.5rem;
-
-  /* Sidebar */
   --sidebar: var(--surface);
   --sidebar-foreground: var(--ink);
   --sidebar-primary: var(--accent);
-  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-primary-foreground: #0f1117;
   --sidebar-accent: var(--surface-alt);
   --sidebar-accent-foreground: var(--ink);
   --sidebar-border: var(--rule);
   --sidebar-ring: var(--accent);
 }
 
-/* Typography */
 @layer base {
-  * {
-    @apply border-[--rule];
-  }
-  body {
-    @apply bg-[--bg] text-[--ink];
-    font-feature-settings: "ss01", "cv11";
-  }
-  html {
-    font-family: var(--font-sans), system-ui, sans-serif;
-  }
-
-  /* Display / heading font */
-  h1, h2, .font-display {
-    font-family: var(--font-display), Georgia, serif;
-  }
-
-  /* Tabular numerals for data displays */
-  .tabular-nums, table td, .stat-big {
-    font-feature-settings: "tnum";
-    font-variant-numeric: tabular-nums;
-  }
+  * { @apply border-[--rule]; }
+  body { @apply bg-[--bg] text-[--ink]; }
+  html { font-family: var(--font-sans), system-ui, sans-serif; }
+  h1, h2, .font-display { font-family: var(--font-display), Georgia, serif; }
 }
 
-/* Utility classes from the design system */
 @layer utilities {
-  .font-display {
-    font-family: var(--font-display), Georgia, serif;
-  }
-
-  .text-ink { color: var(--ink); }
-  .text-ink-soft { color: var(--ink-soft); }
-  .text-ink-muted { color: var(--ink-muted); }
-  .text-accent { color: var(--accent); }
-  .text-warn { color: var(--warn); }
-  .text-alert { color: var(--alert); }
-  .text-success { color: var(--success); }
-
-  .bg-surface { background-color: var(--surface); }
-  .bg-surface-alt { background-color: var(--surface-alt); }
-
-  .caption {
-    @apply text-[11px] font-medium tracking-[0.08em] uppercase;
-    color: var(--ink-muted);
-  }
-
-  .stat-big {
-    font-family: var(--font-display), Georgia, serif;
-    @apply text-[40px] leading-none font-normal;
-    font-variant-numeric: tabular-nums;
-  }
+  .font-display { font-family: var(--font-display), Georgia, serif; }
+  .caption { @apply text-[11px] font-medium tracking-[0.08em] uppercase; color: var(--ink-muted); }
+  .stat-big { font-family: var(--font-display), Georgia, serif; @apply text-[40px] leading-none font-normal; font-variant-numeric: tabular-nums; }
 }

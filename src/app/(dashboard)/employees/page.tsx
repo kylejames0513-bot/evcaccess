@@ -10,31 +10,43 @@ export default async function EmployeesPage() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("org_id")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (!profile?.org_id) redirect("/onboarding");
 
-  const { data: rows } = await supabase
+  const { data: rawRows } = await supabase
     .from("employees")
-    .select("id, paylocity_id, first_name, last_name, position, location, hire_date, status")
-    .eq("org_id", profile.org_id)
-    .order("last_name", { ascending: true });
+    .select("id, employee_id, legal_first_name, legal_last_name, position, location, hire_date, status")
+    .order("legal_last_name", { ascending: true });
+
+  /* Map to the shape EmployeesTable expects */
+  const rows = (rawRows ?? []).map((r) => ({
+    id: r.id,
+    paylocity_id: r.employee_id,
+    first_name: r.legal_first_name,
+    last_name: r.legal_last_name,
+    position: r.position ?? "",
+    location: r.location ?? "",
+    hire_date: r.hire_date ?? "",
+    status: r.status ?? "active",
+  }));
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Employees</h1>
-          <p className="text-sm text-[#8b8fa3]">Paylocity ID is the canonical key for every person.</p>
+          <h1
+            className="font-display text-2xl font-semibold tracking-tight"
+            style={{ color: "var(--ink)" }}
+          >
+            Employees
+          </h1>
+          <p className="caption text-sm" style={{ color: "var(--ink-muted)" }}>
+            Employee ID is the canonical key for every person.
+          </p>
         </div>
-        <Button asChild className="rounded-lg bg-[#3b82f6] text-white hover:bg-[#2563eb]">
+        <Button asChild className="rounded-lg text-white" style={{ backgroundColor: "var(--accent)" }}>
           <Link href="/employees/new">Add employee</Link>
         </Button>
       </div>
-      <EmployeesTable rows={rows ?? []} />
+      <EmployeesTable rows={rows} />
     </div>
   );
 }

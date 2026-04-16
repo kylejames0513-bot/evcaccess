@@ -15,51 +15,53 @@ export default async function RunLogPage() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("org_id")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (!profile?.org_id) redirect("/onboarding");
 
   const { data: runs } = await supabase
-    .from("import_runs")
-    .select("*")
-    .eq("org_id", profile.org_id)
+    .from("ingestion_runs")
+    .select("id, source, started_at, finished_at, status, rows_processed, rows_inserted, rows_updated, rows_skipped, rows_unresolved, error_summary")
     .order("started_at", { ascending: false })
     .limit(40);
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Run log</h1>
-        <p className="text-sm text-[#8b8fa3]">Imports and other batch jobs, newest first.</p>
+        <h1
+          className="font-display text-2xl font-semibold tracking-tight"
+          style={{ color: "var(--ink)" }}
+        >
+          Run log
+        </h1>
+        <p className="caption text-sm" style={{ color: "var(--ink-muted)" }}>
+          Ingestion runs and other batch jobs, newest first.
+        </p>
       </div>
-      <div className="overflow-hidden rounded-xl border border-[#2a2e3d]">
+      <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--rule)" }}>
         <Table>
           <TableHeader>
-            <TableRow className="border-[#2a2e3d] hover:bg-transparent">
-              <TableHead className="text-[#8b8fa3]">Started</TableHead>
-              <TableHead className="text-[#8b8fa3]">Source</TableHead>
-              <TableHead className="text-[#8b8fa3]">Status</TableHead>
-              <TableHead className="text-[#8b8fa3]">Inserted</TableHead>
-              <TableHead className="text-[#8b8fa3]">Unresolved</TableHead>
+            <TableRow className="hover:bg-transparent" style={{ borderColor: "var(--rule)" }}>
+              <TableHead style={{ color: "var(--ink-muted)" }}>Started</TableHead>
+              <TableHead style={{ color: "var(--ink-muted)" }}>Source</TableHead>
+              <TableHead style={{ color: "var(--ink-muted)" }}>Status</TableHead>
+              <TableHead style={{ color: "var(--ink-muted)" }}>Inserted</TableHead>
+              <TableHead style={{ color: "var(--ink-muted)" }}>Unresolved</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {(runs ?? []).length ? (
               (runs ?? []).map((r) => (
-                <TableRow key={r.id} className="border-[#2a2e3d]">
-                  <TableCell className="font-mono text-xs text-[#e8eaed]">{r.started_at}</TableCell>
-                  <TableCell className="text-[#8b8fa3]">{r.source}</TableCell>
-                  <TableCell className="text-[#8b8fa3]">{r.status}</TableCell>
-                  <TableCell className="text-[#e8eaed]">{r.rows_inserted}</TableCell>
-                  <TableCell className="text-[#e8eaed]">{r.rows_unresolved}</TableCell>
+                <TableRow key={r.id} style={{ borderColor: "var(--rule)" }}>
+                  <TableCell className="font-mono text-xs" style={{ color: "var(--ink)" }}>
+                    {r.started_at}
+                  </TableCell>
+                  <TableCell style={{ color: "var(--ink-muted)" }}>{r.source}</TableCell>
+                  <TableCell style={{ color: "var(--ink-muted)" }}>{r.status}</TableCell>
+                  <TableCell style={{ color: "var(--ink)" }}>{r.rows_inserted}</TableCell>
+                  <TableCell style={{ color: "var(--ink)" }}>{r.rows_unresolved}</TableCell>
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center text-[#8b8fa3]">
+                <TableCell colSpan={5} className="h-24 text-center" style={{ color: "var(--ink-muted)" }}>
                   No runs logged yet.
                 </TableCell>
               </TableRow>

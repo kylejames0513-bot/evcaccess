@@ -1,85 +1,87 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/database.types";
-import { buildComplianceMatrix } from "@/lib/compliance-matrix";
 
 export async function loadComplianceReportRows(
   supabase: SupabaseClient<Database>,
-  orgId: string
+  orgId: string,
 ) {
-  const { data: org } = await supabase.from("organizations").select("name").eq("id", orgId).maybeSingle();
+  const { data: org } = await supabase
+    .from("organizations")
+    .select("name")
+    .eq("id", orgId)
+    .maybeSingle();
+
   const { data: employees } = await supabase
     .from("employees")
-    .select("id, paylocity_id, first_name, last_name, position, department, location")
-    .eq("org_id", orgId)
+    .select("id, employee_id, legal_first_name, legal_last_name, position, department, location")
     .eq("status", "active")
-    .order("last_name");
+    .order("legal_last_name");
 
   const { data: trainings } = await supabase
-    .from("training_types")
-    .select("id, name")
-    .eq("org_id", orgId)
-    .eq("archived", false)
-    .eq("is_required", true);
+    .from("trainings")
+    .select("id, title")
+    .eq("active", true);
 
   const { data: requirements } = await supabase
-    .from("training_requirements")
-    .select("training_type_id, position, department, division")
-    .eq("org_id", orgId);
+    .from("requirements")
+    .select("training_id, role, department");
 
   const { data: completions } = await supabase
     .from("completions")
-    .select("employee_id, training_type_id, completed_on, expires_on, source")
-    .eq("org_id", orgId);
+    .select("employee_id, training_id, completed_on, expires_on, status, source");
 
-  const empIds = (employees ?? []).map((e) => e.id);
-  const { data: exemptions } =
-    empIds.length > 0
-      ? await supabase
-          .from("exemptions")
-          .select("employee_id, training_type_id, expires_on")
-          .in("employee_id", empIds)
-      : { data: [] as { employee_id: string; training_type_id: string; expires_on: string | null }[] };
-
-  const exemptionRows = (exemptions ?? []) as {
-    employee_id: string;
-    training_type_id: string;
-    expires_on: string | null;
-  }[];
-
-  const matrix = buildComplianceMatrix({
-    employees: (employees ?? []) as {
-      id: string;
-      paylocity_id: string;
-      first_name: string;
-      last_name: string;
-      position: string;
-      department: string;
-      location: string;
-    }[],
-    trainings: (trainings ?? []) as { id: string; name: string }[],
-    requirements: (requirements ?? []) as { training_type_id: string; position: string | null; department: string | null; division: string | null }[],
-    completions: (completions ?? []) as {
-      employee_id: string;
-      training_type_id: string;
-      completed_on: string;
-      expires_on: string | null;
-      source: "signin" | "import_paylocity" | "import_phs" | "manual" | "class_roster";
-    }[],
-    exemptions: exemptionRows,
-  });
+  const today = new Date();
+  const soon = new Date(today);
+  soon.setDate(soon.getDate() + 30);
 
   const lines: { employee: string; paylocity_id: string; training: string; status: string }[] = [];
+
   for (const e of employees ?? []) {
-    const row = matrix.get(e.id);
-    if (!row) continue;
+    const reqTrainingIds = new Set<string>();
+    for (const r of requirements ?? []) {
+      const roleMatch = !r.role || r.role === e.position;
+      const deptMatch = !r.department || r.department === e.department;
+      if (roleMatch && deptMatch) reqTrainingIds.add(r.training_id);
+    }
+
     for (const t of trainings ?? []) {
-      const cell = row.get(t.id);
-      if (!cell) continue;
+      if (!reqTrainingIds.has(t.id)) continue;
+
+      const matching = (completions ?? []).filter(
+        (c) => c.employee_id === e.id && c.training_id === t.id,
+      );
+
+      if (matching.some((c) => c.status === "exempt")) {
+        lines.push({
+          employee: `${e.legal_last_name}, ${e.legal_first_name}`,
+          paylocity_id: e.employee_id,
+          training: t.title,
+          status: "EXEMPT",
+        });
+        continue;
+      }
+
+      const latest = matching
+        .filter((c) => c.completed_on)
+        .sort((a, b) => (b.completed_on! > a.completed_on! ? 1 : -1))[0];
+
+      let status: string;
+      if (!latest) {
+        status = "NEVER_COMPLETED";
+      } else if (!latest.expires_on) {
+        status = "CURRENT";
+      } else {
+        const exp = new Date(latest.expires_on);
+        if (exp < today) status = "EXPIRED";
+        else if (exp <= soon) status = "DUE_SOON";
+        else status = "CURRENT";
+      }
+
       lines.push({
-        employee: `${e.last_name}, ${e.first_name}`,
-        paylocity_id: e.paylocity_id,
-        training: t.name,
-        status: cell.status,
+        employee: `${e.legal_last_name}, ${e.legal_first_name}`,
+        paylocity_id: e.employee_id,
+        training: t.title,
+        status,
       });
     }
   }

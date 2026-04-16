@@ -17,20 +17,11 @@ export async function GET() {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("org_id")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (!profile?.org_id) {
-    return NextResponse.json({ error: "No organization" }, { status: 403 });
-  }
 
   const { data: rows, error } = await supabase
     .from("employees")
-    .select("paylocity_id, last_name, first_name, status, location, hire_date")
-    .eq("org_id", profile.org_id)
-    .order("last_name", { ascending: true });
+    .select("employee_id, legal_last_name, legal_first_name, status, location, hire_date")
+    .order("legal_last_name", { ascending: true });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -41,9 +32,9 @@ export async function GET() {
     const active =
       r.status === "active" ? "YES" : r.status === "on_leave" ? "LOA" : "NO";
     const cells = [
-      csvEscape(r.paylocity_id ?? ""),
-      csvEscape(r.last_name ?? ""),
-      csvEscape(r.first_name ?? ""),
+      csvEscape(r.employee_id ?? ""),
+      csvEscape(r.legal_last_name ?? ""),
+      csvEscape(r.legal_first_name ?? ""),
       csvEscape(active),
       csvEscape(r.location ?? ""),
       csvEscape(r.hire_date ?? ""),
