@@ -9,14 +9,17 @@ import {
   YAxis,
 } from "recharts";
 
-const data = [
-  { name: "Current", value: 72 },
-  { name: "Due soon", value: 14 },
-  { name: "Expired", value: 9 },
-  { name: "Never", value: 5 },
-];
+interface ComplianceMiniChartProps {
+  data?: { name: string; value: number }[];
+}
 
-export function ComplianceMiniChart() {
+export function ComplianceMiniChart({ data: propData }: ComplianceMiniChartProps) {
+  const data = propData ?? [
+    { name: "Current", value: 0 },
+    { name: "Due soon", value: 0 },
+    { name: "Expired", value: 0 },
+    { name: "Never", value: 0 },
+  ];
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>

@@ -14,7 +14,10 @@ export function supabaseCookieSecureFromRequest(request: NextRequest): boolean {
     const first = xfp.split(",")[0]?.trim();
     if (first === "https") return true;
   }
-  return false;
+  const host = request.nextUrl.host.toLowerCase();
+  if (host.startsWith("localhost") || host.startsWith("127.0.0.1")) return false;
+  // Non-localhost host without explicit x-forwarded-proto — assume production HTTPS.
+  return true;
 }
 
 /** For Server Components / actions that only have `headers()` (no Request). */

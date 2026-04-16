@@ -77,7 +77,8 @@ export async function commitImportPreview(input: {
         hire_date: hire,
         status: row.employeeStatus ?? "active",
         location: (row.location ?? "").trim(),
-        position: "",
+        department: (row.employeeDepartment ?? "").trim(),
+        position: (row.employeePosition ?? "").trim(),
       };
 
       if (existing?.id) {
@@ -89,6 +90,8 @@ export async function commitImportPreview(input: {
             hire_date: hire,
             status: row.employeeStatus ?? "active",
             location: (row.location ?? "").trim(),
+            department: (row.employeeDepartment ?? "").trim(),
+            position: (row.employeePosition ?? "").trim(),
           })
           .eq("id", existing.id);
         if (upErr) throw upErr;
@@ -179,6 +182,18 @@ export async function commitImportPreview(input: {
       });
       continue;
     }
+
+    // Update employee department/position if provided on the row
+    const depVal = (row.employeeDepartment ?? "").trim();
+    const posVal = (row.employeePosition ?? "").trim();
+    if (depVal && posVal) {
+      await supabase.from("employees").update({ department: depVal, position: posVal }).eq("id", employeeId);
+    } else if (depVal) {
+      await supabase.from("employees").update({ department: depVal }).eq("id", employeeId);
+    } else if (posVal) {
+      await supabase.from("employees").update({ position: posVal }).eq("id", employeeId);
+    }
+
     const trainingTypeId = trainingByName.get(tname.trim().toLowerCase());
     if (!trainingTypeId) {
       unknown += 1;

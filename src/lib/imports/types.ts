@@ -9,6 +9,8 @@ export type ImportPreviewRow = {
   hireDate?: string;
   employeeStatus?: "active" | "on_leave" | "terminated";
   location?: string;
+  employeeDepartment?: string;
+  employeePosition?: string;
   trainingName?: string;
   completedOn?: string;
   action:

@@ -84,6 +84,8 @@ export function previewEvcMergedEmployeesFromXlsx(buffer: ArrayBuffer, filename:
     const hireRaw = getCell(row, "Hire Date");
     const hireDate = parseExcelDate(hireRaw);
     const division = String(getCell(row, "Division") ?? "").trim();
+    const department = String(getCell(row, "Department") ?? "").trim();
+    const position = String(getCell(row, "Position") || getCell(row, "Position Title") || "").trim();
     const status = parseEmployeeStatus(getCell(row, "ACTIVE"));
 
     const key = `${paylocity_id}|merged|${filename}`;
@@ -128,6 +130,8 @@ export function previewEvcMergedEmployeesFromXlsx(buffer: ArrayBuffer, filename:
       hireDate,
       employeeStatus: status,
       location: division,
+      employeeDepartment: department,
+      employeePosition: position,
       action: "upsert_employee",
     });
   }
@@ -167,6 +171,9 @@ export function previewEvcTrainingMatrixFromXlsx(buffer: ArrayBuffer, filename: 
     const employeePaylocityId = String(getCell(row, "ID") ?? "").trim();
     if (!employeePaylocityId) continue;
 
+    const rowDepartment = String(getCell(row, "Department Description") ?? "").trim();
+    const rowPosition = String(getCell(row, "Position Title") ?? "").trim();
+
     for (const header of Object.keys(row)) {
       const hNorm = norm(header);
       if (!hNorm || TRAINING_SHEET_META_HEADERS.has(hNorm)) continue;
@@ -184,6 +191,8 @@ export function previewEvcTrainingMatrixFromXlsx(buffer: ArrayBuffer, filename: 
         employeePaylocityId,
         trainingName,
         completedOn,
+        ...(rowDepartment ? { employeeDepartment: rowDepartment } : {}),
+        ...(rowPosition ? { employeePosition: rowPosition } : {}),
         action: "insert_completion",
       });
     }
