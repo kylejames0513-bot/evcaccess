@@ -15,7 +15,11 @@
     "db:ensure-hr-user": "node scripts/ensure-general-hr-user.cjs",
     "db:setup": "npm run db:push && npm run db:ensure-hr-user",
     "gen:types": "supabase gen types typescript --linked > src/types/supabase.gen.ts",
-    "inspect:evc-xlsx": "node scripts/inspect-evc-workbook.mjs"
+    "inspect:evc-xlsx": "node scripts/inspect-evc-workbook.mjs",
+    "ingest": "node --import tsx scripts/ingest/index.ts",
+    "ingest:seed": "node --import tsx scripts/ingest/index.ts seed",
+    "ingest:refresh": "node --import tsx scripts/ingest/index.ts refresh",
+    "ingest:dry-run": "node --import tsx scripts/ingest/index.ts --dry-run"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
