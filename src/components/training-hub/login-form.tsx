@@ -44,7 +44,7 @@ export function LoginForm() {
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="password">HR password</Label>
+        <Label htmlFor="password" className="caption">HR password</Label>
         <Input
           id="password"
           name="password"
@@ -52,14 +52,14 @@ export function LoginForm() {
           autoComplete="current-password"
           required
           minLength={8}
-          className="border-[#2a2e3d] bg-[#0f1117]"
+          className="border-[--rule] bg-[--surface]"
         />
       </div>
-      {error ? <p className="text-sm text-[#ef4444]">{error}</p> : null}
+      {error ? <p className="text-sm text-[--alert]">{error}</p> : null}
       <Button
         type="submit"
         disabled={pending}
-        className="w-full rounded-lg bg-[#3b82f6] text-white hover:bg-[#2563eb] disabled:opacity-60"
+        className="w-full rounded-md bg-[--accent] text-white hover:bg-[--accent]/90 disabled:opacity-60"
       >
         {pending ? "Signing in…" : "Enter"}
       </Button>

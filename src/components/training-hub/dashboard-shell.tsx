@@ -17,19 +17,21 @@ export function DashboardShell({
   return (
     <SidebarProvider>
       <AppSidebar orgName={orgName} orgSlug={orgSlug} />
-      <SidebarInset className="bg-[#0f1117] text-[#e8eaed]">
-        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b border-[#2a2e3d] bg-[#0f1117] px-4">
-          <SidebarTrigger className="text-[#e8eaed]" />
-          <Separator orientation="vertical" className="h-6 bg-[#2a2e3d]" />
+      <SidebarInset className="bg-[--bg] text-[--ink]">
+        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b border-[--rule] bg-[--bg] px-6">
+          <SidebarTrigger className="text-[--ink-muted]" />
+          <Separator orientation="vertical" className="h-6 bg-[--rule]" />
           <div className="flex flex-1 items-center justify-between gap-4">
-            <nav className="text-sm text-[#8b8fa3]">Home</nav>
+            <nav className="text-sm text-[--ink-muted]">Home</nav>
             <div className="max-w-md flex-1">
               <CommandMenu />
             </div>
-            <div className="text-xs text-[#5c6078]">Training Hub</div>
+            <span className="caption">HR Hub</span>
           </div>
         </header>
-        <div className="min-w-0 flex-1 overflow-x-auto space-y-6 p-6">{children}</div>
+        <div className="min-w-0 flex-1 overflow-x-auto p-6 md:p-8">
+          <div className="mx-auto max-w-[1400px] space-y-8">{children}</div>
+        </div>
       </SidebarInset>
     </SidebarProvider>
   );

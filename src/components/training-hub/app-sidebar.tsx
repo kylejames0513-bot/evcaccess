@@ -69,11 +69,11 @@ export function AppSidebar({ orgName, orgSlug }: { orgName: string; orgSlug: str
         <SidebarMenuButton
           isActive={active}
           className={cn(
-            active && "border-l-2 border-[#3b82f6] bg-[#1e2230]/80 text-[#e8eaed]"
+            active && "border-l-2 border-[--accent] bg-[--accent-soft] text-[--accent] font-medium"
           )}
           render={
             <Link href={href} className="flex w-full items-center gap-2">
-              <Icon className="size-4 text-[#8b8fa3]" />
+              <Icon className={cn("size-4", active ? "text-[--accent]" : "text-[--ink-muted]")} />
               <span>{label}</span>
             </Link>
           }
@@ -83,14 +83,14 @@ export function AppSidebar({ orgName, orgSlug }: { orgName: string; orgSlug: str
   };
 
   return (
-    <Sidebar className="border-[#2a2e3d] bg-[#1a1d27] text-[#e8eaed]">
-      <SidebarHeader className="gap-2 border-b border-[#2a2e3d] px-4 py-4">
-        <div className="text-sm font-semibold tracking-tight">{orgName}</div>
-        <div className="text-xs text-[#8b8fa3]">Training Hub</div>
+    <Sidebar className="border-[--rule] bg-[--surface] text-[--ink]">
+      <SidebarHeader className="gap-1 border-b border-[--rule] px-4 py-4">
+        <div className="font-display text-sm font-semibold tracking-tight">{orgName}</div>
+        <span className="caption">HR Hub</span>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[#5c6078]">Operate</SidebarGroupLabel>
+          <SidebarGroupLabel className="caption">Operate</SidebarGroupLabel>
           <SidebarMenu>
             {operate.map((l) => (
               <Item key={l.href} {...l} />
@@ -105,7 +105,7 @@ export function AppSidebar({ orgName, orgSlug }: { orgName: string; orgSlug: str
                       rel="noopener noreferrer"
                       className="flex w-full items-center gap-2"
                     >
-                      <QrCode className="size-4 text-[#8b8fa3]" />
+                      <QrCode className="size-4 text-[--ink-muted]" />
                       <span>Kiosk</span>
                     </a>
                   }
@@ -115,7 +115,7 @@ export function AppSidebar({ orgName, orgSlug }: { orgName: string; orgSlug: str
           </SidebarMenu>
         </SidebarGroup>
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[#5c6078]">Manage</SidebarGroupLabel>
+          <SidebarGroupLabel className="caption">Manage</SidebarGroupLabel>
           <SidebarMenu>
             {manage.map((l) => (
               <Item key={l.href} {...l} />
@@ -123,7 +123,7 @@ export function AppSidebar({ orgName, orgSlug }: { orgName: string; orgSlug: str
           </SidebarMenu>
         </SidebarGroup>
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[#5c6078]">Configure</SidebarGroupLabel>
+          <SidebarGroupLabel className="caption">Configure</SidebarGroupLabel>
           <SidebarMenu>
             {configure.map((l) => (
               <Item key={l.href} {...l} />
@@ -131,7 +131,7 @@ export function AppSidebar({ orgName, orgSlug }: { orgName: string; orgSlug: str
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="border-t border-[#2a2e3d] p-2">
+      <SidebarFooter className="border-t border-[--rule] p-2">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton render={<Link href="/settings/account">Account</Link>} />
