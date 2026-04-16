@@ -2,85 +2,120 @@
 @tailwind components;
 @tailwind utilities;
 
+/* =========================================================
+   HR Hub Design System — Editorial Software Palette
+   References: NYT product, Linear, Notion, Readwise
+   ========================================================= */
+
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* Core palette */
+  --bg:          #FAF8F5;
+  --surface:     #FFFFFF;
+  --surface-alt: #F2EFE9;
+  --ink:         #1C1B1A;
+  --ink-soft:    #4A4744;
+  --ink-muted:   #8A847D;
+  --rule:        #E8E3DB;
+  --accent:      #2C5F4F;
+  --accent-soft: #E5EDE9;
+  --warn:        #B8743A;
+  --warn-soft:   #FDF3E9;
+  --alert:       #A33B2A;
+  --alert-soft:  #FDEEEB;
+  --success:     #4A6B3A;
+  --success-soft: #EEF3EB;
+
+  /* shadcn compat tokens */
+  --background: var(--bg);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--accent);
+  --primary-foreground: #FFFFFF;
+  --secondary: var(--surface-alt);
+  --secondary-foreground: var(--ink);
+  --muted: var(--surface-alt);
+  --muted-foreground: var(--ink-muted);
+  --accent-ui: var(--accent-soft);
+  --accent-foreground: var(--accent);
+  --destructive: var(--alert);
+  --destructive-foreground: #FFFFFF;
+  --border: var(--rule);
+  --input: var(--rule);
+  --ring: var(--accent);
+
+  /* Chart colors */
+  --chart-1: var(--accent);
+  --chart-2: var(--ink-muted);
+  --chart-3: var(--warn);
+  --chart-4: var(--alert);
+  --chart-5: var(--success);
+
+  --radius: 0.5rem;
+
+  /* Sidebar */
+  --sidebar: var(--surface);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--accent);
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: var(--surface-alt);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--rule);
+  --sidebar-ring: var(--accent);
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-}
-
+/* Typography */
 @layer base {
   * {
-    @apply border-border;
+    @apply border-[--rule];
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-[--bg] text-[--ink];
+    font-feature-settings: "ss01", "cv11";
   }
   html {
-    @apply font-sans;
+    font-family: var(--font-sans), system-ui, sans-serif;
+  }
+
+  /* Display / heading font */
+  h1, h2, .font-display {
+    font-family: var(--font-display), Georgia, serif;
+  }
+
+  /* Tabular numerals for data displays */
+  .tabular-nums, table td, .stat-big {
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Utility classes from the design system */
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display), Georgia, serif;
+  }
+
+  .text-ink { color: var(--ink); }
+  .text-ink-soft { color: var(--ink-soft); }
+  .text-ink-muted { color: var(--ink-muted); }
+  .text-accent { color: var(--accent); }
+  .text-warn { color: var(--warn); }
+  .text-alert { color: var(--alert); }
+  .text-success { color: var(--success); }
+
+  .bg-surface { background-color: var(--surface); }
+  .bg-surface-alt { background-color: var(--surface-alt); }
+
+  .caption {
+    @apply text-[11px] font-medium tracking-[0.08em] uppercase;
+    color: var(--ink-muted);
+  }
+
+  .stat-big {
+    font-family: var(--font-display), Georgia, serif;
+    @apply text-[40px] leading-none font-normal;
+    font-variant-numeric: tabular-nums;
   }
 }
