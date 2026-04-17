@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { PageHeader, Section } from "@/components/training-hub/page-primitives";
 
 export const dynamic = "force-dynamic";
 
@@ -55,27 +56,22 @@ export default async function ReportsPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <p className="caption">Exports</p>
-        <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
-          Reports
-        </h1>
-        <p className="font-display text-sm italic text-[--ink-soft] mt-1">
-          Generate PDF and CSV exports for audits, regulators, and archives.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Exports"
+        title="Reports"
+        subtitle="Generate PDF and CSV exports for audits, regulators, and archives."
+      />
 
       {Array.from(byCategory.entries()).map(([category, list]) => (
-        <section key={category} className="space-y-3">
-          <p className="caption">{category}</p>
+        <Section key={category} label={category}>
           <div className="grid gap-3 md:grid-cols-2">
-            {list.map(r => (
+            {list.map((r) => (
               <Link
                 key={r.title}
                 href={r.href}
                 target="_blank"
                 rel="noreferrer"
-                className="group rounded-lg border border-[--rule] bg-[--surface] p-5 hover:border-[--accent]/50 transition-colors"
+                className="panel group p-5 transition-colors hover:border-[--accent]/50 focus-ring"
               >
                 <div className="flex items-start justify-between gap-3">
                   <h3 className="font-display text-base font-medium group-hover:text-[--accent]">
@@ -85,11 +81,11 @@ export default async function ReportsPage() {
                     {r.format}
                   </span>
                 </div>
-                <p className="text-sm text-[--ink-soft] mt-2">{r.description}</p>
+                <p className="mt-2 text-sm text-[--ink-soft]">{r.description}</p>
               </Link>
             ))}
           </div>
-        </section>
+        </Section>
       ))}
     </div>
   );

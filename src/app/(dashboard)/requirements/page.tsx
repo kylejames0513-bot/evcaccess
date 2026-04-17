@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createRequirementAction, deleteRequirementAction, createExclusionAction, deleteExclusionAction } from "@/app/actions/requirements";
+import { EmptyPanel, PageHeader } from "@/components/training-hub/page-primitives";
 
 export const dynamic = "force-dynamic";
 
@@ -82,16 +83,11 @@ export default async function RequirementsPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <p className="caption">Compliance rules</p>
-        <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
-          Training Requirements
-        </h1>
-        <p className="font-display text-sm italic text-[--ink-soft] mt-1">
-          Define which trainings are required by department, division, or position.
-          Leave a field on "All" to apply universally. {allEmps.length} active employees total.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Compliance rules"
+        title="Training Requirements"
+        subtitle={`Define which trainings are required by department, division, or position. Leave a field on "All" to apply universally. ${allEmps.length} active employees total.`}
+      />
 
       <div className="grid gap-8 lg:grid-cols-[2fr_3fr]">
         {/* Add requirement form */}
@@ -225,11 +221,7 @@ export default async function RequirementsPage() {
           </div>
 
           {(requirements ?? []).length === 0 ? (
-            <div className="rounded-lg border border-[--rule] bg-[--surface] p-12 text-center">
-              <p className="font-display italic text-[--ink-muted]">
-                No requirements defined yet. Use the form to specify which trainings each role or department must complete.
-              </p>
-            </div>
+            <EmptyPanel title="No requirements defined yet." hint="Use the form to specify which trainings each role or department must complete." />
           ) : (
             <div className="space-y-3">
               {Array.from(byTraining.entries()).map(([trainingId, reqs]) => {
@@ -340,7 +332,7 @@ export default async function RequirementsPage() {
                 Add exclusion
               </button>
               <p className="text-xs text-[--ink-muted]">
-                Must specify at least a position or department. Example: Exclude "Executive" department from Mealtime.
+                Must specify at least a position or department. Example: Exclude &ldquo;Executive&rdquo; department from Mealtime.
               </p>
             </form>
           </div>
@@ -349,11 +341,7 @@ export default async function RequirementsPage() {
           <div>
             <p className="caption mb-3">Active exclusions · {(exclusions ?? []).length}</p>
             {(exclusions ?? []).length === 0 ? (
-              <div className="rounded-lg border border-[--rule] bg-[--surface] p-8 text-center">
-                <p className="font-display italic text-[--ink-muted]">
-                  No exclusions yet. Everyone who matches a requirement must complete the training.
-                </p>
-              </div>
+              <EmptyPanel title="No exclusions yet." hint="Everyone who matches a requirement must complete the training." />
             ) : (
               <div className="space-y-3">
                 {Array.from(byTrainingExclusions.entries()).map(([trainingId, excs]) => {
