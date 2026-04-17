@@ -238,6 +238,9 @@ function buildMergedSheet() {
     var ePrefC = findCol_(eH, "Preferred Name");
     if (ePrefC < 0) ePrefC = findCol_(eH, "Preferred/First Name");
     if (ePrefC < 0) ePrefC = findCol_(eH, "Preferred");
+    var eAliasC = findCol_(eH, "Aliases");
+    if (eAliasC < 0) eAliasC = findCol_(eH, "Alias");
+    if (eAliasC < 0) eAliasC = findCol_(eH, "Known Aliases");
     var eIdC   = findCol_(eH, "ID");
     var eStatC = findCol_(eH, "Status");
 
@@ -245,13 +248,43 @@ function buildMergedSheet() {
       for (var ei = 1; ei < eData.length; ei++) {
         var eRow = eData[ei];
         var eLn = String(eRow[eLnC] || "").trim();
-        var eLegal = String(eRow[eFnC] || "").trim();
-        if (!eLn || !eLegal) continue;
+        var eLegalRaw = String(eRow[eFnC] || "").trim();
+        if (!eLn || !eLegalRaw) continue;
+
+        // Pull quoted/parened nicknames out of First Name ("Michael \"Mike\"").
+        var eLegalParts = extractNameVariants_(eLegalRaw);
+        var eLegal = eLegalParts.primary || eLegalRaw;
+        var eInlineAliases = eLegalParts.variants;
+
         var eMid = eMidC >= 0 ? String(eRow[eMidC] || "").trim() : "";
         var ePref = ePrefC >= 0 ? String(eRow[ePrefC] || "").trim() : "";
         var eId = eIdC >= 0 ? String(eRow[eIdC] || "").trim() : "";
         var eStat = eStatC >= 0 ? String(eRow[eStatC] || "").trim() : "";
         var eCanon = ePref || eLegal;
+
+        // Optional free-form Aliases column ("Mike; Mickey", "Mike, Mickey").
+        var eAliasList = [];
+        if (eAliasC >= 0) {
+          var raw = String(eRow[eAliasC] || "").trim();
+          if (raw) {
+            var parts = raw.split(/[;,]/);
+            for (var ap = 0; ap < parts.length; ap++) {
+              var p = parts[ap].trim();
+              if (p) eAliasList.push(p);
+            }
+          }
+        }
+        // Merge inline + column-level aliases, dedupe through normalizeName_.
+        var extraAliases = [];
+        var seenAliasKeys = {};
+        var mergeBuf = eInlineAliases.concat(eAliasList);
+        for (var me = 0; me < mergeBuf.length; me++) {
+          var ma = mergeBuf[me];
+          var key = normalizeName_(ma);
+          if (!key || seenAliasKeys[key]) continue;
+          seenAliasKeys[key] = true;
+          extraAliases.push(ma);
+        }
 
         var info = {
           legal_first: eLegal,
@@ -261,6 +294,7 @@ function buildMergedSheet() {
           last_name: eLn,
           status: eStat,
           id: eId,
+          extra_aliases: extraAliases,
         };
 
         if (eId) empInfoById[eId] = info;
@@ -304,6 +338,13 @@ function buildMergedSheet() {
     // capture it too so it remains resolvable after the sheet is cleaned up.
     if (currentFnLegacy && currentFnLegacy.toLowerCase() !== info.canonical_first.toLowerCase()) {
       add(currentFnLegacy);
+    }
+    // Aliases harvested from the Employee tab — a dedicated Aliases column
+    // plus any quoted nicknames already inside the First Name cell.
+    if (info.extra_aliases && info.extra_aliases.length) {
+      for (var xi = 0; xi < info.extra_aliases.length; xi++) {
+        add(info.extra_aliases[xi]);
+      }
     }
     return out;
   }
@@ -426,11 +467,16 @@ function buildMergedSheet() {
       }
     }
 
-    // 3) Quoted nicknames inside the Training sheet's F NAME, e.g. Michael "Mike"
-    var qMatch = legalFirst.match(/["'(]([^"')]+)["')]/);
-    if (qMatch && qMatch[1]) addAliasIfDiff_(qMatch[1]);
-    var beforeQ = legalFirst.replace(/\s*["'(][^"')]+["')].*$/, "").trim();
-    if (beforeQ && beforeQ !== legalFirst) addAliasIfDiff_(beforeQ);
+    // 3) Quoted / parenthesized nicknames inside the Training sheet's F NAME.
+    //    Examples: `Michael "Mike"`, `Michael (Mickey)`, `Michael "Mike" (Mickey)`.
+    //    extractNameVariants_() handles multiple chunks and curly quotes.
+    var trVariants = extractNameVariants_(legalFirst);
+    if (trVariants.primary && trVariants.primary.toLowerCase() !== legalFirst.toLowerCase()) {
+      addAliasIfDiff_(trVariants.primary);
+    }
+    for (var tvi = 0; tvi < trVariants.variants.length; tvi++) {
+      addAliasIfDiff_(trVariants.variants[tvi]);
+    }
 
     var empKey = ln + "|" + fn;
     employees[empKey] = {
