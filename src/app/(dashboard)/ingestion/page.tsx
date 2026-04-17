@@ -1,20 +1,24 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { FileUploadDropzone } from "@/components/training-hub/file-upload-dropzone";
+import {
+  EmptyPanel,
+  PageHeader,
+  Pill,
+  Section,
+} from "@/components/training-hub/page-primitives";
 
 export default async function IngestionPage() {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Recent ingestion runs
   const { data: runs } = await supabase
     .from("ingestion_runs")
     .select("id, source, started_at, finished_at, status, rows_processed, rows_inserted, rows_updated, rows_skipped, rows_unresolved, triggered_by, error_summary")
     .order("started_at", { ascending: false })
     .limit(25);
 
-  // Unresolved review queue items
   const { data: reviewItems } = await supabase
     .from("review_queue")
     .select("id, source, reason, raw_payload, suggested_match_employee_id, suggested_match_score, resolved, created_at")
@@ -27,57 +31,37 @@ export default async function IngestionPage() {
 
   return (
     <div className="space-y-10">
-      <div>
-        <p className="caption">Operations</p>
-        <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
-          Ingestion Console
-        </h1>
-        <p className="font-display text-sm italic text-[--ink-soft] mt-1">
-          Data sync history and unresolved records.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Operations"
+        title="Ingestion Console"
+        subtitle="Data sync history and unresolved records."
+      />
 
-      {/* File upload drop zone */}
-      <div className="space-y-3">
-        <p className="caption">Upload a file</p>
+      <Section label="Upload a file">
         <FileUploadDropzone />
-      </div>
+      </Section>
 
-      {/* Manual sync CLI panel */}
-      <div className="rounded-lg border border-[--rule] bg-[--surface] p-6 space-y-4">
-        <p className="caption">Manual sync via CLI</p>
-        <p className="text-sm text-[--ink-soft]">
-          Place files in <code className="font-mono text-xs bg-[--surface-alt] px-1.5 py-0.5 rounded">data/sources/</code> and run:
-        </p>
-        <div className="bg-[--surface-alt] rounded-md p-4 font-mono text-xs text-[--ink-soft] space-y-1">
-          <p>npm run ingest:seed &nbsp;&nbsp;&nbsp;# First-time load all sources</p>
-          <p>npm run ingest:refresh # Pull Google Sheets (Sources A + B)</p>
-          <p>npm run ingest:dry-run # Preview without writing</p>
-        </div>
-        <p className="text-xs text-[--ink-muted]">
-          Automated sync runs nightly via Vercel cron.
-        </p>
-      </div>
-
-      {/* Review queue */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <p className="caption">Review queue</p>
-          {pendingCount > 0 && (
-            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[--warn-soft] text-xs font-medium text-[--warn] tabular-nums px-1.5">
-              {pendingCount}
-            </span>
-          )}
-        </div>
-
-        {pendingCount === 0 ? (
-          <div className="rounded-lg border border-[--rule] bg-[--surface] p-8 text-center">
-            <p className="font-display italic text-[--ink-muted]">
-              No unresolved items. Ingestion is clean.
-            </p>
+      <Section label="Manual sync via CLI">
+        <div className="panel p-6 space-y-3">
+          <p className="text-sm text-[--ink-soft]">
+            Place files in <code className="rounded bg-[--surface-alt] px-1.5 py-0.5 font-mono text-xs">data/sources/</code> and run:
+          </p>
+          <div className="rounded-md bg-[--surface-alt] p-4 font-mono text-xs text-[--ink-soft] space-y-1">
+            <p>npm run ingest:seed &nbsp;&nbsp;&nbsp;# First-time load all sources</p>
+            <p>npm run ingest:refresh # Pull Google Sheets (Sources A + B)</p>
+            <p>npm run ingest:dry-run # Preview without writing</p>
           </div>
+          <p className="text-xs text-[--ink-muted]">Automated sync runs nightly via Vercel cron.</p>
+        </div>
+      </Section>
+
+      <Section
+        label={`Review queue${pendingCount > 0 ? ` · ${pendingCount}` : ""}`}
+      >
+        {pendingCount === 0 ? (
+          <EmptyPanel title="No unresolved items. Ingestion is clean." />
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-[--rule] bg-[--surface]">
+          <div className="panel overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[--rule]">
@@ -91,21 +75,25 @@ export default async function IngestionPage() {
               <tbody>
                 {(reviewItems ?? []).map((item) => {
                   const payload = item.raw_payload as Record<string, unknown> | null;
-                  const name = payload ? `${payload.firstName ?? ""} ${payload.lastName ?? ""}`.trim() : "—";
+                  const name = payload
+                    ? `${payload.firstName ?? ""} ${payload.lastName ?? ""}`.trim()
+                    : "—";
                   return (
-                    <tr key={item.id} className="border-b border-[--rule] last:border-0 hover:bg-[--surface-alt]">
+                    <tr key={item.id} className="row-hover border-b border-[--rule] last:border-0">
                       <td className="px-4 py-3 text-[--ink-soft]">{item.source ?? "—"}</td>
                       <td className="px-4 py-3">
-                        <span className="inline-block rounded-full bg-[--warn-soft] px-2 py-0.5 text-xs font-medium text-[--warn]">
-                          {item.reason ?? "unknown"}
-                        </span>
+                        <Pill tone="warn">{item.reason ?? "unknown"}</Pill>
                       </td>
                       <td className="px-4 py-3 text-[--ink]">{name}</td>
-                      <td className="px-4 py-3 tabular-nums text-[--ink-muted]">
-                        {item.suggested_match_score != null ? `${Math.round(Number(item.suggested_match_score) * 100)}%` : "—"}
+                      <td className="px-4 py-3 tabular text-[--ink-muted]">
+                        {item.suggested_match_score != null
+                          ? `${Math.round(Number(item.suggested_match_score) * 100)}%`
+                          : "—"}
                       </td>
-                      <td className="px-4 py-3 tabular-nums text-[--ink-muted]">
-                        {item.created_at ? new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                      <td className="px-4 py-3 tabular text-[--ink-muted]">
+                        {item.created_at
+                          ? new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                          : "—"}
                       </td>
                     </tr>
                   );
@@ -114,19 +102,13 @@ export default async function IngestionPage() {
             </table>
           </div>
         )}
-      </div>
+      </Section>
 
-      {/* Run history */}
-      <div className="space-y-4">
-        <p className="caption">Recent runs</p>
+      <Section label="Recent runs">
         {runRows.length === 0 ? (
-          <div className="rounded-lg border border-[--rule] bg-[--surface] p-8 text-center">
-            <p className="font-display italic text-[--ink-muted]">
-              No ingestion runs yet. Run your first seed to populate the database.
-            </p>
-          </div>
+          <EmptyPanel title="No ingestion runs yet. Run your first seed to populate the database." />
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-[--rule] bg-[--surface]">
+          <div className="panel overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[--rule]">
@@ -142,25 +124,29 @@ export default async function IngestionPage() {
               </thead>
               <tbody>
                 {runRows.map((run) => (
-                  <tr key={run.id} className="border-b border-[--rule] last:border-0 hover:bg-[--surface-alt]">
-                    <td className="px-4 py-3 tabular-nums text-[--ink-soft]">
-                      {run.started_at ? new Date(run.started_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
+                  <tr key={run.id} className="row-hover border-b border-[--rule] last:border-0">
+                    <td className="px-4 py-3 tabular text-[--ink-soft]">
+                      {run.started_at
+                        ? new Date(run.started_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+                        : "—"}
                     </td>
                     <td className="px-4 py-3">{run.source}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                        run.status === "success" ? "bg-[--success-soft] text-[--success]" :
-                        run.status === "partial" ? "bg-[--warn-soft] text-[--warn]" :
-                        run.status === "failed" ? "bg-[--alert-soft] text-[--alert]" :
-                        "bg-[--surface-alt] text-[--ink-muted]"
-                      }`}>
+                      <Pill
+                        tone={
+                          run.status === "success" ? "success" :
+                          run.status === "partial" ? "warn" :
+                          run.status === "failed" ? "alert" :
+                          "muted"
+                        }
+                      >
                         {run.status}
-                      </span>
+                      </Pill>
                     </td>
-                    <td className="px-4 py-3 tabular-nums text-right">{run.rows_processed}</td>
-                    <td className="px-4 py-3 tabular-nums text-right">{run.rows_inserted}</td>
-                    <td className="px-4 py-3 tabular-nums text-right">{run.rows_updated}</td>
-                    <td className="px-4 py-3 tabular-nums text-right">{run.rows_unresolved > 0 ? run.rows_unresolved : "—"}</td>
+                    <td className="px-4 py-3 tabular text-right">{run.rows_processed}</td>
+                    <td className="px-4 py-3 tabular text-right">{run.rows_inserted}</td>
+                    <td className="px-4 py-3 tabular text-right">{run.rows_updated}</td>
+                    <td className="px-4 py-3 tabular text-right">{run.rows_unresolved > 0 ? run.rows_unresolved : "—"}</td>
                     <td className="px-4 py-3 text-[--ink-muted]">{run.triggered_by ?? "—"}</td>
                   </tr>
                 ))}
@@ -168,7 +154,7 @@ export default async function IngestionPage() {
             </table>
           </div>
         )}
-      </div>
+      </Section>
     </div>
   );
 }

@@ -1,6 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  PageHeader,
+  PrimaryLink,
+  SecondaryLink,
+  Section,
+  StatCard,
+} from "@/components/training-hub/page-primitives";
 
 export const dynamic = "force-dynamic";
 
@@ -11,31 +18,26 @@ export default async function CompliancePage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Fetch requirements to know which trainings apply to which employees
   const { data: requirements } = await supabase
     .from("requirements")
     .select("id, training_id, role, department");
 
-  // Active employees
   const { data: employees } = await supabase
     .from("employees")
     .select("id, employee_id, legal_first_name, legal_last_name, position, department, location")
     .eq("status", "active")
     .order("legal_last_name");
 
-  // Active trainings
   const { data: trainings } = await supabase
     .from("trainings")
     .select("id, code, title, cadence_type, cadence_months")
     .eq("active", true)
     .order("code");
 
-  // Exclusions
   const { data: exclusions } = await supabase
     .from("exclusions")
     .select("training_id, role, department");
 
-  // All completions
   const { data: completions } = await supabase
     .from("completions")
     .select("employee_id, training_id, completed_on, expires_on, status");
@@ -44,19 +46,15 @@ export default async function CompliancePage() {
   const emps = employees ?? [];
   const trs = trainings ?? [];
   const comps = completions ?? [];
+  const excls = exclusions ?? [];
 
-  // Build: for each employee, which trainings are required?
-  // A requirement applies if ALL non-null fields match
   const requiredTrainingIds = new Set<string>();
   type Cell = { status: CellStatus; completedOn: string | null; expiresOn: string | null; daysUntil: number | null };
-  const cells = new Map<string, Cell>(); // "empId|trId" -> Cell
+  const cells = new Map<string, Cell>();
   const today = new Date();
   const soonDate = new Date(today);
   soonDate.setDate(soonDate.getDate() + 30);
 
-  const excls = exclusions ?? [];
-
-  // Helper: check if an employee is excluded from a training
   function isExcluded(emp: { position: string | null; department: string | null; location: string | null }, trainingId: string): boolean {
     for (const exc of excls) {
       if (exc.training_id !== trainingId) continue;
@@ -70,7 +68,6 @@ export default async function CompliancePage() {
   for (const emp of emps) {
     for (const req of reqs) {
       const posMatch = !req.role || req.role === emp.position;
-      // Match department against both department AND location (division)
       const deptMatch = !req.department || req.department === emp.department || req.department === emp.location;
       if (!posMatch || !deptMatch) continue;
 
@@ -85,20 +82,16 @@ export default async function CompliancePage() {
 
       requiredTrainingIds.add(req.training_id);
       const key = `${emp.id}|${req.training_id}`;
-      if (cells.has(key)) continue; // already processed
+      if (cells.has(key)) continue;
 
       const tr = trs.find(t => t.id === req.training_id);
-
-      // Find matching completions
       const empComps = comps.filter(c => c.employee_id === emp.id && c.training_id === req.training_id);
 
-      // Check for exempt
       if (empComps.some(c => c.status === "exempt")) {
         cells.set(key, { status: "EXEMPT", completedOn: null, expiresOn: null, daysUntil: null });
         continue;
       }
 
-      // Find latest compliant completion
       const latest = empComps
         .filter(c => c.completed_on && c.status !== "failed")
         .sort((a, b) => (b.completed_on! > a.completed_on! ? 1 : -1))[0];
@@ -131,10 +124,8 @@ export default async function CompliancePage() {
     }
   }
 
-  // Only show trainings that have requirements
   const requiredTrainings = trs.filter(t => requiredTrainingIds.has(t.id));
 
-  // Summary
   const summary: Record<string, number> = {};
   for (const [, cell] of cells) {
     summary[cell.status] = (summary[cell.status] ?? 0) + 1;
@@ -144,7 +135,6 @@ export default async function CompliancePage() {
   const compliantCount = (summary.COMPLIANT ?? 0);
   const compliancePct = totalCounted > 0 ? Math.round((compliantCount / totalCounted) * 100) : 0;
 
-  // Overdue queue
   type OverdueItem = { empId: string; empName: string; trCode: string; trTitle: string; daysOverdue: number; completedOn: string | null };
   const overdue: OverdueItem[] = [];
   for (const [key, cell] of cells) {
@@ -170,66 +160,53 @@ export default async function CompliancePage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <p className="caption">Pillar I</p>
-          <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
-            Compliance
-          </h1>
-          <p className="font-display text-sm italic text-[--ink-soft] mt-1">
-            {hasRequirements
-              ? `${emps.length} employees × ${requiredTrainings.length} required trainings. ${compliantCount} compliant, ${summary.OVERDUE ?? 0} overdue.`
-              : "No training requirements defined yet. Set up requirements first."}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Link
-            href="/requirements"
-            className="rounded-md bg-[--accent] px-4 py-2 text-sm font-medium text-[--primary-foreground] hover:bg-[--accent]/90"
-          >
-            Manage requirements
-          </Link>
-          <Link
-            href="/api/reports/compliance-pdf"
-            target="_blank"
-            className="rounded-md border border-[--rule] bg-[--surface] px-4 py-2 text-sm font-medium hover:bg-[--surface-alt]"
-          >
-            Download PDF
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Pillar I"
+        title="Compliance"
+        subtitle={
+          hasRequirements
+            ? `${emps.length} employees × ${requiredTrainings.length} required trainings. ${compliantCount} compliant, ${summary.OVERDUE ?? 0} overdue.`
+            : "No training requirements defined yet. Set up requirements first."
+        }
+        actions={
+          <>
+            <PrimaryLink href="/requirements">Manage requirements</PrimaryLink>
+            <SecondaryLink href="/api/reports/compliance-pdf" external>
+              Download PDF
+            </SecondaryLink>
+          </>
+        }
+      />
 
       {!hasRequirements ? (
-        <div className="rounded-lg border border-[--accent]/20 bg-[--accent-soft] px-6 py-8 text-center">
+        <div className="panel border-[--accent]/25 bg-[--accent-soft] px-6 py-10 text-center">
           <p className="font-display text-lg text-[--ink]">
             Set up training requirements to see compliance status.
           </p>
-          <p className="text-sm text-[--ink-soft] mt-2 mb-4">
+          <p className="mx-auto mt-2 max-w-xl text-sm text-[--ink-soft]">
             Requirements define which trainings each employee must complete, based on their position or department.
           </p>
-          <Link
-            href="/requirements"
-            className="inline-block rounded-md bg-[--accent] px-6 py-2 text-sm font-medium text-[--primary-foreground] hover:bg-[--accent]/90"
-          >
-            Create requirements
-          </Link>
+          <div className="mt-4">
+            <PrimaryLink href="/requirements">Create requirements</PrimaryLink>
+          </div>
         </div>
       ) : (
         <>
-          {/* Summary stats */}
           <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-            <StatCard label="Compliance" value={`${compliancePct}%`} accent={compliancePct >= 85 ? "success" : compliancePct >= 70 ? "warn" : "alert"} />
-            <StatCard label="Compliant" value={summary.COMPLIANT ?? 0} />
-            <StatCard label="Due soon" value={summary.DUE_SOON ?? 0} accent="warn" />
-            <StatCard label="Overdue" value={summary.OVERDUE ?? 0} accent="alert" />
-            <StatCard label="Never completed" value={summary.NEVER_COMPLETED ?? 0} accent="muted" />
+            <StatCard
+              label="Compliance"
+              value={`${compliancePct}%`}
+              tone={compliancePct >= 85 ? "success" : compliancePct >= 70 ? "warn" : "alert"}
+            />
+            <StatCard label="Compliant" value={summary.COMPLIANT ?? 0} tone="success" />
+            <StatCard label="Due soon" value={summary.DUE_SOON ?? 0} tone="warn" />
+            <StatCard label="Overdue" value={summary.OVERDUE ?? 0} tone="alert" />
+            <StatCard label="Never completed" value={summary.NEVER_COMPLETED ?? 0} tone="muted" />
           </div>
 
-          {/* Overdue queue */}
           {overdue.length > 0 && (
-            <div>
-              <p className="caption mb-3">Overdue ({overdue.length})</p>
-              <div className="overflow-x-auto rounded-lg border border-[--rule] bg-[--surface]">
+            <Section label={`Overdue (${overdue.length})`}>
+              <div className="panel overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-[--rule]">
@@ -241,36 +218,34 @@ export default async function CompliancePage() {
                   </thead>
                   <tbody>
                     {overdue.slice(0, 30).map((o, i) => (
-                      <tr key={i} className="border-b border-[--rule] last:border-0 hover:bg-[--surface-alt]">
+                      <tr key={i} className="row-hover border-b border-[--rule] last:border-0">
                         <td className="px-4 py-3">
                           <Link href={`/employees/${o.empId}`} className="text-[--accent] hover:underline">{o.empName}</Link>
                         </td>
                         <td className="px-4 py-3">{o.trTitle}</td>
-                        <td className="px-4 py-3 tabular-nums text-[--ink-muted]">
+                        <td className="px-4 py-3 tabular text-[--ink-muted]">
                           {o.completedOn ? new Date(o.completedOn + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "Never"}
                         </td>
-                        <td className="px-4 py-3 text-right tabular-nums text-[--alert] font-medium">{o.daysOverdue}</td>
+                        <td className="px-4 py-3 text-right tabular font-medium text-[--alert]">{o.daysOverdue}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </div>
+            </Section>
           )}
 
-          {/* Matrix */}
           {emps.length > 0 && requiredTrainings.length > 0 && (
-            <div>
-              <p className="caption mb-3">Employee × Required Training Matrix</p>
-              <div className="overflow-auto rounded-lg border border-[--rule] bg-[--surface] max-h-[600px]">
+            <Section label="Employee × Required Training Matrix">
+              <div className="panel max-h-[600px] overflow-auto">
                 <table className="w-full border-collapse text-xs">
-                  <thead className="sticky top-0 bg-[--surface] z-10">
+                  <thead className="sticky top-0 z-10 bg-[--surface]">
                     <tr className="border-b border-[--rule]">
-                      <th className="sticky left-0 z-20 bg-[--surface] px-3 py-2 text-left caption border-r border-[--rule] min-w-[180px]">
+                      <th className="caption sticky left-0 z-20 min-w-[180px] border-r border-[--rule] bg-[--surface] px-3 py-2 text-left">
                         Employee
                       </th>
                       {requiredTrainings.map(t => (
-                        <th key={t.id} className="px-2 py-2 text-center caption min-w-[60px]" title={t.title}>
+                        <th key={t.id} className="caption min-w-[60px] px-2 py-2 text-center" title={t.title}>
                           <Link href={`/trainings/${t.id}`} className="hover:text-[--accent]">{t.code}</Link>
                         </th>
                       ))}
@@ -278,15 +253,18 @@ export default async function CompliancePage() {
                   </thead>
                   <tbody>
                     {emps.map(e => {
-                      // Only show employees who have at least one required training
                       const hasAny = requiredTrainings.some(t => cells.has(`${e.id}|${t.id}`));
                       if (!hasAny) return null;
                       return (
-                        <tr key={e.id} className="border-b border-[--rule] hover:bg-[--surface-alt]">
-                          <td className="sticky left-0 z-10 bg-[--surface] px-3 py-2 border-r border-[--rule]">
+                        <tr key={e.id} className="row-hover border-b border-[--rule]">
+                          <td className="sticky left-0 z-10 border-r border-[--rule] bg-[--surface] px-3 py-2">
                             <Link href={`/employees/${e.id}`} className="hover:text-[--accent]">
                               <div>{e.legal_last_name}, {e.legal_first_name}</div>
-                              {e.department && <div className="text-[10px] text-[--ink-muted]">{e.department}{e.position ? ` · ${e.position}` : ""}</div>}
+                              {e.department && (
+                                <div className="text-[10px] text-[--ink-muted]">
+                                  {e.department}{e.position ? ` · ${e.position}` : ""}
+                                </div>
+                              )}
                             </Link>
                           </td>
                           {requiredTrainings.map(t => {
@@ -305,20 +283,10 @@ export default async function CompliancePage() {
                 </table>
               </div>
               <Legend />
-            </div>
+            </Section>
           )}
         </>
       )}
-    </div>
-  );
-}
-
-function StatCard({ label, value, accent }: { label: string; value: string | number; accent?: "success" | "warn" | "alert" | "muted" }) {
-  const cls = accent === "success" ? "text-[--success]" : accent === "warn" ? "text-[--warn]" : accent === "alert" ? "text-[--alert]" : accent === "muted" ? "text-[--ink-muted]" : "";
-  return (
-    <div className="rounded-lg border border-[--rule] bg-[--surface] p-4">
-      <p className="caption">{label}</p>
-      <p className={`font-display text-2xl font-medium mt-1 tabular-nums ${cls}`}>{value}</p>
     </div>
   );
 }
@@ -338,17 +306,21 @@ function StatusDot({ status }: { status: string }) {
 }
 
 function Legend() {
+  const items: Array<{ status: string; label: string }> = [
+    { status: "COMPLIANT", label: "Compliant" },
+    { status: "DUE_SOON", label: "Due Soon (30d)" },
+    { status: "OVERDUE", label: "Overdue" },
+    { status: "NEVER_COMPLETED", label: "Never Completed" },
+    { status: "EXEMPT", label: "Exempt" },
+    { status: "CADENCE_NOT_SET", label: "Cadence Not Set" },
+  ];
   return (
     <div className="mt-3 flex flex-wrap gap-4 text-xs text-[--ink-muted]">
-      {[
-        { status: "COMPLIANT", label: "Compliant" },
-        { status: "DUE_SOON", label: "Due Soon (30d)" },
-        { status: "OVERDUE", label: "Overdue" },
-        { status: "NEVER_COMPLETED", label: "Never Completed" },
-        { status: "EXEMPT", label: "Exempt" },
-        { status: "CADENCE_NOT_SET", label: "Cadence Not Set" },
-      ].map(i => (
-        <div key={i.status} className="flex items-center gap-1.5"><StatusDot status={i.status} /><span>{i.label}</span></div>
+      {items.map(i => (
+        <div key={i.status} className="flex items-center gap-1.5">
+          <StatusDot status={i.status} />
+          <span>{i.label}</span>
+        </div>
       ))}
     </div>
   );

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { TrainingCatalogTable, type TrainingRow } from "@/components/training-hub/training-catalog-table";
+import { PageHeader, PrimaryLink, StatCard } from "@/components/training-hub/page-primitives";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,6 @@ export default async function TrainingsPage() {
     .select("id, code, title, category, cadence_type, cadence_months, grace_days, regulatory_citation, active")
     .order("code");
 
-  // Get completion counts per training
   const trainingIds = (trainings ?? []).map(t => t.id);
   const counts = new Map<string, number>();
   if (trainingIds.length > 0) {
@@ -45,44 +44,21 @@ export default async function TrainingsPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <p className="caption">Catalog</p>
-          <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
-            Training Catalog
-          </h1>
-          <p className="font-display text-sm italic text-[--ink-soft] mt-1">
-            Configure how often each training renews. Changes apply to every completion on record.
-          </p>
-        </div>
-        <Link
-          href="/trainings/new"
-          className="rounded-md bg-[--accent] px-4 py-2 text-sm font-medium text-[--primary-foreground] hover:bg-[--accent]/90"
-        >
-          Add training
-        </Link>
-      </div>
+      <PageHeader
+        eyebrow="Catalog"
+        title="Training Catalog"
+        subtitle="Configure how often each training renews. Changes apply to every completion on record."
+        actions={<PrimaryLink href="/trainings/new">Add training</PrimaryLink>}
+      />
 
-      {/* Summary strip */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard label="Total" value={rows.length} />
         <StatCard label="Configured" value={rows.filter(r => r.cadence_type !== "unset" && r.active).length} />
-        <StatCard label="Unconfigured" value={unconfiguredCount} warn={unconfiguredCount > 0} />
-        <StatCard label="Inactive" value={rows.filter(r => !r.active).length} />
+        <StatCard label="Unconfigured" value={unconfiguredCount} tone={unconfiguredCount > 0 ? "warn" : "default"} />
+        <StatCard label="Inactive" value={rows.filter(r => !r.active).length} tone="muted" />
       </div>
 
       <TrainingCatalogTable rows={rows} />
-    </div>
-  );
-}
-
-function StatCard({ label, value, warn = false }: { label: string; value: number; warn?: boolean }) {
-  return (
-    <div className="rounded-lg border border-[--rule] bg-[--surface] p-4">
-      <p className="caption">{label}</p>
-      <p className={`font-display text-2xl font-medium mt-1 tabular-nums ${warn ? "text-[--warn]" : ""}`}>
-        {value}
-      </p>
     </div>
   );
 }
