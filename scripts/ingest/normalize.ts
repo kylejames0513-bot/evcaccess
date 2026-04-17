@@ -119,10 +119,65 @@ export function shouldSkipForCompletions(status: string): boolean {
 }
 
 /**
- * Normalize a name for comparison: trim, lowercase.
+ * Normalize a name for comparison.
+ * Lowercase, trim, strip apostrophes / hyphens / periods / quotes /
+ * parens, collapse whitespace. Keeps letters, digits, and single
+ * spaces. Produces the same result for "O'Brien", "OBrien", "obrien"
+ * and for "Smith-Jones", "SmithJones", "smithjones".
  */
 export function normalizeName(name: string): string {
-  return name.trim().toLowerCase().replace(/\s+/g, " ");
+  return String(name ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\u2018\u2019'`]/g, "") // curly + straight apostrophes + backtick
+    .replace(/["\u201C\u201D()[\]]/g, " ") // quotes + brackets → space
+    .replace(/[-_./\\,.]/g, "") // separators that we collapse out
+    .replace(/[^\p{L}\p{N}\s]/gu, "") // drop anything else non-alphanumeric (keeps spaces)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Parse a name field that may carry quoted or parenthesized nicknames
+ * alongside the legal/formal form.
+ *
+ *   "Michael"                → { primary: "Michael", variants: [] }
+ *   'Michael "Mike"'         → { primary: "Michael", variants: ["Mike"] }
+ *   "Michael (Mickey)"       → { primary: "Michael", variants: ["Mickey"] }
+ *   'Michael "Mike" (Mickey)'→ { primary: "Michael", variants: ["Mike","Mickey"] }
+ *   "Mary Jane"              → { primary: "Mary Jane", variants: [] }
+ *
+ * Variants preserve the casing from the source so they can be stored
+ * on the employee as human-readable aliases. Comparison downstream is
+ * always done through `normalizeName`.
+ */
+export function extractNameVariants(raw: string | null | undefined): {
+  primary: string;
+  variants: string[];
+} {
+  const s = String(raw ?? "").trim();
+  if (!s) return { primary: "", variants: [] };
+
+  const variants: string[] = [];
+  const quoted = [...s.matchAll(/[\u201C"]([^\u201D"]+)[\u201D"]/g)];
+  const parened = [...s.matchAll(/\(([^)]+)\)/g)];
+  for (const m of quoted) {
+    const v = m[1].trim();
+    if (v) variants.push(v);
+  }
+  for (const m of parened) {
+    const v = m[1].trim();
+    if (v) variants.push(v);
+  }
+
+  // Primary = the original string with the quoted/parened chunks removed
+  const primary = s
+    .replace(/[\u201C"][^\u201D"]+[\u201D"]/g, " ")
+    .replace(/\([^)]+\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return { primary: primary || s, variants };
 }
 
 /**

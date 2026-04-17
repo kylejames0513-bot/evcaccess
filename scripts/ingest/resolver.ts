@@ -90,18 +90,43 @@ export async function resolveEmployee(
 
   if (!employees?.length) return null;
 
-  // Step 1: Exact last + exact first
+  // Step 1: Exact last + exact first (legal OR preferred name)
   for (const emp of employees) {
-    if (
-      normalizeName(emp.legal_last_name) === normLast &&
-      normalizeName(emp.legal_first_name) === normFirst
-    ) {
+    if (normalizeName(emp.legal_last_name) !== normLast) continue;
+    const empLegal = normalizeName(emp.legal_first_name);
+    if (empLegal === normFirst) {
       return {
         employeeId: emp.employee_id,
         employeeDbId: emp.id,
         confidence: "exact",
         score: 1.0,
         method: "exact_last_first",
+      };
+    }
+    if (emp.preferred_name && normalizeName(emp.preferred_name) === normFirst) {
+      return {
+        employeeId: emp.employee_id,
+        employeeDbId: emp.id,
+        confidence: "exact",
+        score: 1.0,
+        method: "exact_last_preferred",
+      };
+    }
+  }
+
+  // Step 1b: Exact last + first matches one of the employee's known_aliases
+  //          (typically populated from the merged sheet's Aliases column)
+  for (const emp of employees) {
+    if (normalizeName(emp.legal_last_name) !== normLast) continue;
+    const rawAliases = (emp.known_aliases ?? []) as string[];
+    const aliases = rawAliases.map((a: string) => normalizeName(a)).filter(Boolean);
+    if (aliases.includes(normFirst)) {
+      return {
+        employeeId: emp.employee_id,
+        employeeDbId: emp.id,
+        confidence: "exact",
+        score: 0.98,
+        method: "known_alias",
       };
     }
   }

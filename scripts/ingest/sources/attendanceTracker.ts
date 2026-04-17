@@ -17,7 +17,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Papa from "papaparse";
-import { parseDate, toISODate, parseCompletionValue, shouldSkipForCompletions } from "../normalize";
+import { parseDate, toISODate, parseCompletionValue, shouldSkipForCompletions, extractNameVariants } from "../normalize";
 import { resolveEmployeeWithSuggestion } from "../resolver";
 import { hashCompletion } from "../idempotency";
 import {
@@ -97,15 +97,30 @@ export async function ingest(options: {
     stats.processed++;
 
     const lastName = (row[0] ?? "").trim();
-    const firstName = (row[1] ?? "").trim();
+    const firstNameRaw = (row[1] ?? "").trim();
 
-    if (!lastName && !firstName) {
+    if (!lastName && !firstNameRaw) {
       stats.skipped++;
       continue;
     }
 
-    // Resolve employee
-    const { match, suggested } = await resolveEmployeeWithSuggestion(lastName, firstName, supabase);
+    // Resolve employee. The F NAME cell can carry quoted / parenthesized
+    // nicknames ("Michael \"Mike\""); try each variant in turn and keep
+    // the first confident match.
+    const { primary, variants } = extractNameVariants(firstNameRaw);
+    const firstName = primary || firstNameRaw;
+    const candidates = [firstName, ...variants];
+    let match: Awaited<ReturnType<typeof resolveEmployeeWithSuggestion>>["match"] = null;
+    let suggested: Awaited<ReturnType<typeof resolveEmployeeWithSuggestion>>["suggested"] = null;
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const attempt = await resolveEmployeeWithSuggestion(lastName, candidate, supabase);
+      if (attempt.match) {
+        match = attempt.match;
+        break;
+      }
+      if (!suggested && attempt.suggested) suggested = attempt.suggested;
+    }
 
     if (!match) {
       stats.unresolved++;
