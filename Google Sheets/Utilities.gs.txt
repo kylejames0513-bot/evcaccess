@@ -176,3 +176,71 @@ function parseTimeToMinutes(str) {
   if (ampm === "AM" && h === 12) h = 0;
   return h * 60 + m;
 }
+
+
+// ************************************************************
+//   NAME NORMALIZATION + VARIANT EXTRACTION
+//   Mirrors scripts/ingest/normalize.ts in the hub so the
+//   Apps-Script-side matching behaves the same way.
+// ************************************************************
+
+/**
+ * Aggressive name normalization for comparison.
+ * - Lowercases, trims.
+ * - Strips apostrophes (straight + curly) so "O'Brien" == "OBrien".
+ * - Strips hyphens, periods, quotes, parens so "Smith-Jones" == "SmithJones".
+ * - Collapses repeated whitespace.
+ * - Idempotent.
+ */
+function normalizeName_(name) {
+  var s = String(name == null ? "" : name).trim().toLowerCase();
+  // Apostrophes (straight + curly) and backtick — drop entirely.
+  s = s.replace(/[\u2018\u2019'`]/g, "");
+  // Quotes, brackets → single space.
+  s = s.replace(/["\u201C\u201D()\[\]]/g, " ");
+  // Separators we collapse out.
+  s = s.replace(/[-_./\\,]/g, "");
+  // Anything else non-alphanumeric (keep spaces).
+  s = s.replace(/[^a-z0-9 ]/g, "");
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
+}
+
+/**
+ * Parse a name cell that may carry quoted or parenthesized nicknames.
+ *
+ *   Michael                  → { primary: "Michael", variants: [] }
+ *   Michael "Mike"           → { primary: "Michael", variants: ["Mike"] }
+ *   Michael (Mickey)         → { primary: "Michael", variants: ["Mickey"] }
+ *   Michael "Mike" (Mickey)  → { primary: "Michael", variants: ["Mike", "Mickey"] }
+ *   Mary Jane                → { primary: "Mary Jane", variants: [] }
+ *
+ * Handles curly quotes. Keeps casing from the source so variants can
+ * be stored as human-readable aliases. Comparisons downstream go
+ * through normalizeName_().
+ */
+function extractNameVariants_(raw) {
+  var s = String(raw == null ? "" : raw).trim();
+  if (!s) return { primary: "", variants: [] };
+
+  var variants = [];
+  var quotedRe = /[\u201C"]([^\u201D"]+)[\u201D"]/g;
+  var parenedRe = /\(([^)]+)\)/g;
+  var m;
+  while ((m = quotedRe.exec(s)) !== null) {
+    var v = String(m[1] || "").trim();
+    if (v) variants.push(v);
+  }
+  while ((m = parenedRe.exec(s)) !== null) {
+    var v2 = String(m[1] || "").trim();
+    if (v2) variants.push(v2);
+  }
+
+  var primary = s
+    .replace(/[\u201C"][^\u201D"]+[\u201D"]/g, " ")
+    .replace(/\([^)]+\)/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return { primary: primary || s, variants: variants };
+}

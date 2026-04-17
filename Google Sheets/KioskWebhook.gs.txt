@@ -442,43 +442,94 @@ function findHeaderCol_(headers, candidates) {
 function matchNameRow_(rows, lnIdx, fnIdx, attendeeName) {
   var parsed = parseAttendeeName_(attendeeName);
   if (!parsed) return -1;
-  var wantFirst = parsed.first;
+  var wantFirstCandidates = parsed.firstCandidates; // e.g. ["Michael", "Mike"] → normalized
   var wantLast = parsed.last;
 
-  // 1 — exact
-  for (var r = 0; r < rows.length; r++) {
-    var ln = normalize_(rows[r][lnIdx]);
-    var fn = normalize_(rows[r][fnIdx]);
-    if (ln === wantLast && fn === wantFirst) return r;
-  }
-  // 2 — prefix match on first
-  for (var r = 0; r < rows.length; r++) {
-    var ln = normalize_(rows[r][lnIdx]);
-    var fn = normalize_(rows[r][fnIdx]);
-    if (ln === wantLast && fn.length > 0 && wantFirst.indexOf(fn) === 0) return r;
-    if (ln === wantLast && wantFirst.length > 0 && fn.indexOf(wantFirst) === 0) return r;
-  }
-  // 3 — nicknames
-  var candidates = nicknameCandidates_(wantFirst);
-  for (var r = 0; r < rows.length; r++) {
-    var ln = normalize_(rows[r][lnIdx]);
-    if (ln !== wantLast) continue;
-    var fn = normalize_(rows[r][fnIdx]);
-    for (var k = 0; k < candidates.length; k++) {
-      if (fn === candidates[k]) return r;
+  // For every attendee-first candidate, try each employee row.
+  for (var ci = 0; ci < wantFirstCandidates.length; ci++) {
+    var wantFirst = wantFirstCandidates[ci];
+
+    // 1 — exact last + exact first
+    for (var r = 0; r < rows.length; r++) {
+      var ln = normalize_(rows[r][lnIdx]);
+      if (ln !== wantLast) continue;
+      var fnRawCell = String(rows[r][fnIdx] || "");
+      // The employee cell itself can carry quoted nicknames; compare
+      // against every variant we find there.
+      var employeeFirstVariants = firstNameVariantsNormalized_(fnRawCell);
+      for (var e1 = 0; e1 < employeeFirstVariants.length; e1++) {
+        if (employeeFirstVariants[e1] === wantFirst) return r;
+      }
+    }
+
+    // 2 — prefix match on first (John ↔ Johnny, Sam ↔ Samuel)
+    for (var r = 0; r < rows.length; r++) {
+      var ln = normalize_(rows[r][lnIdx]);
+      if (ln !== wantLast) continue;
+      var fnRawCell2 = String(rows[r][fnIdx] || "");
+      var empVariants2 = firstNameVariantsNormalized_(fnRawCell2);
+      for (var e2 = 0; e2 < empVariants2.length; e2++) {
+        var fn = empVariants2[e2];
+        if (fn.length > 0 && wantFirst.indexOf(fn) === 0) return r;
+        if (wantFirst.length > 0 && fn.indexOf(wantFirst) === 0) return r;
+      }
+    }
+
+    // 3 — nicknames
+    var candidates = nicknameCandidates_(wantFirst);
+    if (candidates.length) {
+      for (var r = 0; r < rows.length; r++) {
+        var ln = normalize_(rows[r][lnIdx]);
+        if (ln !== wantLast) continue;
+        var fnRawCell3 = String(rows[r][fnIdx] || "");
+        var empVariants3 = firstNameVariantsNormalized_(fnRawCell3);
+        for (var k = 0; k < candidates.length; k++) {
+          for (var e3 = 0; e3 < empVariants3.length; e3++) {
+            if (empVariants3[e3] === candidates[k]) return r;
+          }
+        }
+      }
     }
   }
   return -1;
+}
+
+/**
+ * Return the normalized first-name variants carried in a raw cell.
+ * Handles `Michael "Mike" (Mickey)` → ["michael","mike","mickey"].
+ */
+function firstNameVariantsNormalized_(raw) {
+  var parts = extractNameVariants_(raw);
+  var out = [];
+  var seen = {};
+  var push = function (v) {
+    var n = normalize_(v);
+    if (!n || seen[n]) return;
+    seen[n] = true;
+    out.push(n);
+  };
+  if (parts.primary) push(parts.primary);
+  for (var i = 0; i < parts.variants.length; i++) push(parts.variants[i]);
+  return out;
 }
 
 function parseAttendeeName_(raw) {
   if (!raw) return null;
   var parts = String(raw).trim().split(/\s+/);
   if (parts.length < 2) return null;
-  var first = normalize_(parts[0]);
-  var last = normalize_(parts[parts.length - 1]);
-  if (!first || !last) return null;
-  return { first: first, last: last };
+
+  // Everything after the first token is treated as a (possibly compound)
+  // last name. Last name uses full normalization so "O'Brien" == "OBrien".
+  var last = normalize_(parts.slice(1).join(" "));
+
+  // The first token may itself carry a quoted nickname ("Michael\"Mike\"")
+  // though that's rare in kiosk input — still handle it.
+  var firstRaw = parts[0];
+  var firstCandidates = firstNameVariantsNormalized_(firstRaw);
+  if (firstCandidates.length === 0) firstCandidates = [normalize_(firstRaw)];
+
+  if (!firstCandidates[0] || !last) return null;
+  return { firstCandidates: firstCandidates, last: last };
 }
 
 function nicknameCandidates_(first) {
@@ -501,12 +552,48 @@ function nicknameCandidates_(first) {
   return out;
 }
 
+/**
+ * normalize_ — same rules as scripts/ingest/normalize.ts#normalizeName
+ * Strips apostrophes / hyphens / periods / quotes / parens, lowercases,
+ * collapses whitespace.
+ */
 function normalize_(v) {
-  return String(v == null ? "" : v)
-    .trim()
-    .toLowerCase()
+  var s = String(v == null ? "" : v).trim().toLowerCase();
+  s = s.replace(/[\u2018\u2019'`]/g, "");
+  s = s.replace(/["\u201C\u201D()\[\]]/g, " ");
+  s = s.replace(/[-_./\\,]/g, "");
+  s = s.replace(/[^a-z0-9 ]/g, "");
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
+}
+
+/**
+ * extractNameVariants_ — same shape as scripts/ingest/normalize.ts.
+ * Pulls quoted/parenthesized nicknames out of a name cell.
+ * Kept inline here (not in Utilities.gs) so this file stays a true
+ * standalone drop-in.
+ */
+function extractNameVariants_(raw) {
+  var s = String(raw == null ? "" : raw).trim();
+  if (!s) return { primary: "", variants: [] };
+  var variants = [];
+  var qRe = /[\u201C"]([^\u201D"]+)[\u201D"]/g;
+  var pRe = /\(([^)]+)\)/g;
+  var m;
+  while ((m = qRe.exec(s)) !== null) {
+    var v = String(m[1] || "").trim();
+    if (v) variants.push(v);
+  }
+  while ((m = pRe.exec(s)) !== null) {
+    var v2 = String(m[1] || "").trim();
+    if (v2) variants.push(v2);
+  }
+  var primary = s
+    .replace(/[\u201C"][^\u201D"]+[\u201D"]/g, " ")
+    .replace(/\([^)]+\)/g, " ")
     .replace(/\s+/g, " ")
-    .replace(/[^a-z0-9 ]/g, "");
+    .trim();
+  return { primary: primary || s, variants: variants };
 }
 
 

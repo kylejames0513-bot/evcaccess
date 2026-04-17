@@ -99,6 +99,25 @@ To pull immediately instead of waiting: **Dashboard → Ingestion Console → `n
 - **Best-effort** writes the date into the mapped columns on the `Training` matrix — only if the session is in `SESSION_TO_COLUMN` **and** an employee row matches the typed name (exact → prefix → nickname).
 - Returns a tiny HTML page that posts `submission_success` / `submission_error` back to the kiosk window, matching the handshake the kiosk JS expects.
 
+### Name matching is now tolerant of
+
+- **Apostrophes and hyphens** — `O'Brien` / `OBrien` / `O\u2019Brien` all match; `Smith-Jones` / `SmithJones` all match. Same for periods (`A. J.` / `A J`).
+- **Quoted nicknames inside a cell** — if the attendee or the Training row has `Michael "Mike"` or `Michael (Mickey)`, the matcher tries both forms.
+- **The employee's Aliases column on the Merged sheet** — see below.
+- **Compound last names** — `Mary Smith Jones` now picks the full last name as a unit, not just the final token.
+
+### Merged sheet: optional Aliases column
+
+If your **Employee** tab (the merged roster that feeds the sync) has an **Aliases** column — also accepted as `Alias` or `Known Aliases` — list each person's nicknames separated by `;` or `,`. The SupabaseSync script now pulls these through so both the hub's resolver AND the kiosk matcher will treat them as hits.
+
+Example row:
+
+| ID | Last Name | First Name | Preferred Name | Aliases |
+|---|---|---|---|---|
+| AB04 | Thompson | Mary | Cindy | Cyndi; Thumper |
+
+The sync will register Mary, Cindy, Cyndi, and Thumper Thompson all as aliases resolving to the same employee.
+
 ### JSON actions used by the hub's Sign-in Review tab
 
 - `GET ?action=listPendingSignIns` → JSON list of rows with `Status = "Pending"`. Only rows that have a `Row ID` populated show up, so pre-redeploy rows are invisible (they stay on the log, just aren't resolvable from the hub).
