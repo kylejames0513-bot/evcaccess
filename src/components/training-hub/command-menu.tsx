@@ -18,7 +18,6 @@ const links = [
   { href: "/compliance", label: "Compliance" },
   { href: "/imports", label: "Imports" },
   { href: "/review", label: "Resolution" },
-  { href: "/classes", label: "Classes" },
   { href: "/settings", label: "Settings" },
 ];
 

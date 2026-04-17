@@ -66,14 +66,14 @@ export async function GET(request: NextRequest) {
     // Get training codes
     const { data: trainings } = await supabase
       .from("trainings")
-      .select("id, code, title, column_key");
+      .select("id, code, title");
 
     const trMap = new Map((trainings ?? []).map(t => [t.id, t]));
 
-    // Build result: code → { status, date, expires, column_key }
+    // Build result: code → { status, date, expires }
     // Only return the latest completion per training
     const seen = new Set<string>();
-    const result: Record<string, { status: string; date: string | null; expires: string | null; column_key: string | null }> = {};
+    const result: Record<string, { status: string; date: string | null; expires: string | null }> = {};
 
     for (const c of completions ?? []) {
       const tr = trMap.get(c.training_id);
@@ -83,7 +83,6 @@ export async function GET(request: NextRequest) {
         status: c.status === "exempt" ? (c.exempt_reason ?? "N/A") : c.status === "compliant" ? "Yes" : c.status,
         date: c.completed_on,
         expires: c.expires_on,
-        column_key: tr.column_key,
       };
     }
 
@@ -110,7 +109,7 @@ export async function GET(request: NextRequest) {
   if (action === "listTrainings") {
     const { data } = await supabase
       .from("trainings")
-      .select("code, title, column_key, cadence_type, cadence_months")
+      .select("code, title, cadence_type, cadence_months")
       .eq("active", true)
       .order("code");
 
