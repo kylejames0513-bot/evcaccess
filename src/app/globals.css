@@ -3,21 +3,37 @@
 @tailwind utilities;
 
 :root {
-  --bg: #0f1117;
-  --surface: #1a1d27;
-  --surface-alt: #1e2230;
-  --ink: #e8eaed;
-  --ink-soft: #b0b3ba;
-  --ink-muted: #6b6f7b;
-  --rule: #2a2e3d;
-  --accent: #4ade80;
-  --accent-soft: rgba(74, 222, 128, 0.1);
-  --warn: #f59e0b;
-  --warn-soft: rgba(245, 158, 11, 0.1);
-  --alert: #ef4444;
-  --alert-soft: rgba(239, 68, 68, 0.1);
-  --success: #4ade80;
-  --success-soft: rgba(74, 222, 128, 0.1);
+  /* surfaces */
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --surface-alt: #f5f5f4;
+  --surface-sunk: #eeedeb;
+
+  /* ink */
+  --ink: #1c1917;
+  --ink-soft: #44403c;
+  --ink-muted: #78716c;
+  --ink-faint: #a8a29e;
+
+  /* structure */
+  --rule: #e7e5e4;
+  --rule-strong: #d6d3d1;
+
+  /* accent: single indigo */
+  --accent: #4338ca;
+  --accent-hover: #3730a3;
+  --accent-soft: rgba(67, 56, 202, 0.08);
+  --accent-ink: #ffffff;
+
+  /* semantic */
+  --success: #047857;
+  --success-soft: rgba(4, 120, 87, 0.08);
+  --warn: #b45309;
+  --warn-soft: rgba(180, 83, 9, 0.08);
+  --alert: #b91c1c;
+  --alert-soft: rgba(185, 28, 28, 0.08);
+
+  /* shadcn compatibility (same tokens, new values) */
   --background: var(--bg);
   --foreground: var(--ink);
   --card: var(--surface);
@@ -25,7 +41,7 @@
   --popover: var(--surface);
   --popover-foreground: var(--ink);
   --primary: var(--accent);
-  --primary-foreground: #0f1117;
+  --primary-foreground: var(--accent-ink);
   --secondary: var(--surface-alt);
   --secondary-foreground: var(--ink);
   --muted: var(--surface-alt);
@@ -41,12 +57,12 @@
   --chart-2: var(--ink-muted);
   --chart-3: var(--warn);
   --chart-4: var(--alert);
-  --chart-5: #8b5cf6;
+  --chart-5: var(--success);
   --radius: 0.5rem;
   --sidebar: var(--surface);
   --sidebar-foreground: var(--ink);
   --sidebar-primary: var(--accent);
-  --sidebar-primary-foreground: #0f1117;
+  --sidebar-primary-foreground: var(--accent-ink);
   --sidebar-accent: var(--surface-alt);
   --sidebar-accent-foreground: var(--ink);
   --sidebar-border: var(--rule);
@@ -55,13 +71,42 @@
 
 @layer base {
   * { @apply border-[--rule]; }
-  body { @apply bg-[--bg] text-[--ink]; }
-  html { font-family: var(--font-sans), system-ui, sans-serif; }
-  h1, h2, .font-display { font-family: var(--font-display), Georgia, serif; }
+  html { font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif; }
+  body { @apply bg-[--bg] text-[--ink] antialiased; }
+  h1, h2, h3, .font-display { font-family: var(--font-display), Georgia, serif; font-weight: 500; letter-spacing: -0.015em; }
+  h1 { @apply text-[28px] leading-[1.15]; }
+  h2 { @apply text-[20px] leading-[1.25]; }
+  h3 { @apply text-[16px] leading-[1.3]; }
+  ::selection { background: var(--accent-soft); color: var(--accent); }
 }
 
 @layer utilities {
   .font-display { font-family: var(--font-display), Georgia, serif; }
-  .caption { @apply text-[11px] font-medium tracking-[0.08em] uppercase; color: var(--ink-muted); }
-  .stat-big { font-family: var(--font-display), Georgia, serif; @apply text-[40px] leading-none font-normal; font-variant-numeric: tabular-nums; }
+  .caption {
+    @apply text-[11px] font-medium tracking-[0.1em] uppercase;
+    color: var(--ink-muted);
+  }
+  .stat-big {
+    font-family: var(--font-display), Georgia, serif;
+    @apply text-[44px] leading-none font-normal tracking-tight;
+    font-variant-numeric: tabular-nums;
+  }
+  .hairline {
+    @apply border-t border-[--rule];
+  }
+  .panel {
+    @apply rounded-[var(--radius)] border border-[--rule] bg-[--surface];
+  }
+  .panel-sunk {
+    @apply rounded-[var(--radius)] border border-[--rule] bg-[--surface-alt];
+  }
+  .row-hover:hover {
+    background: var(--surface-alt);
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .focus-ring {
+    @apply outline-none ring-0 focus-visible:ring-2 focus-visible:ring-[--accent] focus-visible:ring-offset-2 focus-visible:ring-offset-[--bg];
+  }
 }
