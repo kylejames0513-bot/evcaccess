@@ -11,7 +11,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Papa from "papaparse";
-import { parseDate, toISODate, parseEmployeeStatus, normalizeName } from "../normalize";
+import { parseDate, toISODate, parseEmployeeStatus, normalizeName, extractNameVariants } from "../normalize";
 import { createIngestionRun, finishIngestionRun, writeAuditEntry, type RunStats } from "../runLogger";
 
 /** Flexible column header aliases → canonical field name */
@@ -115,8 +115,13 @@ export async function ingest(options: {
     if (!employeeId) { stats.skipped++; continue; }
 
     const lastName = getVal(row, colMap, "legal_last_name");
-    const firstName = getVal(row, colMap, "legal_first_name");
-    if (!lastName && !firstName) { stats.skipped++; continue; }
+    const firstNameRaw = getVal(row, colMap, "legal_first_name");
+    if (!lastName && !firstNameRaw) { stats.skipped++; continue; }
+
+    // Pull any quoted / parenthesized nicknames out of the F NAME cell.
+    // Preferred column still wins if set, but the F NAME variants feed
+    // known_aliases so the resolver can match on them later.
+    const { primary: firstName, variants: firstNameVariants } = extractNameVariants(firstNameRaw);
 
     const hireDateRaw = getVal(row, colMap, "hire_date");
     const hireDate = parseDate(hireDateRaw);
@@ -126,9 +131,20 @@ export async function ingest(options: {
     const status = parseEmployeeStatus(statusRaw);
 
     const aliasesRaw = getVal(row, colMap, "known_aliases");
-    const knownAliases = aliasesRaw
+    const aliasColumnValues = aliasesRaw
       ? aliasesRaw.split(/[;,]/).map((a) => a.trim()).filter(Boolean)
       : [];
+
+    // Merge + dedupe (case-insensitive) aliases from the F NAME quoted
+    // nicknames AND the dedicated Aliases column.
+    const seen = new Set<string>();
+    const knownAliases: string[] = [];
+    for (const candidate of [...firstNameVariants, ...aliasColumnValues]) {
+      const key = normalizeName(candidate);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      knownAliases.push(candidate);
+    }
 
     const supervisorName = getVal(row, colMap, "supervisor_name");
     const supervisorIdRaw = getVal(row, colMap, "supervisor_id_raw");
@@ -164,6 +180,8 @@ export async function ingest(options: {
       .eq("employee_id", employeeId)
       .maybeSingle();
 
+    let employeeDbId: string | null = null;
+
     if (existing) {
       const { error } = await supabase
         .from("employees")
@@ -173,6 +191,7 @@ export async function ingest(options: {
         stats.errors.push(`Update failed for ${employeeId}: ${error.message}`);
       } else {
         stats.updated++;
+        employeeDbId = existing.id;
         await writeAuditEntry(supabase, {
           actor: "system",
           action: "update",
@@ -184,13 +203,57 @@ export async function ingest(options: {
         });
       }
     } else {
-      const { error } = await supabase
+      const { data: inserted, error } = await supabase
         .from("employees")
-        .insert(record);
+        .insert(record)
+        .select("id")
+        .single();
       if (error) {
         stats.errors.push(`Insert failed for ${employeeId}: ${error.message}`);
       } else {
         stats.inserted++;
+        employeeDbId = inserted?.id ?? null;
+      }
+    }
+
+    // Mirror known_aliases + preferred_name into the name_aliases table so
+    // the resolver's alias-table lookup has real data. Delete + re-insert
+    // keeps the set in sync with the source sheet each run.
+    if (employeeDbId) {
+      await supabase
+        .from("name_aliases")
+        .delete()
+        .eq("employee_id", employeeDbId)
+        .eq("source", "merged_master");
+
+      const aliasFirsts: string[] = [];
+      const preferred = (record.preferred_name ?? "").trim();
+      if (preferred && normalizeName(preferred) !== normalizeName(firstName)) {
+        aliasFirsts.push(preferred);
+      }
+      for (const alias of knownAliases) aliasFirsts.push(alias);
+
+      const seenAlias = new Set<string>();
+      const aliasRows = aliasFirsts
+        .map((f) => ({ alias_first: f.trim(), alias_last: lastName }))
+        .filter((r) => {
+          const key = `${normalizeName(r.alias_last)}|${normalizeName(r.alias_first)}`;
+          if (!r.alias_first || seenAlias.has(key)) return false;
+          seenAlias.add(key);
+          return true;
+        })
+        .map((r) => ({
+          employee_id: employeeDbId,
+          alias_first: r.alias_first,
+          alias_last: r.alias_last,
+          source: "merged_master",
+        }));
+
+      if (aliasRows.length > 0) {
+        const { error: aliasErr } = await supabase.from("name_aliases").insert(aliasRows);
+        if (aliasErr) {
+          stats.errors.push(`Alias insert failed for ${employeeId}: ${aliasErr.message}`);
+        }
       }
     }
 
