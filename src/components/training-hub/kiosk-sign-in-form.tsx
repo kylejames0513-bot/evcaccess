@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const APPS_SCRIPT_FALLBACK =
-  "https://script.google.com/macros/s/AKfycbzxZ8CQOcwuCSLrLwAP0MVsozi03uE6korbvfENrNgGRA_cs9Pgp-1tptRQGLz69GUXFA/exec";
+  "https://script.google.com/macros/s/AKfycbwOJQvaCIEiRJu8mTZicVvqpTtwWfY6LeWEXyTH0j5X9W55y9-fFs-GN2WbulrpcB1ocg/exec";
 
 const CLOCK_IN_URL = "https://infoservdd.com/login/";
 
