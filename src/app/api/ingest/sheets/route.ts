@@ -1,21 +1,26 @@
 /**
  * POST /api/ingest/sheets
  *
- * Vercel cron endpoint — placeholder for nightly Google Sheets sync.
- * The actual ingestion logic runs via CLI (npm run ingest:refresh)
- * because it depends on Node.js modules (crypto, fs) that aren't
- * available in the Next.js edge/serverless runtime.
+ * Vercel cron endpoint — pulls Sources A (Merged Employee Master) and
+ * B (Attendance Tracker) from their Google Sheets published CSVs and
+ * upserts into Supabase. Runs nightly per vercel.json.
  *
- * This route logs a cron trigger and returns status.
- * For v1, Kyle triggers manually. v2 will use a Vercel serverless function.
+ * Sources C (New Hire Tracker .xlsm) and D (FY Separation Summary .xlsx)
+ * still require the CLI (`npm run ingest:seed`) because they read local
+ * files from disk.
  *
- * Auth: CRON_SECRET header required in production.
+ * Auth: CRON_SECRET header required when the env var is set.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import * as employeeMaster from "../../../../../scripts/ingest/sources/employeeMaster";
+import * as attendanceTracker from "../../../../../scripts/ingest/sources/attendanceTracker";
 
-export async function POST(request: NextRequest) {
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
+async function runIngest(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret) {
     const auth = request.headers.get("authorization");
@@ -34,27 +39,29 @@ export async function POST(request: NextRequest) {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // Log the cron trigger
-  await supabase.from("ingestion_runs").insert({
-    source: "cron_trigger",
-    status: "success",
-    triggered_by: "cron",
-    rows_processed: 0,
-    rows_inserted: 0,
-    rows_updated: 0,
-    rows_skipped: 0,
-    rows_unresolved: 0,
-    finished_at: new Date().toISOString(),
-    error_summary: "Cron endpoint reached. Run `npm run ingest:refresh` for full sync.",
-  });
+  const startedAt = new Date().toISOString();
+  const empStats = await employeeMaster.ingest({ mode: "refresh", dryRun: false, supabase });
+  const attStats = await attendanceTracker.ingest({ mode: "refresh", dryRun: false, supabase });
 
-  return NextResponse.json({
-    ok: true,
-    message: "Cron trigger logged. Use CLI for full ingestion: npm run ingest:refresh",
-    timestamp: new Date().toISOString(),
-  });
+  const hasErrors = empStats.errors.length + attStats.errors.length > 0;
+
+  return NextResponse.json(
+    {
+      ok: !hasErrors,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      employeeMaster: empStats,
+      attendanceTracker: attStats,
+    },
+    { status: hasErrors ? 500 : 200 }
+  );
 }
 
+export async function POST(request: NextRequest) {
+  return runIngest(request);
+}
+
+// Vercel cron invokes with GET by default.
 export async function GET(request: NextRequest) {
-  return POST(request);
+  return runIngest(request);
 }
