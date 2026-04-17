@@ -95,8 +95,27 @@ To pull immediately instead of waiting: **Dashboard → Ingestion Console → `n
 
 - Accepts the six POST fields the hub kiosk sends: `session`, `attendee`, `date`, `leftEarly`, `reason`, `notes`.
 - **Always** appends a row to `Training Records` — no row is ever dropped on the floor. Creates the tab with a header row the first time you run it.
+- Writes a **UUID** into column 11 (`Row ID`) so the hub's Sign-in Review tab can target individual rows later.
 - **Best-effort** writes the date into the mapped columns on the `Training` matrix — only if the session is in `SESSION_TO_COLUMN` **and** an employee row matches the typed name (exact → prefix → nickname).
 - Returns a tiny HTML page that posts `submission_success` / `submission_error` back to the kiosk window, matching the handshake the kiosk JS expects.
+
+### JSON actions used by the hub's Sign-in Review tab
+
+- `GET ?action=listPendingSignIns` → JSON list of rows with `Status = "Pending"`. Only rows that have a `Row ID` populated show up, so pre-redeploy rows are invisible (they stay on the log, just aren't resolvable from the hub).
+- `POST application/json` with body `{ action: "resolveSignIn", id, result: "Pass" | "Failed", notes? }` →
+  - Flips the row's Status column to `Pass` or `Failed`.
+  - If `Failed`, overwrites the matching matrix cell(s) with the literal string `Failed`, which the nightly hub cron ingests as a failed completion instead of a compliant date.
+  - If `notes` is provided, appends them to the Notes column separated by `|`.
+
+### After you paste the updated script
+
+If you already deployed an earlier `KioskWebhook.gs`, you need to ship a **new version** of the web app so the hub's review tab can call the new actions:
+
+1. **Deploy → Manage deployments** → ⋯ on your existing deployment → **Edit**.
+2. **Version:** pick **New version**. Description: "add listPendingSignIns + resolveSignIn".
+3. Click **Deploy** — the URL stays the same, so you don't need to touch the Vercel env var.
+
+Rows that were logged before this redeploy won't show up in the review tab (no UUID). If you want them resolvable retroactively, add a Row ID by hand in column 11 and they'll appear on the next page load.
 
 ## Why this is separate from the hub's own API
 

@@ -85,10 +85,35 @@ var NICKNAMES = {
 
 
 // ============================================================
-//   doPost — entry point for the kiosk form
+//   Log column layout — 1-indexed
+// ============================================================
+var LOG_COL_ARRIVAL   = 1;
+var LOG_COL_SESSION   = 2;
+var LOG_COL_ATTENDEE  = 3;
+var LOG_COL_DATE      = 4;
+var LOG_COL_LEFTEARLY = 5;
+var LOG_COL_REASON    = 6;
+var LOG_COL_NOTES     = 7;
+var LOG_COL_STATUS    = 10;
+var LOG_COL_ID        = 11;
+
+
+// ============================================================
+//   doPost — entry point
+//   Two shapes:
+//     (1) kiosk form submit (x-www-form-urlencoded):
+//         session, attendee, date, leftEarly, reason, notes
+//     (2) hub JSON call (e.postData.contents):
+//         { action: "resolveSignIn", id, result: "Pass"|"Failed", notes? }
 // ============================================================
 function doPost(e) {
   try {
+    // Prefer JSON body when present (hub → "resolveSignIn")
+    var json = parseJsonBody_(e);
+    if (json && json.action === "resolveSignIn") {
+      return handleResolveSignIn_(json);
+    }
+
     var params = (e && e.parameter) || {};
     var session = String(params.session || "").trim();
     var attendee = String(params.attendee || "").trim();
@@ -140,6 +165,9 @@ function doPost(e) {
 //   Log an incoming submission to the Training Records tab.
 //   Creates the tab with a header row on first use so the
 //   format is obvious to whoever looks at the sheet.
+//
+//   Column 11 gets a UUID so the hub's sign-in review can
+//   resolve pending rows by a stable id.
 // ============================================================
 function logSubmission_(row) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -148,7 +176,7 @@ function logSubmission_(row) {
     sheet = ss.insertSheet(LOG_SHEET_NAME);
     sheet.appendRow([
       "Arrival Time", "Session", "Attendee", "Date",
-      "Left Early", "Reason", "Notes", "", "", "Status", ""
+      "Left Early", "Reason", "Notes", "", "", "Status", "Row ID"
     ]);
     sheet.getRange(1, 1, 1, 11).setFontWeight("bold");
     sheet.setFrozenRows(1);
@@ -165,8 +193,181 @@ function logSubmission_(row) {
     "",
     "",
     "Pending",
-    ""
+    Utilities.getUuid()
   ]);
+}
+
+
+// ============================================================
+//   doGet — JSON read endpoints for the hub
+//     ?action=listPendingSignIns   — returns pending rows
+//     (anything else) — legacy placeholder
+// ============================================================
+function doGet(e) {
+  try {
+    var params = (e && e.parameter) || {};
+    var action = String(params.action || "").trim();
+
+    if (action === "listPendingSignIns") {
+      return jsonResponse_({ ok: true, signIns: readPendingSignIns_() });
+    }
+
+    return jsonResponse_({ ok: true, message: "KioskWebhook alive" });
+  } catch (err) {
+    Logger.log("doGet error: " + err.toString());
+    return jsonResponse_({ ok: false, error: err.toString() });
+  }
+}
+
+
+function readPendingSignIns_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(LOG_SHEET_NAME);
+  if (!sheet) return [];
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+
+  var values = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+  var out = [];
+  for (var i = 0; i < values.length; i++) {
+    var r = values[i];
+    var status = String(r[LOG_COL_STATUS - 1] || "").trim();
+    if (status !== "Pending") continue;
+
+    var id = String(r[LOG_COL_ID - 1] || "").trim();
+    if (!id) continue; // only rows with a UUID are resolvable from the hub
+
+    out.push({
+      id: id,
+      arrivalTime: String(r[LOG_COL_ARRIVAL - 1] || ""),
+      session: String(r[LOG_COL_SESSION - 1] || ""),
+      attendee: String(r[LOG_COL_ATTENDEE - 1] || ""),
+      date: formatDateCell_(r[LOG_COL_DATE - 1]),
+      leftEarly: String(r[LOG_COL_LEFTEARLY - 1] || ""),
+      reason: String(r[LOG_COL_REASON - 1] || ""),
+      notes: String(r[LOG_COL_NOTES - 1] || "")
+    });
+  }
+  // newest first
+  return out.reverse();
+}
+
+
+function handleResolveSignIn_(body) {
+  var id = String(body.id || "").trim();
+  var result = String(body.result || "").trim(); // "Pass" or "Failed"
+  var extraNotes = String(body.notes || "").trim();
+
+  if (!id || (result !== "Pass" && result !== "Failed")) {
+    return jsonResponse_({ ok: false, error: "id + result ('Pass' or 'Failed') required" });
+  }
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(LOG_SHEET_NAME);
+  if (!sheet) return jsonResponse_({ ok: false, error: "Log sheet not found" });
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return jsonResponse_({ ok: false, error: "No rows to resolve" });
+
+  var ids = sheet.getRange(2, LOG_COL_ID, lastRow - 1, 1).getValues();
+  var rowIdx = -1;
+  for (var i = 0; i < ids.length; i++) {
+    if (String(ids[i][0] || "").trim() === id) {
+      rowIdx = i;
+      break;
+    }
+  }
+  if (rowIdx < 0) return jsonResponse_({ ok: false, error: "Row with id " + id + " not found" });
+
+  var sheetRow = rowIdx + 2;
+
+  // 1) Flip the status column on the log
+  sheet.getRange(sheetRow, LOG_COL_STATUS).setValue(result);
+
+  // 2) If Failed, overwrite the matrix cell(s) for this attendee+session so the
+  //    nightly cron ingests a "failed" completion instead of a compliant date.
+  if (result === "Failed") {
+    var session = String(sheet.getRange(sheetRow, LOG_COL_SESSION).getValue() || "").trim();
+    var attendee = String(sheet.getRange(sheetRow, LOG_COL_ATTENDEE).getValue() || "").trim();
+    if (SESSION_TO_COLUMN[session]) {
+      try {
+        writeFailToMatrix_(session, attendee);
+      } catch (matrixErr) {
+        Logger.log("Matrix fail-write error: " + matrixErr.toString());
+        // Log row already flipped; matrix write was best-effort.
+      }
+    }
+  }
+
+  // 3) Append extra notes if provided
+  if (extraNotes) {
+    var existing = String(sheet.getRange(sheetRow, LOG_COL_NOTES).getValue() || "");
+    var joined = existing ? existing + " | " + extraNotes : extraNotes;
+    sheet.getRange(sheetRow, LOG_COL_NOTES).setValue(joined);
+  }
+
+  return jsonResponse_({ ok: true, id: id, result: result });
+}
+
+
+function writeFailToMatrix_(session, attendeeName) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(MATRIX_SHEET_NAME);
+  if (!sheet) return;
+
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return;
+
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var lnCol = findHeaderCol_(headers, ["L NAME", "LAST NAME", "LAST"]);
+  var fnCol = findHeaderCol_(headers, ["F NAME", "FIRST NAME", "FIRST"]);
+  if (lnCol < 0 || fnCol < 0) return;
+
+  var targetColumns = SESSION_TO_COLUMN[session] || [];
+  var columnIndexes = [];
+  for (var i = 0; i < targetColumns.length; i++) {
+    var idx = findHeaderCol_(headers, [targetColumns[i]]);
+    if (idx >= 0) columnIndexes.push(idx);
+  }
+  if (columnIndexes.length === 0) return;
+
+  var names = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  var row = matchNameRow_(names, lnCol - 1, fnCol - 1, attendeeName);
+  if (row < 0) return;
+
+  var sheetRow = row + 2;
+  for (var c = 0; c < columnIndexes.length; c++) {
+    sheet.getRange(sheetRow, columnIndexes[c]).setValue("Failed");
+  }
+}
+
+
+function parseJsonBody_(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents) return null;
+    var ct = (e.postData.type || "").toLowerCase();
+    if (ct.indexOf("application/json") < 0) return null;
+    return JSON.parse(e.postData.contents);
+  } catch (_) {
+    return null;
+  }
+}
+
+
+function jsonResponse_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(
+    ContentService.MimeType.JSON
+  );
+}
+
+
+function formatDateCell_(v) {
+  if (!v) return "";
+  if (v instanceof Date) {
+    return Utilities.formatDate(v, Session.getScriptTimeZone() || "America/New_York", "yyyy-MM-dd");
+  }
+  return String(v);
 }
 
 
