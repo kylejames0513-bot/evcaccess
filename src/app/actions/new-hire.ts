@@ -2,55 +2,69 @@
 
 import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { templateFor, type HireForTemplate } from "@/lib/onboarding-templates";
 
+// Legacy stages retained so VBA keeps working; the UI no longer exposes them.
 const STAGES = [
   "offer_accepted", "pre_hire_docs", "day_one_setup", "orientation",
-  "thirty_day", "sixty_day", "ninety_day", "complete", "withdrew", "terminated_in_probation"
+  "thirty_day", "sixty_day", "ninety_day", "complete", "withdrew", "terminated_in_probation",
 ] as const;
 
-// Default checklist per stage
-const DEFAULT_CHECKLIST: Record<string, string[]> = {
-  offer_accepted: [
-    "Offer letter signed",
-    "Background check authorized",
-    "Reference checks completed",
-  ],
-  pre_hire_docs: [
-    "I-9 form completed",
-    "W-4 form completed",
-    "Direct deposit form",
-    "Emergency contact form",
-    "Policy acknowledgements",
-  ],
-  day_one_setup: [
-    "Badge issued",
-    "Email account created",
-    "Paylocity profile created",
-    "Desk/workspace assigned",
-    "Tour of facility",
-  ],
-  orientation: [
-    "HR orientation completed",
-    "Safety orientation completed",
-    "Policies reviewed",
-    "Mission & values reviewed",
-  ],
-  thirty_day: [
-    "30-day check-in with supervisor",
-    "Required trainings on track",
-    "Onboarding paperwork complete",
-  ],
-  sixty_day: [
-    "60-day check-in with supervisor",
-    "Performance feedback collected",
-  ],
-  ninety_day: [
-    "90-day review completed",
-    "Probation status confirmed",
-    "All required trainings current",
-  ],
-  complete: [],
-};
+/**
+ * Seed the checklist for a hire from the template that matches their
+ * hire_type / is_residential / conditional flags. Idempotent: existing
+ * items keyed by item_key are updated (label/kind), missing ones inserted,
+ * and items no longer in the template for this hire are left in place
+ * (so we never destroy checked work).
+ */
+export async function seedChecklistForHire(hireId: string): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+
+  const { data: hire } = await supabase
+    .from("new_hires")
+    .select("id, hire_type, is_residential, lift_van_required, new_job_desc_required")
+    .eq("id", hireId)
+    .maybeSingle();
+
+  if (!hire) return;
+
+  const template = templateFor(hire as HireForTemplate);
+
+  const { data: existing } = await supabase
+    .from("new_hire_checklist")
+    .select("id, item_key")
+    .eq("new_hire_id", hireId);
+
+  const existingByKey = new Map(
+    (existing ?? []).filter((r) => r.item_key).map((r) => [r.item_key as string, r.id]),
+  );
+
+  const toInsert = template
+    .filter((t) => !existingByKey.has(t.key))
+    .map((t) => ({
+      new_hire_id: hireId,
+      item_key: t.key,
+      item_name: t.label,
+      kind: t.kind,
+      required: t.kind === "required",
+      completed: false,
+      stage: "onboarding",
+    }));
+
+  if (toInsert.length > 0) {
+    await supabase.from("new_hire_checklist").insert(toInsert);
+  }
+
+  // Update label/kind on existing items in case the template changed.
+  for (const t of template) {
+    const id = existingByKey.get(t.key);
+    if (!id) continue;
+    await supabase
+      .from("new_hire_checklist")
+      .update({ item_name: t.label, kind: t.kind, required: t.kind === "required" })
+      .eq("id", id);
+  }
+}
 
 export async function transitionStageAction(formData: FormData): Promise<void> {
   const supabase = await createSupabaseServerClient();
@@ -69,31 +83,6 @@ export async function transitionStageAction(formData: FormData): Promise<void> {
       stage_entry_date: new Date().toISOString().slice(0, 10),
     })
     .eq("id", hireId);
-
-  // Auto-create checklist for the new stage if it doesn't exist
-  const items = DEFAULT_CHECKLIST[nextStage] ?? [];
-  if (items.length > 0) {
-    const { data: existing } = await supabase
-      .from("new_hire_checklist")
-      .select("item_name")
-      .eq("new_hire_id", hireId)
-      .eq("stage", nextStage);
-
-    const existingNames = new Set((existing ?? []).map(e => e.item_name));
-    const toInsert = items
-      .filter(name => !existingNames.has(name))
-      .map(name => ({
-        new_hire_id: hireId,
-        stage: nextStage,
-        item_name: name,
-        required: true,
-        completed: false,
-      }));
-
-    if (toInsert.length > 0) {
-      await supabase.from("new_hire_checklist").insert(toInsert);
-    }
-  }
 
   revalidatePath("/new-hires");
   revalidatePath(`/new-hires/${hireId}`);
@@ -117,7 +106,8 @@ export async function toggleChecklistItemAction(formData: FormData): Promise<voi
     })
     .eq("id", itemId);
 
-  revalidatePath(`/new-hires/${hireId}`);
+  revalidatePath("/new-hires");
+  if (hireId) revalidatePath(`/new-hires/${hireId}`);
 }
 
 export async function addChecklistItemAction(formData: FormData): Promise<void> {
@@ -126,16 +116,16 @@ export async function addChecklistItemAction(formData: FormData): Promise<void> 
   if (!user) return;
 
   const hireId = String(formData.get("hire_id") ?? "").trim();
-  const stage = String(formData.get("stage") ?? "").trim();
   const itemName = String(formData.get("item_name") ?? "").trim();
 
   if (!hireId || !itemName) return;
 
   await supabase.from("new_hire_checklist").insert({
     new_hire_id: hireId,
-    stage: stage || "offer_accepted",
+    stage: "onboarding",
     item_name: itemName,
     required: false,
+    kind: "required",
   });
 
   revalidatePath(`/new-hires/${hireId}`);
