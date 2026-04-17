@@ -70,11 +70,13 @@ export function AppSidebar({ orgName, orgSlug }: { orgName: string; orgSlug: str
 
   return (
     <Sidebar className="border-r border-[--rule] bg-[--surface] text-[--ink]">
-      <SidebarHeader className="gap-0.5 border-b border-[--rule] px-4 py-5">
-        <div className="font-display text-[15px] font-medium tracking-tight text-[--ink]">
-          {orgName}
+      <SidebarHeader className="flex h-14 shrink-0 justify-center border-b border-[--rule] px-4 py-0">
+        <div className="flex items-baseline gap-2 leading-none">
+          <span className="font-display text-[15px] font-medium tracking-tight text-[--ink]">
+            {orgName}
+          </span>
+          <span className="caption">HR Hub</span>
         </div>
-        <span className="caption">HR Hub</span>
       </SidebarHeader>
 
       <SidebarContent className="px-2 py-3">

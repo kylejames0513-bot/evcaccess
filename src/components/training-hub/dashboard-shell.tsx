@@ -33,7 +33,7 @@ function ShellHeader() {
   const pathname = usePathname();
   const crumbs = deriveCrumbs(pathname);
   return (
-    <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b border-[--rule] bg-[--bg]/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-[--bg]/80">
+    <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b border-[--rule] bg-[--bg] px-6">
       <SidebarTrigger className="text-[--ink-muted] hover:text-[--ink]" />
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-sm text-[--ink-muted]">
         {crumbs.map((c, i) => (
