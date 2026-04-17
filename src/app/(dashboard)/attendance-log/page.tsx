@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { EmptyPanel, PageHeader, Pill } from "@/components/training-hub/page-primitives";
 
 export const dynamic = "force-dynamic";
 
@@ -22,33 +23,38 @@ export default async function AttendanceLogPage() {
     .from("trainings")
     .select("id, title, code");
 
-  const empMap = new Map(employees?.map(e => [e.id, `${e.legal_last_name}, ${e.legal_first_name}`]) ?? []);
-  const ttMap = new Map(trainings?.map(t => [t.id, t.title]) ?? []);
+  const empMap = new Map(employees?.map((e) => [e.id, `${e.legal_last_name}, ${e.legal_first_name}`]) ?? []);
+  const ttMap = new Map(trainings?.map((t) => [t.id, t.title]) ?? []);
 
   const sourceLabel = (s: string | null) => {
     switch (s) {
-      case "attendance_tracker": return "Google Sheet";
-      case "manual": return "Manual";
-      case "qr_signin": return "QR Sign-in";
-      case "tracker_xlsm": return "NH Tracker";
-      default: return s ?? "—";
+      case "attendance_tracker":
+        return "Google Sheet";
+      case "manual":
+        return "Manual";
+      case "qr_signin":
+        return "QR Sign-in";
+      case "tracker_xlsm":
+        return "NH Tracker";
+      default:
+        return s ?? "—";
     }
   };
 
+  const hasRows = (completions?.length ?? 0) > 0;
+
   return (
     <div className="space-y-8">
-      <div>
-        <p className="caption">Training</p>
-        <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
-          Attendance Log
-        </h1>
-        <p className="font-display text-sm italic text-[--ink-soft] mt-1">
-          Every training completion on record, newest first.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Training"
+        title="Attendance Log"
+        subtitle="Every training completion on record, newest first."
+      />
 
-      {completions && completions.length > 0 ? (
-        <div className="overflow-x-auto rounded-lg border border-[--rule] bg-[--surface]">
+      {!hasRows ? (
+        <EmptyPanel title="No training completions recorded yet. Run your first ingestion to populate." />
+      ) : (
+        <div className="panel overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[--rule]">
@@ -61,37 +67,46 @@ export default async function AttendanceLogPage() {
               </tr>
             </thead>
             <tbody>
-              {completions.map((c) => (
-                <tr key={c.id} className="border-b border-[--rule] last:border-0 hover:bg-[--surface-alt] transition-colors">
-                  <td className="px-4 py-3 tabular-nums text-[--ink-soft]">
-                    {c.completed_on ? new Date(c.completed_on + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+              {(completions ?? []).map((c) => (
+                <tr key={c.id} className="row-hover border-b border-[--rule] last:border-0">
+                  <td className="px-4 py-3 tabular text-[--ink-soft]">
+                    {c.completed_on
+                      ? new Date(c.completed_on + "T00:00:00").toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })
+                      : "—"}
                   </td>
                   <td className="px-4 py-3">{empMap.get(c.employee_id) ?? c.employee_id}</td>
                   <td className="px-4 py-3">{ttMap.get(c.training_id) ?? c.training_id}</td>
                   <td className="px-4 py-3">
-                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                      c.status === "compliant" ? "bg-[--success-soft] text-[--success]" :
-                      c.status === "failed" ? "bg-[--alert-soft] text-[--alert]" :
-                      c.status === "exempt" ? "bg-[--surface-alt] text-[--ink-muted]" :
-                      "bg-[--surface-alt] text-[--ink-muted]"
-                    }`}>
+                    <Pill
+                      tone={
+                        c.status === "compliant"
+                          ? "success"
+                          : c.status === "failed"
+                            ? "alert"
+                            : "muted"
+                      }
+                    >
                       {c.status}
-                    </span>
+                    </Pill>
                   </td>
                   <td className="px-4 py-3 text-[--ink-muted]">{sourceLabel(c.source)}</td>
-                  <td className="px-4 py-3 tabular-nums text-[--ink-muted]">
-                    {c.expires_on ? new Date(c.expires_on + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                  <td className="px-4 py-3 tabular text-[--ink-muted]">
+                    {c.expires_on
+                      ? new Date(c.expires_on + "T00:00:00").toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })
+                      : "—"}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-[--rule] bg-[--surface] p-12 text-center">
-          <p className="font-display italic text-[--ink-muted]">
-            No training completions recorded yet. Run your first ingestion to populate.
-          </p>
         </div>
       )}
     </div>

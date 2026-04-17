@@ -1,12 +1,10 @@
 import { redirect } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { EmptyPanel, PageHeader, Pill } from "@/components/training-hub/page-primitives";
 
 export default async function NotificationsPage() {
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const { data: rowsRaw } = await supabase
@@ -24,40 +22,62 @@ export default async function NotificationsPage() {
     sent_at: string | null;
   }[];
 
+  const hasRows = rows.length > 0;
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1
-          className="font-display text-2xl font-semibold tracking-tight"
-          style={{ color: "var(--ink)" }}
-        >
-          Notifications
-        </h1>
-        <p className="caption text-sm" style={{ color: "var(--ink-muted)" }}>
-          Queue rows feed the Edge Function that calls Resend or Postmark. Configure keys in Supabase secrets.
-        </p>
-      </div>
-      <Card style={{ borderColor: "var(--rule)", backgroundColor: "var(--surface)" }}>
-        <CardHeader>
-          <CardTitle className="text-base">Recent queue</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm" style={{ color: "var(--ink-muted)" }}>
-          {rows.length ? (
-            rows.map((r) => (
-              <div
-                key={r.id}
-                className="flex flex-wrap justify-between gap-2 border-b py-2"
-                style={{ borderColor: "var(--rule)" }}
-              >
-                <span style={{ color: "var(--ink)" }}>{r.recipient_email}</span>
-                <span>{r.status}</span>
-              </div>
-            ))
-          ) : (
-            <p>No queued messages yet.</p>
-          )}
-        </CardContent>
-      </Card>
+      <PageHeader
+        eyebrow="Outbound"
+        title="Notifications"
+        subtitle="Queue rows feed the edge function that calls Resend. Configure keys in Supabase secrets."
+      />
+
+      {!hasRows ? (
+        <EmptyPanel title="No queued messages yet." />
+      ) : (
+        <div className="panel overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[--rule]">
+                <th className="caption px-4 py-3 text-left">Recipient</th>
+                <th className="caption px-4 py-3 text-left">Subject</th>
+                <th className="caption px-4 py-3 text-left">Status</th>
+                <th className="caption px-4 py-3 text-left">Scheduled</th>
+                <th className="caption px-4 py-3 text-left">Sent</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="row-hover border-b border-[--rule] last:border-0">
+                  <td className="px-4 py-3 text-[--ink]">{r.recipient_email}</td>
+                  <td className="px-4 py-3 text-[--ink-soft]">{r.subject}</td>
+                  <td className="px-4 py-3">
+                    <Pill
+                      tone={
+                        r.status === "sent"
+                          ? "success"
+                          : r.status === "failed"
+                            ? "alert"
+                            : r.status === "pending"
+                              ? "warn"
+                              : "muted"
+                      }
+                    >
+                      {r.status}
+                    </Pill>
+                  </td>
+                  <td className="px-4 py-3 tabular text-[--ink-muted]">
+                    {r.scheduled_for ? new Date(r.scheduled_for).toLocaleString() : "—"}
+                  </td>
+                  <td className="px-4 py-3 tabular text-[--ink-muted]">
+                    {r.sent_at ? new Date(r.sent_at).toLocaleString() : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

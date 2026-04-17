@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { PageHeader, Section, StatCard } from "@/components/training-hub/page-primitives";
 
 export const dynamic = "force-dynamic";
 
@@ -100,55 +101,58 @@ export default async function AnalyticsPage() {
 
   return (
     <div className="space-y-10">
-      <div>
-        <p className="caption">Cross-pillar</p>
-        <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
-          Analytics
-        </h1>
-        <p className="font-display text-sm italic text-[--ink-soft] mt-1">
-          Year-over-year trends, retention curves, and turnover by reason.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Cross-pillar"
+        title="Analytics"
+        subtitle="Year-over-year trends, retention curves, and turnover by reason."
+      />
 
-      {/* FY Scorecard */}
-      <section className="space-y-3">
-        <p className="caption">FY {fy} Scorecard · July {fy - 1} – June {fy}</p>
+      <Section label={`FY ${fy} Scorecard · July ${fy - 1} – June ${fy}`}>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <StatCard label="Separations" value={currentFYTotal} delta={fyDelta} />
+          <StatCard
+            label="Separations"
+            value={currentFYTotal}
+            hint={
+              fyDelta !== 0
+                ? `${fyDelta > 0 ? "↑" : "↓"} ${Math.abs(fyDelta)}% vs FY ${lastFY}`
+                : undefined
+            }
+            tone={fyDelta > 0 ? "alert" : fyDelta < 0 ? "success" : "default"}
+          />
           <StatCard label="Voluntary %" value={`${volPct}%`} />
           <StatCard label="Avg tenure" value={`${currentAvgTenure} yr`} />
-          <StatCard label="Involuntary" value={currentFYInvoluntary} accent="alert" />
+          <StatCard label="Involuntary" value={currentFYInvoluntary} tone="alert" />
         </div>
-        <p className="font-display italic text-sm text-[--ink-soft] pt-1">
+        <p className="pt-2 font-display text-sm italic text-[--ink-soft]">
           {currentFYTotal === 0
             ? "No separations this fiscal year. A quiet stretch."
             : `${currentFYTotal} separation${currentFYTotal === 1 ? "" : "s"} this fiscal year. ` +
               `${fyDelta > 0 ? `Up ${fyDelta}% from FY ${lastFY}.` : fyDelta < 0 ? `Down ${Math.abs(fyDelta)}% from FY ${lastFY}.` : "Steady with last year."}`}
         </p>
-      </section>
+      </Section>
 
-      {/* Pipeline */}
-      <section className="space-y-3">
-        <p className="caption">Hire Pipeline</p>
+      <Section label="Hire Pipeline">
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <StatCard label="Active" value={activeHires ?? 0} accent="success" />
+          <StatCard label="Active" value={activeHires ?? 0} tone="success" />
           <StatCard label="Completed" value={completedHires ?? 0} />
-          <StatCard label="Withdrew / terminated" value={withdrewHires ?? 0} accent="alert" />
-          <StatCard label="Completion rate" value={
-            (completedHires ?? 0) + (withdrewHires ?? 0) > 0
-              ? `${Math.round(((completedHires ?? 0) / ((completedHires ?? 0) + (withdrewHires ?? 0))) * 100)}%`
-              : "—"
-          } />
+          <StatCard label="Withdrew / terminated" value={withdrewHires ?? 0} tone="alert" />
+          <StatCard
+            label="Completion rate"
+            value={
+              (completedHires ?? 0) + (withdrewHires ?? 0) > 0
+                ? `${Math.round(((completedHires ?? 0) / ((completedHires ?? 0) + (withdrewHires ?? 0))) * 100)}%`
+                : "—"
+            }
+          />
         </div>
-      </section>
+      </Section>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* YoY separations */}
-        <section className="space-y-3">
-          <p className="caption">Separations by fiscal year</p>
-          <div className="rounded-lg border border-[--rule] bg-[--surface] p-6">
+        <Section label="Separations by fiscal year">
+          <div className="panel p-6">
             {fyHistory.length === 0 ? (
-              <p className="font-display italic text-[--ink-muted] text-center py-8">
+              <p className="py-8 text-center font-display italic text-[--ink-muted]">
                 No historical data yet.
               </p>
             ) : (
@@ -179,14 +183,13 @@ export default async function AnalyticsPage() {
               </div>
             )}
           </div>
-        </section>
+        </Section>
 
         {/* Top departments */}
-        <section className="space-y-3">
-          <p className="caption">Top departments FY {fy}</p>
-          <div className="rounded-lg border border-[--rule] bg-[--surface] p-6">
+        <Section label={`Top departments FY ${fy}`}>
+          <div className="panel p-6">
             {topDepts.length === 0 ? (
-              <p className="font-display italic text-[--ink-muted] text-center py-8">
+              <p className="py-8 text-center font-display italic text-[--ink-muted]">
                 No department data for this fiscal year.
               </p>
             ) : (
@@ -206,15 +209,14 @@ export default async function AnalyticsPage() {
               </div>
             )}
           </div>
-        </section>
+        </Section>
       </div>
 
       {/* Top reasons */}
-      <section className="space-y-3">
-        <p className="caption">Turnover by reason · FY {fy}</p>
-        <div className="rounded-lg border border-[--rule] bg-[--surface] p-6">
+      <Section label={`Turnover by reason · FY ${fy}`}>
+        <div className="panel p-6">
           {topReasons.length === 0 ? (
-            <p className="font-display italic text-[--ink-muted] text-center py-8">
+            <p className="py-8 text-center font-display italic text-[--ink-muted]">
               No reasons recorded for this fiscal year yet.
             </p>
           ) : (
@@ -234,25 +236,7 @@ export default async function AnalyticsPage() {
             </div>
           )}
         </div>
-      </section>
-    </div>
-  );
-}
-
-function StatCard({ label, value, delta, accent }: { label: string; value: string | number; delta?: number; accent?: "success" | "warn" | "alert" }) {
-  const accentClass =
-    accent === "success" ? "text-[--success]" :
-    accent === "warn" ? "text-[--warn]" :
-    accent === "alert" ? "text-[--alert]" : "";
-  return (
-    <div className="rounded-lg border border-[--rule] bg-[--surface] p-4">
-      <p className="caption">{label}</p>
-      <p className={`font-display text-2xl font-medium mt-1 tabular-nums ${accentClass}`}>{value}</p>
-      {delta !== undefined && delta !== 0 && (
-        <p className={`text-xs mt-1 tabular-nums ${delta > 0 ? "text-[--alert]" : "text-[--success]"}`}>
-          {delta > 0 ? "↑" : "↓"} {Math.abs(delta)}% vs last FY
-        </p>
-      )}
+      </Section>
     </div>
   );
 }

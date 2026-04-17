@@ -1,21 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { EmptyPanel, PageHeader, Pill, PrimaryLink } from "@/components/training-hub/page-primitives";
 
 export default async function ClassesPage() {
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   const { data: rows } = await supabase
@@ -25,65 +15,58 @@ export default async function ClassesPage() {
     .limit(40);
 
   const tids = [...new Set((rows ?? []).map((r) => r.training_id))];
-  const { data: trows } =
-    tids.length > 0
-      ? await supabase.from("trainings").select("id, title").in("id", tids)
-      : { data: [] as { id: string; title: string }[] };
+  const { data: trows } = tids.length > 0
+    ? await supabase.from("trainings").select("id, title").in("id", tids)
+    : { data: [] as { id: string; title: string }[] };
   const tname = new Map((trows ?? []).map((t) => [t.id, t.title]));
 
+  const hasRows = (rows?.length ?? 0) > 0;
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-semibold tracking-tight" style={{ color: "var(--ink)" }}>Classes</h1>
-          <p className="caption text-sm" style={{ color: "var(--ink-muted)" }}>
-            Schedule sessions, build rosters, and run tablet day view.
-          </p>
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Training"
+        title="Classes"
+        subtitle="Schedule sessions, build rosters, and run tablet day view."
+        actions={<PrimaryLink href="/classes/new">Schedule class</PrimaryLink>}
+      />
+
+      {!hasRows ? (
+        <EmptyPanel title="No sessions yet." hint="Schedule one to drive rosters and kiosk sign-in." />
+      ) : (
+        <div className="panel overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-[--rule]">
+                <th className="caption px-4 py-3 text-left">Date</th>
+                <th className="caption px-4 py-3 text-left">Training</th>
+                <th className="caption px-4 py-3 text-left">Location</th>
+                <th className="caption px-4 py-3 text-left">Status</th>
+                <th className="caption px-4 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(rows ?? []).map((c) => (
+                <tr key={c.id} className="row-hover border-b border-[--rule] last:border-0">
+                  <td className="px-4 py-3 font-mono text-xs text-[--ink]">{c.scheduled_start ?? "—"}</td>
+                  <td className="px-4 py-3 text-[--ink]">{tname.get(c.training_id) ?? "Session"}</td>
+                  <td className="px-4 py-3 text-[--ink-soft]">{c.location ?? "—"}</td>
+                  <td className="px-4 py-3">
+                    <Pill tone={c.status === "scheduled" ? "default" : c.status === "completed" ? "success" : "muted"}>
+                      {c.status}
+                    </Pill>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Link href={`/classes/${c.id}/day`} className="text-sm text-[--accent] hover:underline">
+                      Open day view →
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        <Button asChild className="rounded-lg text-white" style={{ backgroundColor: "var(--accent)" }}>
-          <Link href="/classes/new">Schedule class</Link>
-        </Button>
-      </div>
-      <div className="overflow-hidden rounded-xl border" style={{ borderColor: "var(--rule)" }}>
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent" style={{ borderColor: "var(--rule)" }}>
-              <TableHead style={{ color: "var(--ink-muted)" }}>Date</TableHead>
-              <TableHead style={{ color: "var(--ink-muted)" }}>Training</TableHead>
-              <TableHead style={{ color: "var(--ink-muted)" }}>Location</TableHead>
-              <TableHead style={{ color: "var(--ink-muted)" }}>Status</TableHead>
-              <TableHead style={{ color: "var(--ink-muted)" }} />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(rows ?? []).length ? (
-              (rows ?? []).map((c) => (
-                <TableRow key={c.id} style={{ borderColor: "var(--rule)" }}>
-                  <TableCell className="font-mono text-xs" style={{ color: "var(--ink)" }}>
-                    {c.scheduled_start ?? "—"}
-                  </TableCell>
-                  <TableCell style={{ color: "var(--ink)" }}>
-                    {tname.get(c.training_id) ?? "Session"}
-                  </TableCell>
-                  <TableCell style={{ color: "var(--ink-muted)" }}>{c.location}</TableCell>
-                  <TableCell style={{ color: "var(--ink-muted)" }}>{c.status}</TableCell>
-                  <TableCell>
-                    <Button asChild size="sm" variant="ghost" style={{ color: "var(--accent)" }}>
-                      <Link href={`/classes/${c.id}/day`}>Open day view</Link>
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={5} className="h-28 text-center" style={{ color: "var(--ink-muted)" }}>
-                  No sessions yet. Schedule one to drive rosters and kiosk sign-in.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      )}
     </div>
   );
 }
