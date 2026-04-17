@@ -17,16 +17,16 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Papa from "papaparse";
-import { parseDate, toISODate, parseCompletionValue, shouldSkipForCompletions } from "../normalize.js";
-import { resolveEmployeeWithSuggestion } from "../resolver.js";
-import { hashCompletion } from "../idempotency.js";
+import { parseDate, toISODate, parseCompletionValue, shouldSkipForCompletions } from "../normalize";
+import { resolveEmployeeWithSuggestion } from "../resolver";
+import { hashCompletion } from "../idempotency";
 import {
   createIngestionRun,
   finishIngestionRun,
   addToReviewQueue,
   writeAuditEntry,
   type RunStats,
-} from "../runLogger.js";
+} from "../runLogger";
 
 /** Column index → training code mapping */
 const TRAINING_COLUMNS: { index: number; code: string }[] = [

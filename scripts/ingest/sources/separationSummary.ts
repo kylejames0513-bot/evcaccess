@@ -14,13 +14,13 @@ import * as XLSX from "xlsx";
 import * as fs from "fs";
 import * as path from "path";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { parseDate, toISODate } from "../normalize.js";
+import { parseDate, toISODate } from "../normalize";
 import {
   createIngestionRun,
   finishIngestionRun,
   addToReviewQueue,
   type RunStats,
-} from "../runLogger.js";
+} from "../runLogger";
 
 function isFYSheet(name: string): boolean {
   return /^FY\s*\d{4}/i.test(name.trim());

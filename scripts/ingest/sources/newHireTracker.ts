@@ -15,12 +15,12 @@ import * as XLSX from "xlsx";
 import * as fs from "fs";
 import * as path from "path";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { parseDate, toISODate } from "../normalize.js";
+import { parseDate, toISODate } from "../normalize";
 import {
   createIngestionRun,
   finishIngestionRun,
   type RunStats,
-} from "../runLogger.js";
+} from "../runLogger";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
