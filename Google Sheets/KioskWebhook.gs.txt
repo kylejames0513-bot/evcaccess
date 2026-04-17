@@ -1,0 +1,352 @@
+// ============================================================
+// KioskWebhook.gs — drop-in Apps Script for the hub kiosk
+// ============================================================
+// What it does when the kiosk POSTs a sign-in:
+//   1. Appends a row to the "Training Records" log tab (creates
+//      the tab with a header row on first use).
+//   2. If the session maps to a column on the "Training" matrix
+//      tab, finds the employee's row by name and writes the
+//      date into the mapped column(s).
+//   3. Returns the success/error postMessage HTML the kiosk
+//      JavaScript listens for.
+//
+// No dependencies on Core.gs / Config.gs / Utilities.gs. Paste
+// this file alone into a fresh Apps Script project, or drop it
+// into your existing one. See DEPLOYMENT.md for step-by-step.
+//
+// Field names on the POST (from the hub kiosk form):
+//   session   — the training name, e.g. "CPR"
+//   attendee  — "First Last" typed by the signer
+//   date      — "YYYY-MM-DD"
+//   leftEarly — "Yes" | "No"
+//   reason    — attendance-issue reason, may be empty
+//   notes     — free text, may be empty
+// ============================================================
+
+// ── Sheet names ──
+var LOG_SHEET_NAME = "Training Records";
+var MATRIX_SHEET_NAME = "Training";
+
+// ── Session → column header on the "Training" matrix sheet ──
+// Values are arrays so one session can write to multiple cells
+// (e.g. CPR → both the CPR and FIRSTAID columns).
+var SESSION_TO_COLUMN = {
+  // primary picks from the kiosk dropdown
+  "CPR": ["CPR", "FIRSTAID"],
+  "Ukeru": ["Ukeru"],
+  "Initial Med Training (4 Days)": ["MED_TRAIN"],
+  "Post Med": ["POST MED"],
+  "POMs Training": ["POM"],
+  "Mealtime": ["Mealtime"],
+  "Person Centered Thinking": ["Pers Cent Thnk"],
+  "Van Lyft Training": ["VR"],
+
+  // common aliases / pasted names
+  "CPR/FA": ["CPR", "FIRSTAID"],
+  "UKERU": ["Ukeru"],
+  "Initial Med Class": ["MED_TRAIN"],
+  "Med Recert": ["MED_TRAIN"],
+  "Med Cert": ["MED_TRAIN"],
+  "Person Centered": ["Pers Cent Thnk"],
+  "Personal Outcome Measures": ["POM"]
+};
+
+// ── Minimal nickname dictionary ──
+// Add EVC-specific entries here if needed. Keys and values
+// are lowercased. Either direction ("mike" ⇄ "michael") works.
+var NICKNAMES = {
+  mike: ["michael", "micheal"], michael: ["mike"], micheal: ["mike"],
+  bob: ["robert"], robert: ["bob", "bobby"], bobby: ["robert"],
+  bill: ["william"], william: ["bill", "will"], will: ["william"],
+  jim: ["james"], james: ["jim", "jimmy"], jimmy: ["james"],
+  joe: ["joseph"], joseph: ["joe"],
+  tom: ["thomas"], thomas: ["tom"],
+  dan: ["daniel"], daniel: ["dan", "danny"], danny: ["daniel"],
+  dave: ["david"], david: ["dave"],
+  steve: ["steven", "stephen"], steven: ["steve"], stephen: ["steve"],
+  matt: ["matthew"], matthew: ["matt"],
+  chris: ["christopher", "christian"], christopher: ["chris"],
+  pat: ["patrick", "patricia"], patrick: ["pat"], patricia: ["pat"],
+  liz: ["elizabeth"], elizabeth: ["liz", "beth"], beth: ["elizabeth"],
+  kate: ["katherine", "kathryn"], katherine: ["kate", "kathy"], kathryn: ["kate"],
+  sue: ["susan"], susan: ["sue"],
+  sam: ["samuel", "samantha"], samuel: ["sam"], samantha: ["sam"],
+  tony: ["anthony"], anthony: ["tony"],
+  nick: ["nicholas"], nicholas: ["nick"],
+  alex: ["alexander", "alexandra"], alexander: ["alex"], alexandra: ["alex"],
+  josh: ["joshua"], joshua: ["josh"],
+  tim: ["timothy"], timothy: ["tim"],
+  jeff: ["jeffrey"], jeffrey: ["jeff"],
+  don: ["donald"], donald: ["don"],
+  kim: ["kimberly"], kimberly: ["kim"],
+  deb: ["deborah", "debra"], debbie: ["deborah", "debra"],
+  cindy: ["cynthia"], cynthia: ["cindy"]
+};
+
+
+// ============================================================
+//   doPost — entry point for the kiosk form
+// ============================================================
+function doPost(e) {
+  try {
+    var params = (e && e.parameter) || {};
+    var session = String(params.session || "").trim();
+    var attendee = String(params.attendee || "").trim();
+    var date = String(params.date || "").trim();
+    var leftEarly = String(params.leftEarly || "No").trim();
+    var reason = String(params.reason || "").trim();
+    var notes = String(params.notes || "").trim();
+
+    logSubmission_({
+      session: session,
+      attendee: attendee,
+      date: date,
+      leftEarly: leftEarly,
+      reason: reason,
+      notes: notes
+    });
+
+    if (session && attendee && date && SESSION_TO_COLUMN[session]) {
+      try {
+        writeDateToMatrix_(session, attendee, date);
+      } catch (matrixErr) {
+        // Matrix write is best-effort. The log row is already
+        // saved, so HR can resolve a missed update manually.
+        Logger.log("Matrix write error: " + matrixErr.toString());
+      }
+    }
+
+    return htmlPostMessage_("submission_success");
+  } catch (err) {
+    Logger.log("doPost error: " + err.toString());
+    try {
+      logSubmission_({
+        session: "SYSTEM ERROR",
+        attendee: "",
+        date: "",
+        leftEarly: "",
+        reason: "",
+        notes: "doPost failed: " + err.toString()
+      });
+    } catch (logErr) {
+      Logger.log("Could not even log the doPost error: " + logErr.toString());
+    }
+    return htmlPostMessage_("submission_error");
+  }
+}
+
+
+// ============================================================
+//   Log an incoming submission to the Training Records tab.
+//   Creates the tab with a header row on first use so the
+//   format is obvious to whoever looks at the sheet.
+// ============================================================
+function logSubmission_(row) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(LOG_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(LOG_SHEET_NAME);
+    sheet.appendRow([
+      "Arrival Time", "Session", "Attendee", "Date",
+      "Left Early", "Reason", "Notes", "", "", "Status", ""
+    ]);
+    sheet.getRange(1, 1, 1, 11).setFontWeight("bold");
+    sheet.setFrozenRows(1);
+  }
+
+  sheet.appendRow([
+    arrivalTimeString_(),
+    row.session,
+    row.attendee,
+    row.date,
+    row.leftEarly,
+    row.reason,
+    row.notes,
+    "",
+    "",
+    "Pending",
+    ""
+  ]);
+}
+
+
+// ============================================================
+//   Write the completion date into the Training matrix.
+// ============================================================
+function writeDateToMatrix_(session, attendeeName, dateStr) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(MATRIX_SHEET_NAME);
+  if (!sheet) {
+    Logger.log("Matrix sheet '" + MATRIX_SHEET_NAME + "' not found — skipping.");
+    return;
+  }
+
+  var lastRow = sheet.getLastRow();
+  var lastCol = sheet.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return;
+
+  var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var lnCol = findHeaderCol_(headers, ["L NAME", "LAST NAME", "LAST"]);
+  var fnCol = findHeaderCol_(headers, ["F NAME", "FIRST NAME", "FIRST"]);
+  if (lnCol < 0 || fnCol < 0) {
+    Logger.log("Could not find L NAME / F NAME on the matrix sheet.");
+    return;
+  }
+
+  var targetColumns = SESSION_TO_COLUMN[session];
+  if (!targetColumns || targetColumns.length === 0) return;
+  var columnIndexes = [];
+  for (var i = 0; i < targetColumns.length; i++) {
+    var idx = findHeaderCol_(headers, [targetColumns[i]]);
+    if (idx >= 0) columnIndexes.push(idx);
+  }
+  if (columnIndexes.length === 0) return;
+
+  var names = sheet.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  var row = matchNameRow_(names, lnCol - 1, fnCol - 1, attendeeName);
+  if (row < 0) {
+    Logger.log("No row matched for '" + attendeeName + "' — matrix skipped, log row kept.");
+    return;
+  }
+
+  var sheetRow = row + 2; // header is row 1; names[] starts at row 2
+  for (var c = 0; c < columnIndexes.length; c++) {
+    sheet.getRange(sheetRow, columnIndexes[c]).setValue(dateStr);
+  }
+}
+
+
+// ============================================================
+//   Find the first header column (1-indexed) matching any of
+//   the candidate names, case-insensitive.
+// ============================================================
+function findHeaderCol_(headers, candidates) {
+  for (var c = 0; c < headers.length; c++) {
+    var h = String(headers[c] || "").trim().toLowerCase();
+    for (var i = 0; i < candidates.length; i++) {
+      if (h === String(candidates[i]).toLowerCase()) return c + 1;
+    }
+  }
+  return -1;
+}
+
+
+// ============================================================
+//   Name matching.
+//   Strategy, strictest → loosest:
+//     1. exact last + exact first
+//     2. exact last + first startsWith typed first
+//     3. exact last + nickname match
+// ============================================================
+function matchNameRow_(rows, lnIdx, fnIdx, attendeeName) {
+  var parsed = parseAttendeeName_(attendeeName);
+  if (!parsed) return -1;
+  var wantFirst = parsed.first;
+  var wantLast = parsed.last;
+
+  // 1 — exact
+  for (var r = 0; r < rows.length; r++) {
+    var ln = normalize_(rows[r][lnIdx]);
+    var fn = normalize_(rows[r][fnIdx]);
+    if (ln === wantLast && fn === wantFirst) return r;
+  }
+  // 2 — prefix match on first
+  for (var r = 0; r < rows.length; r++) {
+    var ln = normalize_(rows[r][lnIdx]);
+    var fn = normalize_(rows[r][fnIdx]);
+    if (ln === wantLast && fn.length > 0 && wantFirst.indexOf(fn) === 0) return r;
+    if (ln === wantLast && wantFirst.length > 0 && fn.indexOf(wantFirst) === 0) return r;
+  }
+  // 3 — nicknames
+  var candidates = nicknameCandidates_(wantFirst);
+  for (var r = 0; r < rows.length; r++) {
+    var ln = normalize_(rows[r][lnIdx]);
+    if (ln !== wantLast) continue;
+    var fn = normalize_(rows[r][fnIdx]);
+    for (var k = 0; k < candidates.length; k++) {
+      if (fn === candidates[k]) return r;
+    }
+  }
+  return -1;
+}
+
+function parseAttendeeName_(raw) {
+  if (!raw) return null;
+  var parts = String(raw).trim().split(/\s+/);
+  if (parts.length < 2) return null;
+  var first = normalize_(parts[0]);
+  var last = normalize_(parts[parts.length - 1]);
+  if (!first || !last) return null;
+  return { first: first, last: last };
+}
+
+function nicknameCandidates_(first) {
+  var out = [];
+  var hits = NICKNAMES[first];
+  if (hits) {
+    for (var i = 0; i < hits.length; i++) out.push(hits[i]);
+  }
+  // reverse lookup: any key whose list contains `first`
+  for (var key in NICKNAMES) {
+    if (!NICKNAMES.hasOwnProperty(key)) continue;
+    var list = NICKNAMES[key];
+    for (var j = 0; j < list.length; j++) {
+      if (list[j] === first) {
+        out.push(key);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+function normalize_(v) {
+  return String(v == null ? "" : v)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^a-z0-9 ]/g, "");
+}
+
+
+// ============================================================
+//   Helpers
+// ============================================================
+function arrivalTimeString_() {
+  var d = new Date();
+  var h = d.getHours();
+  var m = d.getMinutes();
+  var ampm = h >= 12 ? "PM" : "AM";
+  h = h === 0 ? 12 : (h > 12 ? h - 12 : h);
+  return h + ":" + (m < 10 ? "0" : "") + m + " " + ampm;
+}
+
+function htmlPostMessage_(msg) {
+  return HtmlService.createHtmlOutput(
+    "<html><body><script>window.parent.postMessage('" +
+      msg +
+      "','*');</script></body></html>"
+  );
+}
+
+
+// ============================================================
+//   Optional: quick smoke test from the Apps Script editor.
+//   Run `testDoPost_()` manually. It simulates a kiosk POST
+//   so you can verify the log + matrix write without opening
+//   the kiosk in a browser.
+// ============================================================
+function testDoPost_() {
+  var fake = {
+    parameter: {
+      session: "CPR",
+      attendee: "Jane Doe",
+      date: Utilities.formatDate(new Date(), "America/New_York", "yyyy-MM-dd"),
+      leftEarly: "No",
+      reason: "",
+      notes: "Test from testDoPost_"
+    }
+  };
+  doPost(fake);
+  Logger.log("Ran testDoPost_ — check the log sheet and the Jane Doe row on the Training matrix.");
+}
