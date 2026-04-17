@@ -43,11 +43,18 @@ Private Const COL_ITSP As Long = 17      ' Q: ITSP
 Private Const COL_DELEGATION As Long = 18 ' R: Delegation
 Private Const COL_STATUS As Long = 19    ' S: Status
 
-' New hire data rows: 5-29, Transfer rows: 34-58
+' ── New columns the recruiter fills on the tracker ──
+' Residential? (new hires section, Y/N)
+Private Const COL_RESIDENTIAL As Long = 20   ' T: Residential?
+' Transfer-only extras (populated in rows 59+ on monthly sheets)
+Private Const COL_LIFTVAN_REQ As Long = 20   ' T: Lift van required?
+Private Const COL_JOBDESC_REQ As Long = 21   ' U: New job desc?
+
+' New hire data rows: 5-54, Transfer rows: 59-108 (per current layout)
 Private Const NH_START As Long = 5
-Private Const NH_END As Long = 29
-Private Const TR_START As Long = 34
-Private Const TR_END As Long = 58
+Private Const NH_END As Long = 54
+Private Const TR_START As Long = 59
+Private Const TR_END As Long = 108
 
 ' ============================================================
 ' AUTO-MENU: Creates "HR Hub" menu when workbook opens
@@ -80,6 +87,11 @@ Public Sub CreateHubMenu()
     btn.Caption = "Pull Trainings for ALL Months"
     btn.OnAction = "PullTrainingsAllMonths"
     btn.FaceId = 277
+
+    Set btn = hubMenu.Controls.Add(Type:=msoControlButton)
+    btn.Caption = "Pull Onboarding Status for This Sheet"
+    btn.OnAction = "PullOnboardingForSheet"
+    btn.FaceId = 23
 
     Set btn = hubMenu.Controls.Add(Type:=msoControlButton)
     btn.Caption = "Push New Hires to Hub"
@@ -220,36 +232,60 @@ Public Sub PushNewHiresToHub()
     Set ws = ActiveSheet
     Dim pushed As Long
     Dim skipped As Long
-    Dim r As Long
 
-    For r = NH_START To NH_END
+    pushed = pushed + PushRangeToHub(ws, NH_START, NH_END, "new_hire", skipped)
+    pushed = pushed + PushRangeToHub(ws, TR_START, TR_END, "transfer", skipped)
+
+    Application.ScreenUpdating = True
+    MsgBox "Pushed " & pushed & " row(s) to the Hub." & _
+           IIf(skipped > 0, vbNewLine & skipped & " skipped (check Immediate window).", ""), _
+           vbInformation, "HR Hub"
+End Sub
+
+Private Function PushRangeToHub(ws As Worksheet, startRow As Long, endRow As Long, hireType As String, ByRef skipped As Long) As Long
+    Dim pushed As Long
+    Dim r As Long
+    Dim sheetYear As String
+    sheetYear = ExtractYear(CStr(ws.Cells(1, 1).Value))
+
+    For r = startRow To endRow
         Dim lastName As String: lastName = Trim(CStr(ws.Cells(r, COL_LAST).Value))
         Dim firstName As String: firstName = Trim(CStr(ws.Cells(r, COL_FIRST).Value))
         If lastName = "" Or firstName = "" Then GoTo NextRow
 
         Dim dept As String: dept = Trim(CStr(ws.Cells(r, COL_DEPT).Value))
         Dim loc As String: loc = Trim(CStr(ws.Cells(r, COL_LOCATION).Value))
+        Dim bkgrd As String: bkgrd = Trim(CStr(ws.Cells(r, COL_BKGRD).Value))
         Dim doh As String
         If IsDate(ws.Cells(r, COL_DOH).Value) Then
             doh = Format(ws.Cells(r, COL_DOH).Value, "yyyy-mm-dd")
         Else
             doh = ""
         End If
-        Dim status As String: status = Trim(CStr(ws.Cells(r, COL_STATUS).Value))
 
-        ' Extract year from sheet title row (A1)
-        Dim sheetYear As String
-        sheetYear = ExtractYear(CStr(ws.Cells(1, 1).Value))
+        Dim residential As String: residential = "false"
+        Dim liftVan As String: liftVan = "false"
+        Dim newJobDesc As String: newJobDesc = "false"
+        If hireType = "new_hire" Then
+            If YesishValue(CStr(ws.Cells(r, COL_RESIDENTIAL).Value)) Then residential = "true"
+        Else
+            If YesishValue(CStr(ws.Cells(r, COL_LIFTVAN_REQ).Value)) Then liftVan = "true"
+            If YesishValue(CStr(ws.Cells(r, COL_JOBDESC_REQ).Value)) Then newJobDesc = "true"
+        End If
 
         Dim body As String
         body = "{" & _
-            """action"":""addNewHire""," & _
+            """action"":""pushNewHire""," & _
+            """hireType"":""" & hireType & """," & _
             """firstName"":""" & EscapeJson(firstName) & """," & _
             """lastName"":""" & EscapeJson(lastName) & """," & _
             """department"":""" & EscapeJson(dept) & """," & _
-            """position"":""" & EscapeJson(loc) & """," & _
-            """hireDate"":""" & doh & """," & _
-            """startDate"":""" & doh & """," & _
+            """locationTitle"":""" & EscapeJson(loc) & """," & _
+            """backgroundCheck"":""" & EscapeJson(bkgrd) & """," & _
+            """dateOfHire"":""" & doh & """," & _
+            """isResidential"":" & residential & "," & _
+            """liftVanRequired"":" & liftVan & "," & _
+            """newJobDescRequired"":" & newJobDesc & "," & _
             """month"":""" & ws.Name & """," & _
             """year"":" & IIf(sheetYear <> "", sheetYear, "null") & _
         "}"
@@ -266,11 +302,112 @@ Public Sub PushNewHiresToHub()
 NextRow:
     Next r
 
+    PushRangeToHub = pushed
+End Function
+
+Private Function YesishValue(v As String) As Boolean
+    Dim s As String: s = UCase(Trim(v))
+    YesishValue = (s = "Y" Or s = "YES" Or s = "TRUE" Or s = "1" Or s = "X")
+End Function
+
+' ============================================================
+' PULL ONBOARDING STATUS — fills CPR/Med/Ukeru/Mealtime from hub
+' Reads the new_hire_checklist on the hub (template-keyed) and writes
+' "Yes" + date comment into the tracker cells. Blank on hub = skip.
+' ============================================================
+Public Sub PullOnboardingForSheet()
+    If Not IsMonthSheet(ActiveSheet.Name) Then
+        MsgBox "Navigate to a monthly sheet first.", vbExclamation, "HR Hub"
+        Exit Sub
+    End If
+
+    Application.ScreenUpdating = False
+    Dim ws As Worksheet: Set ws = ActiveSheet
+    Dim updated As Long
+    updated = updated + PullOnboardingForRange(ws, NH_START, NH_END)
+    updated = updated + PullOnboardingForRange(ws, TR_START, TR_END)
     Application.ScreenUpdating = True
-    MsgBox "Pushed " & pushed & " new hire(s) to the Hub." & _
-           IIf(skipped > 0, vbNewLine & skipped & " skipped (check Immediate window).", ""), _
-           vbInformation, "HR Hub"
+
+    MsgBox "Pulled onboarding status for " & updated & " row(s).", vbInformation, "HR Hub"
 End Sub
+
+Private Function PullOnboardingForRange(ws As Worksheet, startRow As Long, endRow As Long) As Long
+    Dim updated As Long
+    Dim r As Long
+    For r = startRow To endRow
+        Dim lastName As String: lastName = Trim(CStr(ws.Cells(r, COL_LAST).Value))
+        Dim firstName As String: firstName = Trim(CStr(ws.Cells(r, COL_FIRST).Value))
+        If lastName = "" Or firstName = "" Then GoTo NextOnbRow
+
+        Dim resp As String
+        resp = HttpGet(HUB_URL & "?action=getOnboarding" & _
+            "&firstName=" & EncodeURL(firstName) & _
+            "&lastName=" & EncodeURL(lastName))
+
+        If InStr(resp, """found"":false") > 0 Then GoTo NextOnbRow
+        If InStr(resp, """ok"":true") = 0 Then GoTo NextOnbRow
+
+        ApplyCell ws, r, COL_CPR, ExtractJsonValue(resp, "cpr")
+        ApplyCell ws, r, COL_MED, ExtractJsonValue(resp, "medCert")
+        ApplyCell ws, r, COL_UKERU, ExtractJsonValue(resp, "ukeru")
+        ApplyCell ws, r, COL_MEALTIME, ExtractJsonValue(resp, "mealtime")
+
+        updated = updated + 1
+NextOnbRow:
+    Next r
+    PullOnboardingForRange = updated
+End Function
+
+Private Sub ApplyCell(ws As Worksheet, r As Long, c As Long, v As String)
+    If v = "" Or v = "null" Then Exit Sub ' blank on hub = don't touch
+    ' Value is either a date like "2026-04-10" or the string "Yes"
+    ws.Cells(r, c).Value = "Yes"
+    On Error Resume Next
+    ws.Cells(r, c).ClearComments
+    If Len(v) >= 10 And Mid(v, 5, 1) = "-" Then
+        ws.Cells(r, c).AddComment Text:="Completed " & v
+    End If
+    On Error GoTo 0
+End Sub
+
+Private Function ExtractJsonValue(resp As String, key As String) As String
+    Dim pat As String: pat = """" & key & """:"
+    Dim i As Long: i = InStr(resp, pat)
+    If i = 0 Then ExtractJsonValue = "": Exit Function
+    Dim j As Long: j = i + Len(pat)
+    ' Skip whitespace
+    Do While j <= Len(resp) And Mid(resp, j, 1) = " "
+        j = j + 1
+    Loop
+    Dim c As String: c = Mid(resp, j, 1)
+    If c = """" Then
+        ' String value
+        Dim k As Long: k = InStr(j + 1, resp, """")
+        If k = 0 Then ExtractJsonValue = "": Exit Function
+        ExtractJsonValue = Mid(resp, j + 1, k - j - 1)
+    ElseIf c = "n" Then
+        ExtractJsonValue = "" ' null
+    Else
+        ExtractJsonValue = "" ' unexpected
+    End If
+End Function
+
+Private Function EncodeURL(s As String) As String
+    ' Minimal URL encoding for names (spaces + basic punctuation).
+    Dim out As String, i As Long, ch As String
+    For i = 1 To Len(s)
+        ch = Mid(s, i, 1)
+        Select Case ch
+            Case "A" To "Z", "a" To "z", "0" To "9", "-", "_", ".", "~"
+                out = out & ch
+            Case " "
+                out = out & "%20"
+            Case Else
+                out = out & "%" & Right("0" & Hex(Asc(ch)), 2)
+        End Select
+    Next i
+    EncodeURL = out
+End Function
 
 ' ============================================================
 ' PUSH COMPLETIONS — send Yes/No/N/A training status to Hub
