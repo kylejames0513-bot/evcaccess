@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { Button } from "@/components/ui/button";
+import { PageHeader, Pill, PrimaryLink, Section } from "@/components/training-hub/page-primitives";
 
 const STAGE_LABELS: Record<string, string> = {
   offer_accepted: "Offer Accepted",
@@ -37,7 +37,6 @@ export default async function NewHiresPage() {
   const completed = rows.filter(h => h.stage === "complete");
   const exited = rows.filter(h => ["withdrew", "terminated_in_probation"].includes(h.stage));
 
-  // Group active hires by stage for kanban-style display
   const byStage = new Map<string, typeof rows>();
   for (const stage of ACTIVE_STAGES) {
     byStage.set(stage, active.filter(h => h.stage === stage));
@@ -45,51 +44,44 @@ export default async function NewHiresPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-end justify-between">
-        <div>
-          <p className="caption">Pillar II</p>
-          <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
-            New Hire Pipeline
-          </h1>
-          <p className="font-display text-sm italic text-[--ink-soft] mt-1">
-            {active.length > 0
-              ? `${active.length} hire${active.length === 1 ? "" : "s"} in flight. ${completed.length} completed this period.`
-              : "No new hires in flight. The pipeline is clear."}
-          </p>
-        </div>
-        <Button asChild className="rounded-md bg-[--accent] text-white hover:bg-[--accent]/90">
-          <Link href="/new-hires/new">Start a new hire</Link>
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="Pillar II"
+        title="New Hire Pipeline"
+        subtitle={
+          active.length > 0
+            ? `${active.length} hire${active.length === 1 ? "" : "s"} in flight. ${completed.length} completed this period.`
+            : "No new hires in flight. The pipeline is clear."
+        }
+        actions={<PrimaryLink href="/new-hires/new">Start a new hire</PrimaryLink>}
+      />
 
-      {/* Pipeline columns */}
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
         {ACTIVE_STAGES.map((stage) => {
           const stageHires = byStage.get(stage) ?? [];
           return (
-            <div key={stage} className="rounded-lg border border-[--rule] bg-[--surface-alt] p-3">
-              <div className="flex items-center justify-between mb-3">
+            <div key={stage} className="panel-sunk p-3">
+              <div className="mb-3 flex items-center justify-between">
                 <p className="caption">{STAGE_LABELS[stage]}</p>
-                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[--surface] text-xs font-medium tabular-nums">
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[--surface] px-1.5 text-xs font-medium tabular">
                   {stageHires.length}
                 </span>
               </div>
               <div className="space-y-2">
                 {stageHires.length === 0 ? (
-                  <p className="text-xs text-[--ink-muted] italic py-2">Empty</p>
+                  <p className="py-2 text-xs italic text-[--ink-muted]">Empty</p>
                 ) : (
                   stageHires.map((hire) => (
                     <Link
                       key={hire.id}
                       href={`/new-hires/${hire.id}`}
-                      className="block rounded-md border border-[--rule] bg-[--surface] p-3 hover:border-[--accent]/30 transition-colors"
+                      className="block rounded-md border border-[--rule] bg-[--surface] p-3 transition-colors hover:border-[--accent]/30 focus-ring"
                     >
-                      <p className="text-sm font-medium">
+                      <p className="text-sm font-medium text-[--ink]">
                         {hire.preferred_name ?? hire.legal_first_name} {hire.legal_last_name}
                       </p>
-                      <p className="text-xs text-[--ink-muted] mt-0.5">{hire.position ?? "—"}</p>
+                      <p className="mt-0.5 text-xs text-[--ink-muted]">{hire.position ?? "—"}</p>
                       {hire.stage_entry_date && (
-                        <p className="text-xs text-[--ink-muted] mt-1 tabular-nums">
+                        <p className="mt-1 text-xs tabular text-[--ink-muted]">
                           In stage since {new Date(hire.stage_entry_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                         </p>
                       )}
@@ -102,11 +94,9 @@ export default async function NewHiresPage() {
         })}
       </div>
 
-      {/* Completed + exited */}
       {(completed.length > 0 || exited.length > 0) && (
-        <div className="space-y-4">
-          <p className="caption">Closed</p>
-          <div className="overflow-x-auto rounded-lg border border-[--rule] bg-[--surface]">
+        <Section label="Closed">
+          <div className="panel overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[--rule]">
@@ -118,7 +108,7 @@ export default async function NewHiresPage() {
               </thead>
               <tbody>
                 {[...completed, ...exited].map((hire) => (
-                  <tr key={hire.id} className="border-b border-[--rule] last:border-0 hover:bg-[--surface-alt]">
+                  <tr key={hire.id} className="row-hover border-b border-[--rule] last:border-0">
                     <td className="px-4 py-3">
                       <Link href={`/new-hires/${hire.id}`} className="text-[--accent] hover:underline">
                         {hire.legal_first_name} {hire.legal_last_name}
@@ -126,21 +116,21 @@ export default async function NewHiresPage() {
                     </td>
                     <td className="px-4 py-3 text-[--ink-soft]">{hire.position ?? "—"}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                        hire.stage === "complete" ? "bg-[--success-soft] text-[--success]" : "bg-[--alert-soft] text-[--alert]"
-                      }`}>
+                      <Pill tone={hire.stage === "complete" ? "success" : "alert"}>
                         {STAGE_LABELS[hire.stage] ?? hire.stage}
-                      </span>
+                      </Pill>
                     </td>
-                    <td className="px-4 py-3 tabular-nums text-[--ink-soft]">
-                      {hire.actual_start_date ? new Date(hire.actual_start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                    <td className="px-4 py-3 tabular text-[--ink-soft]">
+                      {hire.actual_start_date
+                        ? new Date(hire.actual_start_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                        : "—"}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
+        </Section>
       )}
     </div>
   );

@@ -6,6 +6,13 @@ import {
   skipReviewItemAction,
   bulkAcceptSuggestionsAction,
 } from "@/app/actions/review-queue";
+import {
+  EmptyPanel,
+  PageHeader,
+  Pill,
+  Section,
+} from "@/components/training-hub/page-primitives";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -49,108 +56,103 @@ export default async function ReviewPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <p className="caption">Reconciliation</p>
-          <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
-            Review Queue
-          </h1>
-          <p className="font-display text-sm italic text-[--ink-soft] mt-1">
-            {unresolvedCount === 0
-              ? "Nothing unresolved. Ingestion is clean."
-              : `${unresolvedCount} item${unresolvedCount === 1 ? "" : "s"} awaiting confirmation.`}
-          </p>
-        </div>
-        {highConfidenceCount > 0 && (
-          <form action={bulkAcceptSuggestionsAction}>
-            <button
-              type="submit"
-              className="rounded-md bg-[--accent] px-4 py-2 text-sm font-medium text-[--primary-foreground] hover:bg-[--accent]/90"
-            >
-              Auto-accept {highConfidenceCount} high-confidence match{highConfidenceCount === 1 ? "" : "es"}
-            </button>
-          </form>
-        )}
-      </div>
+      <PageHeader
+        eyebrow="Reconciliation"
+        title="Review Queue"
+        subtitle={
+          unresolvedCount === 0
+            ? "Nothing unresolved. Ingestion is clean."
+            : `${unresolvedCount} item${unresolvedCount === 1 ? "" : "s"} awaiting confirmation.`
+        }
+        actions={
+          highConfidenceCount > 0 ? (
+            <form action={bulkAcceptSuggestionsAction}>
+              <button
+                type="submit"
+                className="inline-flex items-center rounded-md bg-[--accent] px-4 py-2 text-sm font-medium text-[--accent-ink] transition-colors hover:bg-[--accent-hover] focus-ring"
+              >
+                Auto-accept {highConfidenceCount} high-confidence match{highConfidenceCount === 1 ? "" : "es"}
+              </button>
+            </form>
+          ) : undefined
+        }
+      />
 
       {unresolvedCount === 0 ? (
-        <div className="rounded-lg border border-[--rule] bg-[--surface] p-12 text-center">
-          <p className="font-display italic text-[--ink-muted]">
-            No items in the review queue. Ingestion resolved every record cleanly.
-          </p>
-        </div>
+        <EmptyPanel title="No items in the review queue. Ingestion resolved every record cleanly." />
       ) : (
-        <div className="space-y-3">
-          <p className="caption">Unresolved · {unresolvedCount}</p>
-          {(items ?? []).map(item => {
-            const payload = item.raw_payload as Record<string, unknown> | null;
-            const rawName = payload
-              ? `${String(payload.lastName ?? "")}, ${String(payload.firstName ?? "")}`.replace(/^, /, "").replace(/, $/, "")
-              : "—";
-            const suggestion = item.suggested_match_employee_id ? empById.get(item.suggested_match_employee_id) : null;
-            const score = item.suggested_match_score ? Math.round(Number(item.suggested_match_score) * 100) : null;
+        <Section label={`Unresolved · ${unresolvedCount}`}>
+          <div className="space-y-3">
+            {(items ?? []).map(item => {
+              const payload = item.raw_payload as Record<string, unknown> | null;
+              const rawName = payload
+                ? `${String(payload.lastName ?? "")}, ${String(payload.firstName ?? "")}`.replace(/^, /, "").replace(/, $/, "")
+                : "—";
+              const suggestion = item.suggested_match_employee_id ? empById.get(item.suggested_match_employee_id) : null;
+              const score = item.suggested_match_score ? Math.round(Number(item.suggested_match_score) * 100) : null;
 
-            return (
-              <div key={item.id} className="rounded-lg border border-[--rule] bg-[--surface] p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-[--ink]">{rawName || "—"}</span>
-                      <span className="caption bg-[--surface-alt] px-2 py-0.5 rounded">{item.source}</span>
-                      <span className="caption bg-[--warn-soft] text-[--warn] px-2 py-0.5 rounded">{item.reason}</span>
-                    </div>
-                    {suggestion && (
-                      <p className="mt-2 text-sm text-[--ink-soft]">
-                        Suggested: <span className="text-[--ink] font-medium">{suggestion.name}</span>
-                        <span className="text-[--ink-muted] ml-2">{suggestion.employee_id}</span>
-                        {score !== null && (
-                          <span className={`ml-2 text-xs font-medium ${score >= 85 ? "text-[--success]" : score >= 70 ? "text-[--warn]" : "text-[--ink-muted]"}`}>
-                            {score}% match
-                          </span>
-                        )}
-                      </p>
-                    )}
+              return (
+                <div key={item.id} className="panel p-5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-[--ink]">{rawName || "—"}</span>
+                    <Pill>{item.source}</Pill>
+                    <Pill tone="warn">{item.reason}</Pill>
+                  </div>
+                  {suggestion && (
+                    <p className="mt-2 text-sm text-[--ink-soft]">
+                      Suggested: <span className="font-medium text-[--ink]">{suggestion.name}</span>
+                      <span className="ml-2 text-[--ink-muted]">{suggestion.employee_id}</span>
+                      {score !== null && (
+                        <span
+                          className={cn(
+                            "ml-2 text-xs font-medium",
+                            score >= 85 ? "text-[--success]" : score >= 70 ? "text-[--warn]" : "text-[--ink-muted]"
+                          )}
+                        >
+                          {score}% match
+                        </span>
+                      )}
+                    </p>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap items-end gap-2">
+                    <form action={confirmMatchAction} className="flex min-w-[280px] flex-1 items-end gap-2">
+                      <input type="hidden" name="item_id" value={item.id} />
+                      <div className="flex-1">
+                        <label className="caption mb-1 block">Match to employee</label>
+                        <EmployeePicker
+                          employees={pickerEmployees}
+                          name="employee_id"
+                          defaultValue={item.suggested_match_employee_id ?? undefined}
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        className="whitespace-nowrap rounded-md bg-[--accent] px-3 py-1.5 text-sm font-medium text-[--accent-ink] transition-colors hover:bg-[--accent-hover] focus-ring"
+                      >
+                        Confirm match
+                      </button>
+                    </form>
+                    <form action={skipReviewItemAction}>
+                      <input type="hidden" name="item_id" value={item.id} />
+                      <button
+                        type="submit"
+                        className="rounded-md border border-[--rule] bg-[--surface] px-3 py-1.5 text-sm text-[--ink] hover:bg-[--surface-alt] focus-ring"
+                      >
+                        Skip
+                      </button>
+                    </form>
                   </div>
                 </div>
-
-                <div className="mt-4 flex items-end gap-2 flex-wrap">
-                  <form action={confirmMatchAction} className="flex-1 min-w-[280px] flex items-end gap-2">
-                    <input type="hidden" name="item_id" value={item.id} />
-                    <div className="flex-1">
-                      <label className="caption block mb-1">Match to employee</label>
-                      <EmployeePicker
-                        employees={pickerEmployees}
-                        name="employee_id"
-                        defaultValue={item.suggested_match_employee_id ?? undefined}
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      className="rounded-md bg-[--accent] px-3 py-1.5 text-sm font-medium text-[--primary-foreground] hover:bg-[--accent]/90 whitespace-nowrap"
-                    >
-                      Confirm match
-                    </button>
-                  </form>
-                  <form action={skipReviewItemAction}>
-                    <input type="hidden" name="item_id" value={item.id} />
-                    <button
-                      type="submit"
-                      className="rounded-md border border-[--rule] bg-[--surface] px-3 py-1.5 text-sm hover:bg-[--surface-alt]"
-                    >
-                      Skip
-                    </button>
-                  </form>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </Section>
       )}
 
       {(recentlyResolved?.length ?? 0) > 0 && (
-        <div className="space-y-3">
-          <p className="caption">Recently resolved</p>
-          <div className="overflow-x-auto rounded-lg border border-[--rule] bg-[--surface]">
+        <Section label="Recently resolved">
+          <div className="panel overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[--rule]">
@@ -173,7 +175,7 @@ export default async function ReviewPage() {
                       <td className="px-4 py-3 text-[--ink-muted]">{item.source}</td>
                       <td className="px-4 py-3 text-[--ink-soft]">{item.resolution_notes ?? "—"}</td>
                       <td className="px-4 py-3 text-[--ink-muted]">{item.resolved_by ?? "—"}</td>
-                      <td className="px-4 py-3 tabular-nums text-[--ink-muted]">
+                      <td className="px-4 py-3 tabular text-[--ink-muted]">
                         {item.resolved_at ? new Date(item.resolved_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
                       </td>
                     </tr>
@@ -182,7 +184,7 @@ export default async function ReviewPage() {
               </tbody>
             </table>
           </div>
-        </div>
+        </Section>
       )}
     </div>
   );

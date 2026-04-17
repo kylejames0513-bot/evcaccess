@@ -1,7 +1,8 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { EmployeesTable } from "@/components/training-hub/employees-table";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { PageHeader, PrimaryLink } from "@/components/training-hub/page-primitives";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -39,36 +40,23 @@ export default async function EmployeesPage({
     status: r.status ?? "active",
   }));
 
-  // Counts for filter badges
   const { count: activeCount } = await supabase.from("employees").select("id", { count: "exact", head: true }).eq("status", "active");
   const { count: inactiveCount } = await supabase.from("employees").select("id", { count: "exact", head: true }).neq("status", "active");
   const { count: totalCount } = await supabase.from("employees").select("id", { count: "exact", head: true });
 
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <p className="caption">Roster</p>
-          <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
-            Employees
-          </h1>
-          <p className="font-display text-sm italic text-[--ink-soft] mt-1">
-            {rows.length} employee{rows.length === 1 ? "" : "s"} shown.
-          </p>
-        </div>
-        <Link
-          href="/employees/new"
-          className="rounded-md bg-[--accent] px-4 py-2 text-sm font-medium text-[--primary-foreground] hover:bg-[--accent]/90"
-        >
-          Add employee
-        </Link>
-      </div>
+      <PageHeader
+        eyebrow="Roster"
+        title="Employees"
+        subtitle={`${rows.length} employee${rows.length === 1 ? "" : "s"} shown.`}
+        actions={<PrimaryLink href="/employees/new">Add employee</PrimaryLink>}
+      />
 
-      {/* Status filter */}
-      <div className="flex gap-2">
-        <FilterLink href="/employees?status=active" active={statusFilter === "active"} label={`Active (${activeCount ?? 0})`} />
-        <FilterLink href="/employees?status=terminated" active={statusFilter === "terminated"} label={`Terminated (${inactiveCount ?? 0})`} />
-        <FilterLink href="/employees?status=all" active={statusFilter === "all"} label={`All (${totalCount ?? 0})`} />
+      <div className="flex flex-wrap gap-1.5">
+        <FilterPill href="/employees?status=active" active={statusFilter === "active"} label={`Active (${activeCount ?? 0})`} />
+        <FilterPill href="/employees?status=terminated" active={statusFilter === "terminated"} label={`Terminated (${inactiveCount ?? 0})`} />
+        <FilterPill href="/employees?status=all" active={statusFilter === "all"} label={`All (${totalCount ?? 0})`} />
       </div>
 
       <EmployeesTable rows={rows} />
@@ -76,15 +64,16 @@ export default async function EmployeesPage({
   );
 }
 
-function FilterLink({ href, active, label }: { href: string; active: boolean; label: string }) {
+function FilterPill({ href, active, label }: { href: string; active: boolean; label: string }) {
   return (
     <a
       href={href}
-      className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+      className={cn(
+        "rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-ring",
         active
           ? "bg-[--accent-soft] text-[--accent]"
-          : "text-[--ink-muted] hover:bg-[--surface-alt]"
-      }`}
+          : "text-[--ink-muted] hover:bg-[--surface-alt] hover:text-[--ink]"
+      )}
     >
       {label}
     </a>
