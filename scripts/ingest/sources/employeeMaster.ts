@@ -11,8 +11,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Papa from "papaparse";
-import { parseDate, toISODate, parseEmployeeStatus, normalizeName } from "../normalize.js";
-import { createIngestionRun, finishIngestionRun, writeAuditEntry, type RunStats } from "../runLogger.js";
+import { parseDate, toISODate, parseEmployeeStatus, normalizeName } from "../normalize";
+import { createIngestionRun, finishIngestionRun, writeAuditEntry, type RunStats } from "../runLogger";
 
 /** Flexible column header aliases → canonical field name */
 const COLUMN_ALIASES: Record<string, string[]> = {

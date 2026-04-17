@@ -48,6 +48,8 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // Skip Next internals, public assets, and endpoints that run their own auth
+    // (public kiosk sign-in, VBA bridge which uses the service-role key, cron).
+    "/((?!_next/static|_next/image|_next/dev|favicon\\.ico|icon|api/public|api/vba|api/ingest|api/qr|api/reports|signin|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

@@ -73,7 +73,6 @@ export default async function TrainingDetailPage({ params }: { params: Promise<{
             <Field label="Cadence months" value={t.cadence_months?.toString() ?? null} />
             <Field label="Grace days" value={t.grace_days?.toString() ?? null} />
             <Field label="Regulatory citation" value={t.regulatory_citation} />
-            <Field label="Column key" value={(t as { column_key?: string }).column_key ?? null} />
             <Field label="Active" value={t.active ? "Yes" : "No"} />
           </div>
           <Link href="/trainings" className="mt-3 inline-block text-sm text-[--accent] hover:underline">

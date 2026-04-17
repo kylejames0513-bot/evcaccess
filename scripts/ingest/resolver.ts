@@ -13,8 +13,8 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isNicknameMatch, getNicknames } from "./nicknames.js";
-import { normalizeName } from "./normalize.js";
+import { isNicknameMatch, getNicknames } from "./nicknames";
+import { normalizeName } from "./normalize";
 
 export type ResolvedMatch = {
   employeeId: string;

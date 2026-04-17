@@ -17,10 +17,10 @@ import { createClient } from "@supabase/supabase-js";
 config({ path: path.resolve(process.cwd(), ".env.local") });
 config({ path: path.resolve(process.cwd(), ".env") });
 
-import * as employeeMaster from "./sources/employeeMaster.js";
-import * as attendanceTracker from "./sources/attendanceTracker.js";
-import * as separationSummary from "./sources/separationSummary.js";
-import * as newHireTracker from "./sources/newHireTracker.js";
+import * as employeeMaster from "./sources/employeeMaster";
+import * as attendanceTracker from "./sources/attendanceTracker";
+import * as separationSummary from "./sources/separationSummary";
+import * as newHireTracker from "./sources/newHireTracker";
 
 const SOURCES: Record<string, { ingest: typeof employeeMaster.ingest }> = {
   employee_master: employeeMaster,
