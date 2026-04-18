@@ -59,7 +59,7 @@ export interface Database {
       };
       sessions: {
         Row: { id: string; training_id: string; scheduled_start: string | null; scheduled_end: string | null; location: string | null; trainer_name: string | null; capacity: number | null; status: string; created_at: string; };
-        Insert: { id?: string; training_id: string; scheduled_start?: string | null; location?: string | null; trainer_name?: string | null; capacity?: number | null; status?: string; };
+        Insert: { id?: string; training_id: string; scheduled_start?: string | null; scheduled_end?: string | null; location?: string | null; trainer_name?: string | null; capacity?: number | null; status?: string; };
         Update: Partial<Database["public"]["Tables"]["sessions"]["Insert"]>;
         Relationships: [];
       };

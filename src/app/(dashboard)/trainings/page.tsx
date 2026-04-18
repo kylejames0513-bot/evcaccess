@@ -15,16 +15,17 @@ export default async function TrainingsPage() {
     .select("id, code, title, category, cadence_type, cadence_months, grace_days, regulatory_citation, active")
     .order("code");
 
-  const trainingIds = (trainings ?? []).map(t => t.id);
+  // One query for all completion counts, tallied client-side. Cheaper than
+  // N HEAD requests even at 50+ trainings; PostgREST caps the rows returned
+  // but we only need (training_id) so the payload is tiny. For very large
+  // completion tables, consider a materialized view or RPC.
   const counts = new Map<string, number>();
-  if (trainingIds.length > 0) {
-    for (const tid of trainingIds) {
-      const { count } = await supabase
-        .from("completions")
-        .select("id", { count: "exact", head: true })
-        .eq("training_id", tid);
-      counts.set(tid, count ?? 0);
-    }
+  const { data: compRows } = await supabase
+    .from("completions")
+    .select("training_id");
+  for (const row of compRows ?? []) {
+    if (!row?.training_id) continue;
+    counts.set(row.training_id, (counts.get(row.training_id) ?? 0) + 1);
   }
 
   const rows: TrainingRow[] = (trainings ?? []).map(t => ({

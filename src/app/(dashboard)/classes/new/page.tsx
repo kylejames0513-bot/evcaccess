@@ -1,15 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClassAction } from "@/app/actions/class";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { PageHeader, SecondaryLink } from "@/components/training-hub/page-primitives";
 
 export default async function NewClassPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; training?: string }>;
 }) {
   const supabase = await createSupabaseServerClient();
   const {
@@ -19,87 +17,137 @@ export default async function NewClassPage({
 
   const { data: types } = await supabase
     .from("trainings")
-    .select("id, title")
+    .select("id, title, code")
     .eq("active", true)
     .order("title");
 
   const sp = await searchParams;
+  const preselect = sp.training ?? "";
 
   return (
-    <div className="mx-auto max-w-lg space-y-6">
-      <Button asChild variant="ghost" className="px-0" style={{ color: "var(--accent)" }}>
-        <Link href="/classes">Back</Link>
-      </Button>
-      <h1 className="font-display text-2xl font-semibold tracking-tight" style={{ color: "var(--ink)" }}>
-        Schedule class
-      </h1>
-      {sp.error ? <p className="text-sm text-[#ef4444]">{decodeURIComponent(sp.error)}</p> : null}
-      <form
-        action={createClassAction}
-        className="space-y-4 rounded-xl border p-6"
-        style={{ borderColor: "var(--rule)", backgroundColor: "var(--surface)" }}
-      >
-        <div className="space-y-2">
-          <Label htmlFor="training_id">Training</Label>
+    <div className="mx-auto max-w-2xl space-y-6">
+      <SecondaryLink href="/classes">← Back to classes</SecondaryLink>
+
+      <PageHeader
+        eyebrow="New session"
+        title="Schedule a class"
+        subtitle="Pick a training, date, and time. You can build the roster on the next screen."
+      />
+
+      {sp.error ? (
+        <div className="rounded-md border border-[--alert]/30 bg-[--alert-soft] px-4 py-3 text-sm text-[--alert]">
+          {decodeURIComponent(sp.error)}
+        </div>
+      ) : null}
+
+      <form action={createClassAction} className="panel space-y-5 p-6">
+        {/* Training */}
+        <Field label="Training">
           <select
-            id="training_id"
             name="training_id"
             required
-            className="flex h-10 w-full rounded-md border px-3 text-sm"
-            style={{ borderColor: "var(--rule)", backgroundColor: "var(--bg)", color: "var(--ink)" }}
-            defaultValue=""
+            defaultValue={preselect}
+            className="input"
           >
             <option value="" disabled>
-              Choose training
+              Choose a training…
             </option>
             {(types ?? []).map((t) => (
               <option key={t.id} value={t.id}>
-                {t.title}
+                {t.title} ({t.code})
               </option>
             ))}
           </select>
+        </Field>
+
+        {/* Date + time */}
+        <div className="grid gap-5 sm:grid-cols-3">
+          <Field label="Date">
+            <input
+              type="date"
+              name="scheduled_date"
+              required
+              className="input"
+              defaultValue={new Date().toISOString().slice(0, 10)}
+            />
+          </Field>
+          <Field label="Start time">
+            <input
+              type="time"
+              name="start_time"
+              required
+              defaultValue="09:00"
+              className="input"
+            />
+          </Field>
+          <Field label="End time">
+            <input
+              type="time"
+              name="end_time"
+              defaultValue="12:00"
+              className="input"
+            />
+          </Field>
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="scheduled_start">Date</Label>
-          <Input
-            id="scheduled_start"
-            name="scheduled_start"
-            type="date"
-            required
-            style={{ borderColor: "var(--rule)", backgroundColor: "var(--bg)" }}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="location">Location</Label>
-          <Input
-            id="location"
+
+        {/* Location */}
+        <Field label="Location">
+          <input
             name="location"
-            style={{ borderColor: "var(--rule)", backgroundColor: "var(--bg)" }}
+            placeholder="e.g. Main Office — Conference Room A"
+            className="input"
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="trainer_name">Instructor</Label>
-          <Input
-            id="trainer_name"
-            name="trainer_name"
-            style={{ borderColor: "var(--rule)", backgroundColor: "var(--bg)" }}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="capacity">Capacity</Label>
-          <Input
-            id="capacity"
+        </Field>
+
+        {/* Trainer */}
+        <Field label="Trainer">
+          <input name="trainer_name" placeholder="e.g. Jane Doe" className="input" />
+        </Field>
+
+        {/* Capacity */}
+        <Field label="Capacity" hint="Maximum attendees. Leave blank for no limit.">
+          <input
             name="capacity"
             type="number"
             min={0}
             defaultValue={12}
-            style={{ borderColor: "var(--rule)", backgroundColor: "var(--bg)" }}
+            className="input"
           />
+        </Field>
+
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            type="submit"
+            className="inline-flex h-10 items-center rounded-md bg-[--accent] px-4 text-sm font-medium text-[--primary-foreground] transition hover:opacity-90 focus-ring"
+          >
+            Save session
+          </button>
+          <Link
+            href="/classes"
+            className="text-sm text-[--ink-muted] hover:text-[--ink]"
+          >
+            Cancel
+          </Link>
         </div>
-        <Button type="submit" className="rounded-lg text-white" style={{ backgroundColor: "var(--accent)" }}>
-          Save and open day view
-        </Button>
       </form>
     </div>
+  );
+}
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block space-y-1.5">
+      <span className="caption text-[--ink-soft]">{label}</span>
+      {children}
+      {hint && <span className="block text-xs text-[--ink-muted]">{hint}</span>}
+    </label>
   );
 }
