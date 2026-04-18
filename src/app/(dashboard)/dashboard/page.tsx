@@ -50,7 +50,13 @@ export default async function DashboardPage() {
     .eq("id", user.id)
     .maybeSingle();
 
-  const firstName = (profile?.full_name ?? "").split(" ")[0] || "there";
+  // The shared HR login lands here as full_name="General HR", which makes
+  // the header read "Good evening, General." — silly. Treat any placeholder
+  // name as missing and drop the salutation instead.
+  const rawFirst = (profile?.full_name ?? "").split(" ")[0] ?? "";
+  const PLACEHOLDER = new Set(["", "hr", "general", "admin", "user", "operator", "there"]);
+  const firstName = PLACEHOLDER.has(rawFirst.toLowerCase()) ? "" : rawFirst;
+  const greet = firstName ? `${greeting()}, ${firstName}.` : `${greeting()}.`;
 
   // --- Counts --------------------------------------------------------------
   const now = new Date();
@@ -182,7 +188,7 @@ export default async function DashboardPage() {
     <div className="space-y-10">
       <PageHeader
         eyebrow={today()}
-        title={`${greeting()}, ${firstName}.`}
+        title={greet}
         subtitle={
           feed.length === 0
             ? "Nothing urgent. A rare quiet day."

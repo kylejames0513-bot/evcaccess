@@ -34,9 +34,9 @@ export function PageHeader({
     <header className="flex flex-col gap-4 border-b border-[--rule] pb-5 sm:pb-6 md:flex-row md:items-end md:justify-between">
       <div className="min-w-0">
         {eyebrow && <p className="caption">{eyebrow}</p>}
-        <h1 className="mt-1 break-words">{title}</h1>
+        <h1 className="mt-2 break-words sm:mt-1">{title}</h1>
         {subtitle && (
-          <p className="mt-2 break-words text-sm text-[--ink-soft]">{subtitle}</p>
+          <p className="mt-3 break-words text-sm text-[--ink-soft] sm:mt-2">{subtitle}</p>
         )}
       </div>
       {actions && (
