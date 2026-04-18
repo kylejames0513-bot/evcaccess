@@ -1,6 +1,6 @@
 # EVC_Attendance_Tracker.xlsx → Training Hub
 
-This documents how the app reads the workbook in repo root (`EVC_Attendance_Tracker.xlsx`). Only **allowlisted** sheet names are parsed.
+This documents how the app reads the workbook at `workbooks/EVC_Attendance_Tracker.xlsx`. Only **allowlisted** sheet names are parsed.
 
 ## Sheets used by imports
 
