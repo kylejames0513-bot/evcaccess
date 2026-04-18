@@ -17,7 +17,7 @@ You have two ways to deploy the Apps Script:
 
 **A. Bound to the spreadsheet (simplest).** Open `EVC_Attendance_Tracker` in Google Sheets → **Extensions → Apps Script**. In the editor that opens:
 
-- If the project already has files (the old kiosk handler), **keep them**. Create a new file called `KioskWebhook.gs` and paste the contents of [`Google Sheets/KioskWebhook.gs.txt`](./KioskWebhook.gs.txt) into it. The new handler replaces `doPost` — if the existing project also defines `doPost`, rename the old one to something else (e.g. `doPost_legacy`) so Apps Script uses the new one.
+- If the project already has files (the old kiosk handler), **keep them**. Create a new file called `KioskWebhook.gs` and paste the contents of [`KioskWebhook.gs.txt`](./KioskWebhook.gs.txt) into it. The new handler replaces `doPost` — if the existing project also defines `doPost`, rename the old one to something else (e.g. `doPost_legacy`) so Apps Script uses the new one.
 - If the project is empty, create a single file named `KioskWebhook.gs` and paste the contents in.
 
 **B. Standalone script (if you can't bind to the sheet).** At [script.google.com](https://script.google.com) → **New project**. Paste the contents of `KioskWebhook.gs.txt` into `Code.gs`, then use `SpreadsheetApp.openById(SPREADSHEET_ID)` instead of `getActiveSpreadsheet()`. Ping me if you need this — it's a two-line patch.
