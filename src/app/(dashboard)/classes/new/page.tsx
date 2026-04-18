@@ -90,6 +90,19 @@ export default async function NewClassPage({
           </Field>
         </div>
 
+        {/* Kind */}
+        <Field
+          label="Session kind"
+          hint="Orientation sessions auto-include new hires in the orientation stage."
+        >
+          <select name="session_kind" defaultValue="standalone" className="input">
+            <option value="standalone">Standalone class</option>
+            <option value="orientation">New-hire orientation</option>
+            <option value="makeup">Makeup session</option>
+            <option value="recurring_instance">Recurring instance</option>
+          </select>
+        </Field>
+
         {/* Location */}
         <Field label="Location">
           <input
@@ -112,6 +125,16 @@ export default async function NewClassPage({
             min={0}
             defaultValue={12}
             className="input"
+          />
+        </Field>
+
+        {/* Notes */}
+        <Field label="Notes (optional)">
+          <textarea
+            name="notes"
+            rows={3}
+            className="input resize-none"
+            placeholder="Anything trainers or attendees should know…"
           />
         </Field>
 

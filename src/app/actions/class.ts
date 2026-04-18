@@ -34,8 +34,10 @@ export async function createClassAction(formData: FormData): Promise<void> {
   const scheduled_date = String(formData.get("scheduled_date") ?? "");
   const start_time = String(formData.get("start_time") ?? "") || null;
   const end_time = String(formData.get("end_time") ?? "") || null;
+  const session_kind = String(formData.get("session_kind") ?? "standalone");
   const location = String(formData.get("location") ?? "");
   const trainer_name = String(formData.get("trainer_name") ?? "");
+  const notes = String(formData.get("notes") ?? "");
   const capacityRaw = formData.get("capacity");
   const capacity =
     capacityRaw == null || capacityRaw === ""
@@ -55,8 +57,10 @@ export async function createClassAction(formData: FormData): Promise<void> {
       training_id,
       scheduled_start,
       scheduled_end,
+      session_kind,
       location: location || null,
       trainer_name: trainer_name || null,
+      notes: notes || null,
       capacity: capacity != null && Number.isFinite(capacity) ? capacity : null,
       status: "scheduled",
     })
@@ -67,5 +71,30 @@ export async function createClassAction(formData: FormData): Promise<void> {
     redirect("/classes/new?error=" + encodeURIComponent(error?.message ?? "Save failed."));
   }
   revalidatePath("/classes");
-  redirect(`/classes/${data.id}/day`);
+  redirect(`/classes/${data.id}`);
+}
+
+/**
+ * Mark a session as in_progress / completed / cancelled.
+ * On completed: converts the roster (status in enrolled/confirmed/attended)
+ *   into completions rows (idempotent via unique source_row_hash).
+ */
+export async function updateClassStatusAction(formData: FormData): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const sessionId = String(formData.get("session_id") ?? "");
+  const nextStatus = String(formData.get("status") ?? "");
+  if (!sessionId || !nextStatus) return;
+
+  await supabase.from("sessions").update({ status: nextStatus }).eq("id", sessionId);
+
+  if (nextStatus === "completed") {
+    const { finalizeSessionCompletions } = await import("@/lib/session-finalize");
+    await finalizeSessionCompletions(supabase, sessionId);
+  }
+
+  revalidatePath(`/classes/${sessionId}`);
+  revalidatePath("/classes");
 }
