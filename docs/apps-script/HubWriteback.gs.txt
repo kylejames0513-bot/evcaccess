@@ -1,0 +1,200 @@
+// ============================================================
+// Hub Writeback
+// ============================================================
+// Receives POSTed JSON from the hub when the operator edits data on
+// the hub and we want the Google Sheet to mirror that edit.
+//
+// Actions:
+//   employee_upsert    — upsert a row on the Employee tab (or `Merged`
+//                        if Employee isn't present)
+//   completion_upsert  — write a date into the Training tab cell for
+//                        the matching employee × training column
+//
+// Deploy as a Web App with access = "Anyone". Copy the /exec URL into
+// Vercel as GOOGLE_APPS_SCRIPT_WRITEBACK_URL. Can be the same URL as
+// the kiosk webhook if you merge both files into one project (the
+// router below co-exists with kiosk doPost).
+//
+// Security note: the web app is public-by-URL. Rotate this URL if it
+// ever leaks. The payload shape is intentionally narrow (no raw SQL,
+// no arbitrary tab writes — only the two documented actions).
+// ============================================================
+
+function doPost(e) {
+  try {
+    var body = {};
+    if (e && e.postData && e.postData.contents) {
+      try { body = JSON.parse(e.postData.contents); } catch (err) { body = {}; }
+    }
+    var action = body.action || "";
+    var payload = body.payload || {};
+
+    if (action === "employee_upsert") {
+      return respond_(handleEmployeeUpsert_(payload));
+    }
+    if (action === "completion_upsert") {
+      return respond_(handleCompletionUpsert_(payload));
+    }
+    return respond_({ ok: false, error: "unknown action: " + action });
+  } catch (err) {
+    return respond_({ ok: false, error: String(err && err.message || err) });
+  }
+}
+
+function respond_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ----- Employee upsert -------------------------------------------------------
+
+function handleEmployeeUpsert_(p) {
+  if (!p || !p.employee_id) return { ok: false, error: "employee_id required" };
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Employee") || ss.getSheetByName("Merged");
+  if (!sheet) return { ok: false, error: "No Employee or Merged sheet found" };
+
+  var data = sheet.getDataRange().getValues();
+  var header = data[0] || [];
+  var col = {};
+  header.forEach(function (h, i) { col[String(h).trim().toUpperCase()] = i; });
+
+  var idCol = pickCol_(col, ["ID", "EMPLOYEE ID", "EMPLOYEE_ID"]);
+  var lnCol = pickCol_(col, ["L NAME", "LAST NAME", "LAST_NAME", "LAST"]);
+  var fnCol = pickCol_(col, ["F NAME", "FIRST NAME", "FIRST_NAME", "FIRST"]);
+  var divCol = pickCol_(col, ["DIVISION"]);
+  var deptCol = pickCol_(col, ["DEPARTMENT", "DEPARTMENT DESCRIPTION"]);
+  var posCol = pickCol_(col, ["POSITION", "POSITION TITLE"]);
+  var hireCol = pickCol_(col, ["HIRE DATE", "DOH"]);
+  var activeCol = pickCol_(col, ["ACTIVE"]);
+
+  if (idCol < 0 || lnCol < 0 || fnCol < 0) {
+    return { ok: false, error: "Need ID + L NAME + F NAME columns" };
+  }
+
+  var targetRow = -1;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][idCol]).trim() === String(p.employee_id).trim()) {
+      targetRow = i;
+      break;
+    }
+  }
+
+  var values = new Array(header.length);
+  for (var k = 0; k < header.length; k++) values[k] = targetRow >= 0 ? data[targetRow][k] : "";
+  values[idCol] = p.employee_id;
+  values[lnCol] = p.legal_last_name || values[lnCol] || "";
+  values[fnCol] = p.legal_first_name || values[fnCol] || "";
+  if (divCol >= 0) values[divCol] = p.location || values[divCol] || "";
+  if (deptCol >= 0) values[deptCol] = p.department || values[deptCol] || "";
+  if (posCol >= 0) values[posCol] = p.position || values[posCol] || "";
+  if (hireCol >= 0) values[hireCol] = p.hire_date || values[hireCol] || "";
+  if (activeCol >= 0) values[activeCol] = (p.status === "terminated" ? "N" : "Y");
+
+  if (targetRow < 0) {
+    sheet.appendRow(values);
+    return { ok: true, action: "inserted" };
+  } else {
+    sheet.getRange(targetRow + 1, 1, 1, values.length).setValues([values]);
+    return { ok: true, action: "updated", row: targetRow + 1 };
+  }
+}
+
+// ----- Completion upsert -----------------------------------------------------
+//
+// Writes a date (or "Failed") into the Training tab cell for the matching
+// employee row and training column. Looks for:
+//   - matching ID if provided, otherwise L NAME + F NAME (case-insensitive)
+//   - a column header whose name matches training_code OR a common alias
+
+var COMPLETION_COLUMN_ALIASES = {
+  // training_code → column name(s) on the Training sheet
+  "CPR_FA": ["CPR", "FIRSTAID", "CPR/FA"],
+  "MED_TRAIN": ["MED_TRAIN", "MED CERT"],
+  "UKERU": ["Ukeru"],
+  "POST_MED": ["POST MED", "POST_MED"],
+  "POM": ["POM"],
+  "MEALTIME": ["Mealtime"],
+  "PERS_CENT_THNK": ["Pers Cent Thnk"],
+  "VR": ["VR"]
+};
+
+function handleCompletionUpsert_(p) {
+  if (!p || !p.training_code) return { ok: false, error: "training_code required" };
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Training");
+  if (!sheet) return { ok: false, error: "No Training sheet" };
+
+  var data = sheet.getDataRange().getValues();
+  var header = data[0] || [];
+  var idCol = findCaseInsensitive_(header, ["ID", "EMPLOYEE ID"]);
+  var lnCol = findCaseInsensitive_(header, ["L NAME", "LAST NAME"]);
+  var fnCol = findCaseInsensitive_(header, ["F NAME", "FIRST NAME"]);
+  if (lnCol < 0 || fnCol < 0) return { ok: false, error: "Need L NAME + F NAME on Training tab" };
+
+  // Resolve target row
+  var targetRow = -1;
+  if (p.employee_employee_id && idCol >= 0) {
+    for (var i = 1; i < data.length; i++) {
+      if (String(data[i][idCol]).trim() === String(p.employee_employee_id).trim()) {
+        targetRow = i; break;
+      }
+    }
+  }
+  if (targetRow < 0 && p.last_name) {
+    for (var j = 1; j < data.length; j++) {
+      if (
+        String(data[j][lnCol]).trim().toLowerCase() === String(p.last_name).trim().toLowerCase() &&
+        String(data[j][fnCol]).trim().toLowerCase().indexOf(String(p.first_name || "").trim().toLowerCase()) === 0
+      ) {
+        targetRow = j; break;
+      }
+    }
+  }
+  if (targetRow < 0) return { ok: false, error: "No row for " + (p.last_name || p.employee_employee_id) };
+
+  // Find matching column(s)
+  var candidates = [p.training_code].concat(COMPLETION_COLUMN_ALIASES[p.training_code] || []);
+  var colIdxs = [];
+  for (var c = 0; c < header.length; c++) {
+    var h = String(header[c]).trim();
+    for (var ci = 0; ci < candidates.length; ci++) {
+      if (h.toLowerCase() === candidates[ci].toLowerCase()) {
+        colIdxs.push(c);
+        break;
+      }
+    }
+  }
+  if (colIdxs.length === 0) {
+    return { ok: false, error: "No column for " + p.training_code };
+  }
+
+  var value = p.status === "failed" ? "Failed" : (p.completed_on || "");
+  for (var ci2 = 0; ci2 < colIdxs.length; ci2++) {
+    sheet.getRange(targetRow + 1, colIdxs[ci2] + 1).setValue(value);
+  }
+  return { ok: true, action: "updated", row: targetRow + 1, cols: colIdxs.map(function (n) { return n + 1; }) };
+}
+
+// ----- Helpers ---------------------------------------------------------------
+
+function pickCol_(map, names) {
+  for (var i = 0; i < names.length; i++) {
+    var v = map[names[i].toUpperCase()];
+    if (typeof v === "number") return v;
+  }
+  return -1;
+}
+
+function findCaseInsensitive_(header, names) {
+  for (var i = 0; i < header.length; i++) {
+    var h = String(header[i]).trim().toUpperCase();
+    for (var j = 0; j < names.length; j++) {
+      if (h === names[j].toUpperCase()) return i;
+    }
+  }
+  return -1;
+}

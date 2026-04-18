@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { postWriteback } from "@/lib/sheet-writeback";
 
 export async function createEmployeeAction(formData: FormData) {
   const supabase = await createSupabaseServerClient();
@@ -21,25 +22,31 @@ export async function createEmployeeAction(formData: FormData) {
     redirect("/employees/new?error=" + encodeURIComponent("Employee ID and name are required."));
   }
 
+  const row = {
+    employee_id,
+    legal_first_name: first_name,
+    legal_last_name: last_name,
+    position: position || null,
+    department: department || null,
+    location: location || null,
+    hire_date: hire_date || null,
+    status: "active",
+    source: "manual",
+  };
+
   const { data, error } = await supabase
     .from("employees")
-    .insert({
-      employee_id,
-      legal_first_name: first_name,
-      legal_last_name: last_name,
-      position: position || null,
-      department: department || null,
-      location: location || null,
-      hire_date: hire_date || null,
-      status: "active",
-      source: "manual",
-    })
+    .insert(row)
     .select("id")
     .single();
 
   if (error || !data) {
     redirect("/employees/new?error=" + encodeURIComponent(error?.message ?? "Could not save."));
   }
+
+  // Fire-and-log writeback to Google Sheet Employee tab. Does not block the
+  // redirect — failures land in sync_failures.
+  void postWriteback("employee_upsert", row, { supabase, actor: user.email ?? "hr" });
 
   revalidatePath("/employees");
   redirect(`/employees/${data.id}`);

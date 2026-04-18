@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { postWriteback } from "@/lib/sheet-writeback";
 
 /**
  * Convert a finalized session's roster into completion rows.
@@ -97,6 +98,36 @@ export async function finalizeSessionCompletions(
         })
         .eq("id", row.id);
       written += 1;
+
+      // Writeback to the Google Sheet Training tab. Best-effort: the Apps
+      // Script handler resolves the employee by id (or name fallback) and
+      // writes completedOn into the matching training column. Failures are
+      // captured in sync_failures by postWriteback.
+      const { data: emp } = await supabase
+        .from("employees")
+        .select("employee_id, legal_last_name, legal_first_name")
+        .eq("id", row.employee_id)
+        .maybeSingle();
+      const { data: tr } = await supabase
+        .from("trainings")
+        .select("code")
+        .eq("id", session.training_id)
+        .maybeSingle();
+      if (emp && tr?.code) {
+        void postWriteback(
+          "completion_upsert",
+          {
+            employee_employee_id: emp.employee_id,
+            last_name: emp.legal_last_name,
+            first_name: emp.legal_first_name,
+            training_code: tr.code,
+            completed_on: completedOn,
+            status: completionStatus,
+            session_id: sessionId,
+          },
+          { supabase },
+        );
+      }
     }
   }
 
