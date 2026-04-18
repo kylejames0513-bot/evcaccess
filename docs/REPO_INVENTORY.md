@@ -107,11 +107,17 @@ evcaccess/
 │   ├── seed.sql (empty)
 │   ├── functions/send-notification/index.ts
 │   └── migrations/ (6 files)
-├── docs/EVC_WORKBOOK_MAPPING.md
-├── EVC_Attendance_Tracker.xlsx
-├── FY Separation Summary.xlsx
-├── Monthly New Hire Tracker.xlsm
-├── RUN_THIS_SQL.sql
+├── docs/
+│   ├── EVC_WORKBOOK_MAPPING.md
+│   ├── MIGRATION_PLAN.md
+│   ├── REPO_INVENTORY.md              # this file
+│   └── apps-script/                   # Apps Script .gs sources + DEPLOYMENT.md
+├── excel-macros/                      # raw VBA exports (.txt)
+├── vba/                               # committed VBA modules
+├── workbooks/                         # reference copies of source workbooks
+│   ├── EVC_Attendance_Tracker.xlsx
+│   ├── FY Separation Summary.xlsx
+│   └── Monthly New Hire Tracker.xlsm
 └── Config: package.json, tsconfig.json, next.config.ts,
     tailwind.config.ts, eslint.config.mjs, vercel.json, .env.example
 ```

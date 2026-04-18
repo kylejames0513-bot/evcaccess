@@ -7,9 +7,13 @@ sources. Built on Next.js 16 + Supabase + Vercel. Shared HR password login.
 > **Reading order for Claude (or any new contributor):**
 > 1. This file (project overview + collaboration protocol)
 > 2. `AGENTS.md` (Next 16 caveat)
-> 3. `AUDIT_2026-04-16.md` (what's currently broken)
-> 4. `IMPROVEMENTS_PLAN.md` (the roadmap)
-> 5. `MIGRATION_PLAN.md` + `REPO_INVENTORY.md` (history and file tree)
+> 3. `docs/MIGRATION_PLAN.md` + `docs/REPO_INVENTORY.md` (history and file tree)
+> 4. `docs/EVC_WORKBOOK_MAPPING.md` (external workbook schemas)
+>
+> Historical references to `AUDIT_2026-04-16.md` and `IMPROVEMENTS_PLAN.md`
+> point to files that existed on earlier branches but are not in the current
+> tree. Recover from git history if needed: `git log --all --oneline --
+> AUDIT_2026-04-16.md`.
 
 ---
 
@@ -71,11 +75,13 @@ npm run ingest:seed
 
 - **~70% wired.** Ingestion A–D works via CLI. UI covers roster, trainings,
   new hires, separations, compliance matrix, ingestion console, review queue.
-- **Known breakage** — see `AUDIT_2026-04-16.md`. Top items: middleware not
-  mounted, `/api/ingest/sheets` cron is a no-op, VBA endpoint selects a
-  non-existent column, dead routes on dropped tables, missing RLS migration.
-- **Roadmap** — see `IMPROVEMENTS_PLAN.md`. Five phases (A–E), 6-week
-  sequencing: foundations → features → data integrity → security → quality.
+- **Known breakage** — historical audit (`AUDIT_2026-04-16.md`) is no longer
+  in the tree. Top items from it: middleware not mounted, `/api/ingest/sheets`
+  cron is a no-op, VBA endpoint selects a non-existent column, dead routes on
+  dropped tables, missing RLS migration.
+- **Roadmap** — historical (`IMPROVEMENTS_PLAN.md`, no longer in the tree):
+  five phases (A–E), 6-week sequencing: foundations → features → data
+  integrity → security → quality.
 
 ## 6. Branching protocol
 
@@ -246,9 +252,11 @@ npm run inspect:evc-xlsx                    # peek at the workbook
 | `scripts/ingest/**` | Server-side CLI ingestion of all five sources |
 | `supabase/migrations/**` | Canonical schema. `20260417000000_hr_hub_core.sql` is the source of truth. |
 | `supabase/functions/send-notification/` | Email dispatcher (needs cron) |
-| `vba/`, `Google Sheets/`, `Excel and Macros/` | External workbook integrations |
+| `vba/`, `docs/apps-script/`, `excel-macros/` | External workbook integrations (VBA modules, Apps Script `.gs` sources, and raw macro exports) |
+| `workbooks/` | Reference copies of the source Excel/Sheets workbooks (`EVC_Attendance_Tracker.xlsx`, `FY Separation Summary.xlsx`, `Monthly New Hire Tracker.xlsm`) |
+| `docs/` | Written docs: migration/inventory history, workbook column mappings, Apps Script deployment guide |
 
 ---
 
-_Last updated 2026-04-16. This README is the entry point for any AI agent or
+_Last updated 2026-04-18. This README is the entry point for any AI agent or
 new engineer. Keep it current when the protocol or phase ordering changes._
