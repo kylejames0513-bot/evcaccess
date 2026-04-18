@@ -61,7 +61,7 @@ export default async function NewClassPage({
         </Field>
 
         {/* Date + time */}
-        <div className="grid gap-5 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-3 sm:gap-5">
           <Field label="Date">
             <input
               type="date"

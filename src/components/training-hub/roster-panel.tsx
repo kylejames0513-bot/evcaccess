@@ -128,7 +128,7 @@ export function RosterPanel({
             No attendees yet. Add people from the suggestions below.
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b border-[--rule]">
                 <th className="caption px-4 py-3 text-left">Attendee</th>
@@ -241,7 +241,7 @@ export function RosterPanel({
                   </div>
                 </div>
                 <div className="max-h-[360px] overflow-auto">
-                  <table className="w-full text-sm">
+                  <table className="w-full min-w-[560px] text-sm">
                     <tbody>
                       {b.members.map((m) => {
                         const checked = picks.has(m.id);
@@ -323,7 +323,7 @@ function StatusControl({
       disabled={disabled}
       value={current}
       onChange={(ev) => onChange(ev.target.value)}
-      className="input h-8 py-0 text-xs"
+      className="input h-8 min-w-[110px] py-0 text-xs"
     >
       {options.map((o) => (
         <option key={o.value} value={o.value}>

@@ -153,7 +153,7 @@ export default async function ReviewPage() {
       {(recentlyResolved?.length ?? 0) > 0 && (
         <Section label="Recently resolved">
           <div className="panel overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-[--rule]">
                   <th className="caption px-4 py-3 text-left">Name</th>

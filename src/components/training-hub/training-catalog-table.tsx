@@ -180,7 +180,7 @@ export function TrainingCatalogTable({ rows: initialRows }: { rows: TrainingRow[
 
       {/* Table */}
       <div className="overflow-x-auto rounded-lg border border-[--rule] bg-[--surface]">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[560px] text-sm">
           <thead>
             <tr className="border-b border-[--rule]">
               <th className="caption px-4 py-3 text-left">Code</th>

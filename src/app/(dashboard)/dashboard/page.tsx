@@ -191,11 +191,19 @@ export default async function DashboardPage() {
       />
 
       {/* Quick actions strip */}
-      <div className="flex flex-wrap gap-2">
-        <PrimaryLink href="/classes/new">Schedule class</PrimaryLink>
-        <SecondaryLink href="/new-hires/new">Start a new hire</SecondaryLink>
-        <SecondaryLink href="/separations/new">Log separation</SecondaryLink>
-        <SecondaryLink href="/employees">Find an employee</SecondaryLink>
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
+        <PrimaryLink href="/classes/new" className="shrink-0 whitespace-nowrap">
+          Schedule class
+        </PrimaryLink>
+        <SecondaryLink href="/new-hires/new" className="shrink-0 whitespace-nowrap">
+          Start a new hire
+        </SecondaryLink>
+        <SecondaryLink href="/separations/new" className="shrink-0 whitespace-nowrap">
+          Log separation
+        </SecondaryLink>
+        <SecondaryLink href="/employees" className="shrink-0 whitespace-nowrap">
+          Find an employee
+        </SecondaryLink>
       </div>
 
       {/* Two-column workspace */}

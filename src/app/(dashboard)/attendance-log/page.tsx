@@ -55,7 +55,7 @@ export default async function AttendanceLogPage() {
         <EmptyPanel title="No training completions recorded yet. Run your first ingestion to populate." />
       ) : (
         <div className="panel overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-b border-[--rule]">
                 <th className="caption px-4 py-3 text-left">Date</th>

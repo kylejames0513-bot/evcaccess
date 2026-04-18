@@ -39,7 +39,7 @@ export default async function NewSeparationPage({
           <Label className="caption">Employee name (Last, First)</Label>
           <Input name="legal_name" required className="border-[--rule] bg-[--surface]" placeholder="Doe, Jane" />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1">
             <Label className="caption">Position</Label>
             <Input name="position" className="border-[--rule] bg-[--surface]" />
@@ -49,7 +49,7 @@ export default async function NewSeparationPage({
             <Input name="department" className="border-[--rule] bg-[--surface]" />
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1">
             <Label className="caption">Hire date</Label>
             <Input name="hire_date" type="date" className="border-[--rule] bg-[--surface]" />
@@ -59,7 +59,7 @@ export default async function NewSeparationPage({
             <Input name="separation_date" type="date" required className="border-[--rule] bg-[--surface]" />
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1">
             <Label className="caption">Separation type</Label>
             <select name="separation_type" className="w-full rounded-md border border-[--rule] bg-[--surface] px-3 py-2 text-sm">
