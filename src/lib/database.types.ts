@@ -22,8 +22,8 @@ export interface Database {
   public: {
     Tables: {
       organizations: {
-        Row: { id: string; name: string; slug: string; regulator: string; fiscal_year_start_month: number; logo_storage_path: string | null; primary_color: string | null; paylocity_field_map: Json; phs_field_map: Json; created_at: string; updated_at: string; };
-        Insert: { id?: string; name: string; slug: string; regulator?: string; fiscal_year_start_month?: number; logo_storage_path?: string | null; primary_color?: string | null; paylocity_field_map?: Json; phs_field_map?: Json; };
+        Row: { id: string; name: string; slug: string; regulator: string; fiscal_year_start_month: number; logo_storage_path: string | null; primary_color: string | null; paylocity_field_map: Json; phs_field_map: Json; memo_signoff: string | null; created_at: string; updated_at: string; };
+        Insert: { id?: string; name: string; slug: string; regulator?: string; fiscal_year_start_month?: number; logo_storage_path?: string | null; primary_color?: string | null; paylocity_field_map?: Json; phs_field_map?: Json; memo_signoff?: string | null; };
         Update: Partial<Database["public"]["Tables"]["organizations"]["Insert"]>;
         Relationships: [];
       };
@@ -58,9 +58,33 @@ export interface Database {
         Relationships: [];
       };
       sessions: {
-        Row: { id: string; training_id: string; scheduled_start: string | null; scheduled_end: string | null; location: string | null; trainer_name: string | null; capacity: number | null; status: string; created_at: string; };
-        Insert: { id?: string; training_id: string; scheduled_start?: string | null; location?: string | null; trainer_name?: string | null; capacity?: number | null; status?: string; };
+        Row: { id: string; training_id: string; scheduled_start: string | null; scheduled_end: string | null; location: string | null; trainer_name: string | null; capacity: number | null; status: string; title: string | null; session_kind: string | null; notes: string | null; created_at: string; };
+        Insert: { id?: string; training_id: string; scheduled_start?: string | null; scheduled_end?: string | null; location?: string | null; trainer_name?: string | null; capacity?: number | null; status?: string; title?: string | null; session_kind?: string | null; notes?: string | null; };
         Update: Partial<Database["public"]["Tables"]["sessions"]["Insert"]>;
+        Relationships: [];
+      };
+      session_enrollments: {
+        Row: { id: string; session_id: string; employee_id: string; source: string | null; status: string | null; enrolled_at: string | null; enrolled_by: string | null; attendance_marked_at: string | null; attendance_marked_by: string | null; completion_id: string | null; notes: string | null; };
+        Insert: { id?: string; session_id: string; employee_id: string; source?: string | null; status?: string | null; enrolled_at?: string | null; enrolled_by?: string | null; attendance_marked_at?: string | null; attendance_marked_by?: string | null; completion_id?: string | null; notes?: string | null; };
+        Update: Partial<Database["public"]["Tables"]["session_enrollments"]["Insert"]>;
+        Relationships: [];
+      };
+      memo_templates: {
+        Row: { id: string; slug: string; name: string; subject_template: string; body_template: string; active: boolean; is_default: boolean; created_at: string; updated_at: string; };
+        Insert: { id?: string; slug: string; name: string; subject_template: string; body_template: string; active?: boolean; is_default?: boolean; };
+        Update: Partial<Database["public"]["Tables"]["memo_templates"]["Insert"]>;
+        Relationships: [];
+      };
+      sync_failures: {
+        Row: { id: string; kind: string; target: string; payload: Json; error: string | null; attempts: number; created_at: string; last_attempt_at: string; resolved: boolean; resolved_at: string | null; resolved_by: string | null; resolution_notes: string | null; };
+        Insert: { id?: string; kind: string; target: string; payload: Json; error?: string | null; attempts?: number; last_attempt_at?: string; resolved?: boolean; resolved_at?: string | null; resolved_by?: string | null; resolution_notes?: string | null; };
+        Update: Partial<Database["public"]["Tables"]["sync_failures"]["Insert"]>;
+        Relationships: [];
+      };
+      pending_xlsx_writes: {
+        Row: { id: string; source: string; action: string; payload: Json; created_at: string; applied_at: string | null; applied_by: string | null; error: string | null; };
+        Insert: { id?: string; source: string; action: string; payload: Json; applied_at?: string | null; applied_by?: string | null; error?: string | null; };
+        Update: Partial<Database["public"]["Tables"]["pending_xlsx_writes"]["Insert"]>;
         Relationships: [];
       };
       new_hires: {
@@ -124,7 +148,50 @@ export interface Database {
         Relationships: [];
       };
     };
-    Views: Record<string, never>;
+    Views: {
+      vw_compliance_status: {
+        Row: {
+          employee_id: string | null;
+          paylocity_id: string | null;
+          legal_first_name: string | null;
+          legal_last_name: string | null;
+          department: string | null;
+          position: string | null;
+          training_id: string | null;
+          training_code: string | null;
+          training_title: string | null;
+          cadence_months: number | null;
+          completed_on: string | null;
+          expires_on: string | null;
+          compliance_status: string | null;
+          days_until_expiry: number | null;
+        };
+        Relationships: [];
+      };
+      vw_turnover_by_fy: {
+        Row: {
+          evc_fiscal_year: number | null;
+          department: string | null;
+          separations: number | null;
+          voluntary: number | null;
+          involuntary: number | null;
+          avg_tenure_days: number | null;
+          avg_tenure_years: number | null;
+        };
+        Relationships: [];
+      };
+      vw_turnover_by_cy: {
+        Row: {
+          calendar_year: number | null;
+          department: string | null;
+          separations: number | null;
+          voluntary: number | null;
+          involuntary: number | null;
+          avg_tenure_days: number | null;
+        };
+        Relationships: [];
+      };
+    };
     Functions: {
       bootstrap_organization: { Args: { p_name: string; p_regulator: string; p_fiscal_month: number; p_slug: string; }; Returns: string; };
       recompute_training_expirations: { Args: { p_training_id: string }; Returns: number; };

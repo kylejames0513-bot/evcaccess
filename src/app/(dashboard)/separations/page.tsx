@@ -23,6 +23,12 @@ export default async function SeparationsPage() {
 
   const rows = separations ?? [];
 
+  const { count: pendingXlsx } = await supabase
+    .from("pending_xlsx_writes")
+    .select("id", { count: "exact", head: true })
+    .eq("source", "separation_summary")
+    .is("applied_at", null);
+
   const total = rows.length;
   const voluntary = rows.filter(r => r.separation_type === "voluntary").length;
   const involuntary = rows.filter(r => r.separation_type === "involuntary").length;
@@ -38,6 +44,21 @@ export default async function SeparationsPage() {
         subtitle="Every departure, with reasons and tenure."
         actions={<PrimaryLink href="/separations/new">Log a separation</PrimaryLink>}
       />
+
+      {pendingXlsx && pendingXlsx > 0 ? (
+        <div className="panel border-[--warn]/30 bg-[--warn-soft] px-5 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-[--warn]">
+                {pendingXlsx} pending write{pendingXlsx === 1 ? "" : "s"} to <code className="font-mono text-xs">FY Separation Summary.xlsx</code>
+              </p>
+              <p className="mt-0.5 text-xs text-[--ink-muted]">
+                Run <code className="font-mono">npm run writeback:separations</code> locally to apply.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard label="Total" value={total} />

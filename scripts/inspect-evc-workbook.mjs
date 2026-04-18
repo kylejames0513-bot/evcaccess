@@ -1,7 +1,7 @@
 /**
  * Lists sheet names and first-row headers for EVC workbooks (dev-only).
  * Usage: node scripts/inspect-evc-workbook.mjs [path-to-xlsx]
- * Default: ./EVC_Attendance_Tracker.xlsx
+ * Default: ./workbooks/EVC_Attendance_Tracker.xlsx
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -10,7 +10,7 @@ import * as XLSX from "xlsx";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
-const defaultFile = path.join(root, "EVC_Attendance_Tracker.xlsx");
+const defaultFile = path.join(root, "workbooks", "EVC_Attendance_Tracker.xlsx");
 const filePath = path.resolve(process.argv[2] ?? defaultFile);
 
 if (!fs.existsSync(filePath)) {

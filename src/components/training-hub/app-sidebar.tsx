@@ -10,11 +10,11 @@ import {
   ClipboardList,
   Database,
   History,
+  Inbox,
   LayoutDashboard,
   QrCode,
   Settings,
   ShieldCheck,
-  Upload,
   UserCircle2,
   UserPlus,
   UserMinus,
@@ -40,28 +40,37 @@ type NavLink = {
   icon: React.ComponentType<{ className?: string }>;
 };
 
-const operate: NavLink[] = [
+// Five tight groups, verb-first. Replaces the earlier Operate/Manage/Configure
+// taxonomy so the primary actions (schedule a class, triage the inbox) are
+// one click from anywhere.
+const today: NavLink[] = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
+  { href: "/inbox", label: "Inbox", icon: Inbox },
+];
+
+const people: NavLink[] = [
+  { href: "/employees", label: "Employees", icon: Users },
   { href: "/new-hires", label: "New hires", icon: UserPlus },
   { href: "/separations", label: "Separations", icon: UserMinus },
+];
+
+const training: NavLink[] = [
+  { href: "/classes", label: "Classes", icon: CalendarDays },
+  { href: "/trainings", label: "Catalog", icon: BookOpen },
   { href: "/compliance", label: "Compliance", icon: ClipboardList },
-  { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/requirements", label: "Requirements", icon: ShieldCheck },
   { href: "/attendance-log", label: "Attendance log", icon: History },
 ];
 
-const manage: NavLink[] = [
-  { href: "/employees", label: "Employees", icon: Users },
-  { href: "/trainings", label: "Training catalog", icon: BookOpen },
-  { href: "/requirements", label: "Requirements", icon: ShieldCheck },
-  { href: "/classes", label: "Classes", icon: CalendarDays },
-  { href: "/signin-queue", label: "Sign-in Review", icon: ClipboardCheck },
-  { href: "/imports", label: "File imports", icon: Upload },
+const operations: NavLink[] = [
+  { href: "/ingestion", label: "Ingestion", icon: Database },
+  { href: "/signin-queue", label: "Sign-in review", icon: ClipboardCheck },
+  { href: "/review", label: "Review queue", icon: UserCircle2 },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
 ];
 
-const configure: NavLink[] = [
-  { href: "/ingestion", label: "Ingestion", icon: Database },
-  { href: "/review", label: "Review queue", icon: UserCircle2 },
-  { href: "/reports", label: "Reports", icon: ClipboardList },
+const config: NavLink[] = [
+  { href: "/settings/memos", label: "Memo templates", icon: BookOpen },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -80,8 +89,8 @@ export function AppSidebar({ orgName, orgSlug }: { orgName: string; orgSlug: str
       </SidebarHeader>
 
       <SidebarContent className="px-2 py-3">
-        <Section label="Operate">
-          {operate.map((l) => (
+        <Section label="Today">
+          {today.map((l) => (
             <NavItem key={l.href} link={l} pathname={pathname} />
           ))}
           {orgSlug && (
@@ -104,14 +113,26 @@ export function AppSidebar({ orgName, orgSlug }: { orgName: string; orgSlug: str
           )}
         </Section>
 
-        <Section label="Manage">
-          {manage.map((l) => (
+        <Section label="People">
+          {people.map((l) => (
+            <NavItem key={l.href} link={l} pathname={pathname} />
+          ))}
+        </Section>
+
+        <Section label="Training">
+          {training.map((l) => (
+            <NavItem key={l.href} link={l} pathname={pathname} />
+          ))}
+        </Section>
+
+        <Section label="Operations">
+          {operations.map((l) => (
             <NavItem key={l.href} link={l} pathname={pathname} />
           ))}
         </Section>
 
         <Section label="Configure">
-          {configure.map((l) => (
+          {config.map((l) => (
             <NavItem key={l.href} link={l} pathname={pathname} />
           ))}
         </Section>

@@ -66,15 +66,17 @@ export async function ingest(options: {
   const { supabase, dryRun } = options;
   const stats: RunStats = { processed: 0, inserted: 0, updated: 0, skipped: 0, unresolved: 0, errors: [] };
 
-  const filepath = options.filepath
-    ?? path.resolve(process.cwd(), "Monthly New Hire Tracker.xlsm");
+  const candidates = [
+    options.filepath,
+    path.resolve(process.cwd(), "workbooks/Monthly New Hire Tracker.xlsm"),
+    path.resolve(process.cwd(), "data/sources/Monthly New Hire Tracker.xlsm"),
+    path.resolve(process.cwd(), "Monthly New Hire Tracker.xlsm"),
+  ].filter((p): p is string => typeof p === "string" && p.length > 0);
 
-  if (!fs.existsSync(filepath)) {
-    const alt = path.resolve(process.cwd(), "data/sources/Monthly New Hire Tracker.xlsm");
-    if (!fs.existsSync(alt)) {
-      stats.errors.push(`File not found: ${filepath}`);
-      return stats;
-    }
+  const filepath = candidates.find((p) => fs.existsSync(p));
+  if (!filepath) {
+    stats.errors.push(`File not found; tried: ${candidates.join(", ")}`);
+    return stats;
   }
 
   const runId = dryRun

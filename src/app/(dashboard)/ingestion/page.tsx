@@ -7,6 +7,10 @@ import {
   Pill,
   Section,
 } from "@/components/training-hub/page-primitives";
+import {
+  dismissSyncFailureAction,
+  retrySyncFailureAction,
+} from "@/app/actions/sync-failure";
 
 export default async function IngestionPage() {
   const supabase = await createSupabaseServerClient();
@@ -28,6 +32,38 @@ export default async function IngestionPage() {
 
   const pendingCount = reviewItems?.length ?? 0;
   const runRows = runs ?? [];
+
+  // Outbound writebacks — failures + pending xlsx writes
+  const { data: failures } = await supabase
+    .from("sync_failures")
+    .select("id, kind, target, payload, error, attempts, created_at, last_attempt_at")
+    .eq("resolved", false)
+    .order("created_at", { ascending: false })
+    .limit(30);
+
+  const { data: pendingXlsx } = await supabase
+    .from("pending_xlsx_writes")
+    .select("id, source, action, payload, created_at")
+    .is("applied_at", null)
+    .order("created_at", { ascending: true })
+    .limit(30);
+
+  // Group pending_xlsx_writes by source for a per-source summary
+  const xlsxBySource = new Map<string, { count: number; oldest: string | null }>();
+  for (const w of pendingXlsx ?? []) {
+    const cur = xlsxBySource.get(w.source) ?? { count: 0, oldest: null };
+    cur.count += 1;
+    if (!cur.oldest || (w.created_at && w.created_at < cur.oldest)) {
+      cur.oldest = w.created_at;
+    }
+    xlsxBySource.set(w.source, cur);
+  }
+  const XLSX_COMMAND: Record<string, string> = {
+    separation_summary: "npm run writeback:separations",
+  };
+  // Server component runs per-request, so computing "now" once here is fine.
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now();
 
   return (
     <div className="space-y-10">
@@ -52,6 +88,90 @@ export default async function IngestionPage() {
             <p>npm run ingest:dry-run # Preview without writing</p>
           </div>
           <p className="text-xs text-[--ink-muted]">Automated sync runs nightly via Vercel cron.</p>
+        </div>
+      </Section>
+
+      <Section label="Outbound writebacks" hint="Hub edits waiting to land on sheets/xlsx.">
+        <div className="grid gap-4 md:grid-cols-2">
+          {/* Pending xlsx writes */}
+          <div className="panel p-5">
+            <p className="caption mb-2">Pending xlsx writes</p>
+            {xlsxBySource.size === 0 ? (
+              <p className="text-sm text-[--ink-muted]">Nothing queued.</p>
+            ) : (
+              <ul className="space-y-3">
+                {Array.from(xlsxBySource.entries()).map(([source, info]) => {
+                  const ageDays = info.oldest
+                    ? Math.floor((nowMs - new Date(info.oldest).getTime()) / 86400000)
+                    : 0;
+                  const stale = ageDays > 7;
+                  return (
+                    <li key={source} className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-[--ink]">
+                          {info.count} pending · <code className="font-mono text-xs">{source}</code>
+                        </span>
+                        {stale && <Pill tone="warn">{ageDays}d old</Pill>}
+                      </div>
+                      {XLSX_COMMAND[source] && (
+                        <code className="font-mono text-xs text-[--ink-muted]">
+                          {XLSX_COMMAND[source]}
+                        </code>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          {/* Sync failures (Google Sheet writeback) */}
+          <div className="panel p-5">
+            <p className="caption mb-2">Sheet writeback failures</p>
+            {(failures ?? []).length === 0 ? (
+              <p className="text-sm text-[--ink-muted]">No unresolved failures.</p>
+            ) : (
+              <ul className="space-y-3">
+                {(failures ?? []).map((f) => {
+                  const payload = f.payload as Record<string, unknown> | null;
+                  const label =
+                    payload?.employee_id || payload?.last_name || payload?.training_code || f.id;
+                  return (
+                    <li key={f.id} className="space-y-1 border-b border-[--rule] pb-2 last:border-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Pill tone="alert">{f.kind}</Pill>
+                        <span className="text-sm text-[--ink]">{String(label)}</span>
+                        <span className="text-xs text-[--ink-muted]">· attempts {f.attempts}</span>
+                      </div>
+                      {f.error && (
+                        <p className="font-mono text-xs text-[--alert]">{String(f.error).slice(0, 160)}</p>
+                      )}
+                      <div className="flex gap-2 pt-1">
+                        <form action={retrySyncFailureAction}>
+                          <input type="hidden" name="id" value={f.id} />
+                          <button
+                            type="submit"
+                            className="text-xs text-[--accent] hover:underline"
+                          >
+                            Retry
+                          </button>
+                        </form>
+                        <form action={dismissSyncFailureAction}>
+                          <input type="hidden" name="id" value={f.id} />
+                          <button
+                            type="submit"
+                            className="text-xs text-[--ink-muted] hover:text-[--ink]"
+                          >
+                            Dismiss
+                          </button>
+                        </form>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </div>
       </Section>
 
