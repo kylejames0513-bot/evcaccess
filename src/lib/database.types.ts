@@ -148,7 +148,50 @@ export interface Database {
         Relationships: [];
       };
     };
-    Views: Record<string, never>;
+    Views: {
+      vw_compliance_status: {
+        Row: {
+          employee_id: string | null;
+          paylocity_id: string | null;
+          legal_first_name: string | null;
+          legal_last_name: string | null;
+          department: string | null;
+          position: string | null;
+          training_id: string | null;
+          training_code: string | null;
+          training_title: string | null;
+          cadence_months: number | null;
+          completed_on: string | null;
+          expires_on: string | null;
+          compliance_status: string | null;
+          days_until_expiry: number | null;
+        };
+        Relationships: [];
+      };
+      vw_turnover_by_fy: {
+        Row: {
+          evc_fiscal_year: number | null;
+          department: string | null;
+          separations: number | null;
+          voluntary: number | null;
+          involuntary: number | null;
+          avg_tenure_days: number | null;
+          avg_tenure_years: number | null;
+        };
+        Relationships: [];
+      };
+      vw_turnover_by_cy: {
+        Row: {
+          calendar_year: number | null;
+          department: string | null;
+          separations: number | null;
+          voluntary: number | null;
+          involuntary: number | null;
+          avg_tenure_days: number | null;
+        };
+        Relationships: [];
+      };
+    };
     Functions: {
       bootstrap_organization: { Args: { p_name: string; p_regulator: string; p_fiscal_month: number; p_slug: string; }; Returns: string; };
       recompute_training_expirations: { Args: { p_training_id: string }; Returns: number; };
