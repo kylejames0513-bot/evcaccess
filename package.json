@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test src/lib/compliance.node-test.ts src/lib/memos/render.node-test.ts scripts/ingest/normalize.node-test.ts",
+    "test": "node --import tsx --test src/lib/compliance.node-test.ts src/lib/memos/render.node-test.ts scripts/ingest/normalize.node-test.ts scripts/writeback/separationSummary.node-test.ts",
     "vercel:link": "npx vercel link",
     "vercel:env:pull": "npx vercel env pull .env.local --yes",
     "supabase:link": "supabase link",

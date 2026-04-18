@@ -18,11 +18,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import type { SupabaseClient } from "@supabase/supabase-js";
-
-const MONTH_NAMES = [
-  "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
-  "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
-];
+import {
+  evcFiscalYear,
+  findFYSheetName,
+  findMonthBlock,
+  formatSheetDate,
+  lengthOfService,
+  monthUpper,
+} from "./separationSummary.util";
 
 type RunStats = {
   pending: number;
@@ -80,111 +83,19 @@ function acquireLock(dir: string): () => void {
   };
 }
 
-/** Returns the EVC fiscal year for a YYYY-MM-DD date (FY starts July 1). */
-function evcFiscalYear(isoDate: string): number {
-  const [y, m] = isoDate.split("-").map((v) => parseInt(v, 10));
-  if (!y || !m) throw new Error(`Invalid ISO date: ${isoDate}`);
-  return m >= 7 ? y + 1 : y;
-}
-
-function monthUpper(isoDate: string): string {
-  const [, m] = isoDate.split("-").map((v) => parseInt(v, 10));
-  if (!m || m < 1 || m > 12) throw new Error(`Invalid month: ${isoDate}`);
-  return MONTH_NAMES[m - 1];
-}
-
 function formatNameForSheet(legalName: string): string {
   // Keep whatever operator typed. Accept both "Doe, Jane" and "Jane Doe".
   return legalName.trim();
 }
 
-function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "";
-  // Sheet uses M/D/YYYY; mimic that.
-  const d = new Date(`${iso}T00:00:00`);
-  if (isNaN(d.getTime())) return iso;
-  return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
-}
-
-function findFYSheetName(wb: XLSX.WorkBook, fy: number): string | null {
-  // Sheet names look like "FY 2027 (Jan27-Dec27)".
-  const pattern = new RegExp(`^FY\\s*${fy}\\b`, "i");
-  return wb.SheetNames.find((n) => pattern.test(n.trim())) ?? null;
-}
-
-/**
- * Find the row block for a specific month section within an FY sheet. Returns
- * the indices of the header row ("Name"/"Date of Separation") and the last
- * data row for that month (inclusive).
- */
-function findMonthBlock(
-  rows: unknown[][],
-  monthLabel: string,
-): { headerIdx: number; lastDataIdx: number } | null {
-  const label = monthLabel.toUpperCase();
-  let monthRow = -1;
-  for (let i = 0; i < rows.length; i++) {
-    const a = String(((rows[i] ?? [])[0]) ?? "").trim().toUpperCase();
-    if (a.startsWith(label) && /\d{4}$/.test(a)) {
-      monthRow = i;
-      break;
-    }
-  }
-  if (monthRow === -1) return null;
-
-  // Header row is usually monthRow+1
-  let headerIdx = -1;
-  for (let i = monthRow + 1; i < Math.min(rows.length, monthRow + 5); i++) {
-    const a = String(((rows[i] ?? [])[0]) ?? "").trim().toLowerCase();
-    if (a === "name") {
-      headerIdx = i;
-      break;
-    }
-  }
-  if (headerIdx === -1) return null;
-
-  // Last data row = last index before the next month header or end-of-sheet
-  let lastDataIdx = rows.length - 1;
-  for (let i = headerIdx + 1; i < rows.length; i++) {
-    const a = String(((rows[i] ?? [])[0]) ?? "").trim().toUpperCase();
-    if (MONTH_NAMES.some((m) => a.startsWith(m)) && /\d{4}$/.test(a)) {
-      lastDataIdx = i - 1;
-      break;
-    }
-    // Empty month block bail-outs — stop at the next visible text block that
-    // clearly isn't data (e.g. "FY SUMMARY" / "TOR %").
-    if (/^(fy\s|tor|summary)/i.test(a) && i > headerIdx + 1) {
-      lastDataIdx = i - 1;
-      break;
-    }
-  }
-  return { headerIdx, lastDataIdx };
-}
-
-function buildSheetRow(p: SeparationPayload): unknown[] {
+export function buildSheetRow(p: SeparationPayload): unknown[] {
   // Column order matches the xlsx header row exactly:
   // Name | Date of Separation | DOH | Length of Service | Eligible for Rehire
   //   | Status | Location | Reason for Leaving | Supervisor
   //   | Exit Interview Date | Job | Comments | Department
   const sepDate = p.separation_date;
   const doh = p.hire_date ?? "";
-
-  // Length of service ("Xy Ym") — compute if DOH present.
-  let los = "";
-  if (doh) {
-    const sep = new Date(sepDate);
-    const d = new Date(doh);
-    if (!isNaN(sep.getTime()) && !isNaN(d.getTime())) {
-      let years = sep.getFullYear() - d.getFullYear();
-      let months = sep.getMonth() - d.getMonth();
-      if (sep.getDate() < d.getDate()) months -= 1;
-      if (months < 0) {
-        years -= 1;
-        months += 12;
-      }
-      los = `${years}y ${months}m`;
-    }
-  }
+  const los = lengthOfService(doh, sepDate);
 
   // Status code: sheet uses "D" for discharge/involuntary, "V" for voluntary.
   const type = (p.separation_type ?? "voluntary").toLowerCase();
@@ -200,15 +111,15 @@ function buildSheetRow(p: SeparationPayload): unknown[] {
 
   return [
     formatNameForSheet(p.legal_name),
-    formatDate(sepDate),
-    formatDate(doh),
+    formatSheetDate(sepDate),
+    formatSheetDate(doh),
     los,
     rehire,
     statusCode,
     "", // Location — separations ingest doesn't track this today
     p.reason_primary ?? "",
     p.supervisor_name_raw ?? "",
-    p.exit_interview_status === "completed" ? formatDate(sepDate) : "",
+    p.exit_interview_status === "completed" ? formatSheetDate(sepDate) : "",
     p.position ?? "",
     p.hr_notes ?? "",
     p.department ?? "",
@@ -256,7 +167,7 @@ export async function runSeparationsWriteback(opts: {
       const payload = row.payload as SeparationPayload;
       try {
         const fy = evcFiscalYear(payload.separation_date);
-        const sheetName = findFYSheetName(wb, fy);
+        const sheetName = findFYSheetName(wb.SheetNames, fy);
         if (!sheetName) {
           throw new Error(`No FY ${fy} tab found in workbook`);
         }

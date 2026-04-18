@@ -25,13 +25,23 @@ sources. Built on Next.js 16 + Supabase + Vercel. Shared HR password login.
 - **Training catalog** — 20 preseeded trainings (CPR_FA, UKERU, MEALTIME,
   MED_TRAIN, etc.). Operator can edit cadences; a DB trigger recomputes
   expirations across all completions.
-- **New-hire pipeline** — 10-stage kanban, per-hire checklist.
+- **Class scheduler** — schedule a session, build a roster from overdue /
+  due-soon / new-hire auto-suggestions, mark attendance, finalize to write
+  completions. Orientation sessions auto-advance new-hire stages.
+- **Class memo** — one button on the class page copies a plain-text memo
+  (class info + roster) to the clipboard. Editable template at
+  `/settings/memos`.
+- **New-hire pipeline** — stage-based tracker, per-hire checklist.
 - **Separations** — computed tenure, fiscal-year bucketing, offboarding
-  checklist.
-- **Ingestion** — five data sources pulled via CLI (`npm run ingest:*`) and a
-  nightly Vercel cron.
+  checklist, two-way sync with the local `FY Separation Summary.xlsx`.
+- **Ingestion (inbound)** — five data sources pulled via CLI
+  (`npm run ingest:*`) and a nightly Vercel cron.
+- **Writeback (outbound)** — hub edits mirror back to the Google Sheet via
+  Apps Script and to local Excel workbooks via `npm run writeback:*`.
+- **Inbox triage** — `/inbox` surfaces upcoming classes without a roster,
+  unresolved ingest review items, sheet writeback failures, and xlsx writes
+  pending local apply.
 - **Kiosk sign-in** — public QR endpoint for in-person training sessions.
-- **Notifications** — queued emails via a Supabase edge function (Resend).
 
 ## 2. Data sources
 
@@ -202,20 +212,25 @@ Required:
 - `SUPABASE_SERVICE_ROLE_KEY` — server-only, for ingestion + admin writes
 - `CRON_SECRET` — Vercel cron auth
 
-Ingestion:
+Ingestion (inbound):
 - `MERGED_MASTER_CSV_URL` — Google Sheet published CSV (Source A)
 - `ATTENDANCE_TRACKER_CSV_URL` — Google Sheet published CSV (Source B)
 
-Notifications:
+Writeback (outbound):
+- `GOOGLE_APPS_SCRIPT_WRITEBACK_URL` — Apps Script web app URL that hosts
+  `docs/apps-script/HubWriteback.gs.txt`. Used for `employee_upsert` and
+  `completion_upsert` writebacks. Falls back to `GOOGLE_APPS_SCRIPT_URL`.
+
+Notifications (not in use for memos — plain-text copy-to-clipboard):
 - `RESEND_API_KEY`
 - `NOTIFICATION_FROM_EMAIL`
 
 Optional:
 - `GENERAL_HR_AUTH_EMAIL`, `GENERAL_HR_PASSWORD` — shared HR login
-- `GOOGLE_APPS_SCRIPT_URL` — dual-write target (currently unused)
+- `GOOGLE_APPS_SCRIPT_URL` — kiosk + VBA bridge (existing)
 - `TEST_SUPABASE_URL`, `TEST_SUPABASE_ANON_KEY` — integration test fixtures
 
-Full list with comments: `.env.example`.
+Full list with comments: `.env.example`. Deeper sync reference: `docs/SYNC.md`.
 
 ## 9. Common commands
 
@@ -230,6 +245,10 @@ npm run ingest:seed                         # first-time full load
 npm run ingest:refresh                      # pull Google Sheets A+B
 npm run ingest -- --source=attendance_tracker
 npm run ingest:dry-run                      # preview without writing
+
+# Writeback (hub edits → local xlsx)
+npm run writeback:separations               # apply pending rows to FY Separation Summary.xlsx
+npm run writeback:separations:dry           # preview without writing
 
 # DB
 npm run db:push                             # apply pending migrations
@@ -249,11 +268,17 @@ npm run inspect:evc-xlsx                    # peek at the workbook
 | `src/app/api/**` | HTTP endpoints (ingest cron, exports, kiosk, VBA bridge) |
 | `src/app/actions/**` | Next.js server actions (form submissions) |
 | `src/lib/imports/**` | Client-side parsers for file uploads |
+| `src/lib/memos/**` | Memo template rendering (plain-text copy-to-clipboard) |
+| `src/lib/sheet-writeback.ts` | Outbound writeback helper (hub → Apps Script) |
+| `src/lib/session-finalize.ts` | Turns a completed session's roster into `completions` rows |
+| `src/lib/roster-candidates.ts` | "Who could we add to this class?" bucket builder |
 | `scripts/ingest/**` | Server-side CLI ingestion of all five sources |
-| `supabase/migrations/**` | Canonical schema. `20260417000000_hr_hub_core.sql` is the source of truth. |
-| `supabase/functions/send-notification/` | Email dispatcher (needs cron) |
+| `scripts/writeback/**` | CLI to apply queued hub edits to local Excel workbooks |
+| `supabase/migrations/**` | Canonical schema. `20260417000000_hr_hub_core.sql` is the baseline; `20260420-20260422*` add class rosters, memos, and sync infrastructure. |
+| `supabase/functions/send-notification/` | Email dispatcher stub (not in use for memos) |
 | `vba/`, `docs/apps-script/`, `excel-macros/` | External workbook integrations (VBA modules, Apps Script `.gs` sources, and raw macro exports) |
 | `workbooks/` | Reference copies of the source Excel/Sheets workbooks (`EVC_Attendance_Tracker.xlsx`, `FY Separation Summary.xlsx`, `Monthly New Hire Tracker.xlsm`) |
+| `docs/SYNC.md` | Single-page map of every inbound / outbound sync pipe |
 | `docs/` | Written docs: migration/inventory history, workbook column mappings, Apps Script deployment guide |
 
 ---
