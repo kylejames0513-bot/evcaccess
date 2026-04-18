@@ -58,9 +58,15 @@ export interface Database {
         Relationships: [];
       };
       sessions: {
-        Row: { id: string; training_id: string; scheduled_start: string | null; scheduled_end: string | null; location: string | null; trainer_name: string | null; capacity: number | null; status: string; created_at: string; };
-        Insert: { id?: string; training_id: string; scheduled_start?: string | null; scheduled_end?: string | null; location?: string | null; trainer_name?: string | null; capacity?: number | null; status?: string; };
+        Row: { id: string; training_id: string; scheduled_start: string | null; scheduled_end: string | null; location: string | null; trainer_name: string | null; capacity: number | null; status: string; title: string | null; session_kind: string | null; notes: string | null; created_at: string; };
+        Insert: { id?: string; training_id: string; scheduled_start?: string | null; scheduled_end?: string | null; location?: string | null; trainer_name?: string | null; capacity?: number | null; status?: string; title?: string | null; session_kind?: string | null; notes?: string | null; };
         Update: Partial<Database["public"]["Tables"]["sessions"]["Insert"]>;
+        Relationships: [];
+      };
+      session_enrollments: {
+        Row: { id: string; session_id: string; employee_id: string; source: string | null; status: string | null; enrolled_at: string | null; enrolled_by: string | null; attendance_marked_at: string | null; attendance_marked_by: string | null; completion_id: string | null; notes: string | null; };
+        Insert: { id?: string; session_id: string; employee_id: string; source?: string | null; status?: string | null; enrolled_at?: string | null; enrolled_by?: string | null; attendance_marked_at?: string | null; attendance_marked_by?: string | null; completion_id?: string | null; notes?: string | null; };
+        Update: Partial<Database["public"]["Tables"]["session_enrollments"]["Insert"]>;
         Relationships: [];
       };
       new_hires: {
