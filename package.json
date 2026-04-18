@@ -19,7 +19,9 @@
     "ingest": "node --import tsx scripts/ingest/index.ts",
     "ingest:seed": "node --import tsx scripts/ingest/index.ts seed",
     "ingest:refresh": "node --import tsx scripts/ingest/index.ts refresh",
-    "ingest:dry-run": "node --import tsx scripts/ingest/index.ts --dry-run"
+    "ingest:dry-run": "node --import tsx scripts/ingest/index.ts --dry-run",
+    "writeback:separations": "node --import tsx scripts/writeback/index.ts separations",
+    "writeback:separations:dry": "node --import tsx scripts/writeback/index.ts separations --dry-run"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",

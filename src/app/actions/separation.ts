@@ -1,7 +1,67 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+export async function createSeparationAction(formData: FormData): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const legalName = String(formData.get("legal_name") ?? "").trim();
+  const separationDate = String(formData.get("separation_date") ?? "").trim();
+  if (!legalName || !separationDate) {
+    redirect("/separations/new?error=Name+and+date+required");
+  }
+
+  const record = {
+    legal_name: legalName,
+    position: String(formData.get("position") ?? "").trim() || null,
+    department: String(formData.get("department") ?? "").trim() || null,
+    hire_date: String(formData.get("hire_date") ?? "").trim() || null,
+    separation_date: separationDate,
+    separation_type: String(formData.get("separation_type") ?? "voluntary"),
+    reason_primary: String(formData.get("reason_primary") ?? "").trim() || null,
+    rehire_eligible: String(formData.get("rehire_eligible") ?? "conditional"),
+    exit_interview_status: String(formData.get("exit_interview_status") ?? "not_done"),
+    hr_notes: String(formData.get("hr_notes") ?? "").trim() || null,
+    supervisor_name_raw: String(formData.get("supervisor_name_raw") ?? "").trim() || null,
+    ingest_source: "hub_manual",
+  };
+
+  const { data: inserted, error } = await supabase
+    .from("separations")
+    .insert(record)
+    .select("id, legal_name, separation_date, hire_date, department, position, separation_type, reason_primary, rehire_eligible, exit_interview_status, hr_notes, supervisor_name_raw")
+    .single();
+
+  if (error || !inserted) {
+    redirect("/separations/new?error=" + encodeURIComponent(error?.message ?? "save failed"));
+  }
+
+  // Queue an xlsx writeback so the operator can run
+  // `npm run writeback:separations` locally to append to the FY Separation
+  // workbook. Don't block the save if the queue insert fails.
+  try {
+    await supabase.from("pending_xlsx_writes").insert({
+      source: "separation_summary",
+      action: "upsert",
+      payload: {
+        ...inserted,
+        actor: user.email ?? "hr",
+      },
+    });
+  } catch (e) {
+    // swallow — we keep the Supabase write; the operator will notice the
+    // banner stays absent and can re-queue manually from the detail page.
+    console.error("pending_xlsx_writes insert failed", e);
+  }
+
+  revalidatePath("/separations");
+  revalidatePath("/ingestion");
+  redirect(`/separations/${inserted.id}`);
+}
 
 const DEFAULT_OFFBOARDING: string[] = [
   "Exit interview scheduled/completed",

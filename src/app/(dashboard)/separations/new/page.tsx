@@ -1,41 +1,20 @@
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSeparationAction } from "@/app/actions/separation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export default async function NewSeparationPage() {
+export default async function NewSeparationPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   const supabase = await createSupabaseServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  async function createSeparation(formData: FormData) {
-    "use server";
-    const supabase = await createSupabaseServerClient();
-
-    const legalName = String(formData.get("legal_name") ?? "").trim();
-    const separationDate = String(formData.get("separation_date") ?? "").trim();
-    if (!legalName || !separationDate) redirect("/separations/new?error=Name+and+date+required");
-
-    const { error } = await supabase.from("separations").insert({
-      legal_name: legalName,
-      position: String(formData.get("position") ?? "").trim() || null,
-      department: String(formData.get("department") ?? "").trim() || null,
-      hire_date: String(formData.get("hire_date") ?? "").trim() || null,
-      separation_date: separationDate,
-      separation_type: String(formData.get("separation_type") ?? "voluntary") as "voluntary" | "involuntary" | "other",
-      reason_primary: String(formData.get("reason_primary") ?? "").trim() || null,
-      rehire_eligible: String(formData.get("rehire_eligible") ?? "conditional") as "yes" | "no" | "conditional",
-      exit_interview_status: String(formData.get("exit_interview_status") ?? "not_done") as "completed" | "declined" | "not_done",
-      hr_notes: String(formData.get("hr_notes") ?? "").trim() || null,
-      ingest_source: "manual",
-    });
-
-    if (error) redirect("/separations/new?error=" + encodeURIComponent(error.message));
-    revalidatePath("/separations");
-    redirect("/separations");
-  }
+  const sp = await searchParams;
 
   return (
     <div className="space-y-8">
@@ -44,8 +23,18 @@ export default async function NewSeparationPage() {
         <h1 className="font-display text-[28px] font-medium leading-tight tracking-[-0.01em]">
           Log a separation
         </h1>
+        <p className="mt-2 text-sm text-[--ink-soft]">
+          Saved to the hub. Run <code className="font-mono text-xs">npm run writeback:separations</code> locally to apply to <code className="font-mono text-xs">FY Separation Summary.xlsx</code>.
+        </p>
       </div>
-      <form action={createSeparation} className="max-w-xl space-y-6">
+
+      {sp.error ? (
+        <div className="rounded-md border border-[--alert]/30 bg-[--alert-soft] px-4 py-3 text-sm text-[--alert]">
+          {decodeURIComponent(sp.error)}
+        </div>
+      ) : null}
+
+      <form action={createSeparationAction} className="max-w-xl space-y-6">
         <div className="space-y-1">
           <Label className="caption">Employee name (Last, First)</Label>
           <Input name="legal_name" required className="border-[--rule] bg-[--surface]" placeholder="Doe, Jane" />
@@ -95,6 +84,10 @@ export default async function NewSeparationPage() {
         <div className="space-y-1">
           <Label className="caption">Reason</Label>
           <Input name="reason_primary" className="border-[--rule] bg-[--surface]" placeholder="Primary reason for departure" />
+        </div>
+        <div className="space-y-1">
+          <Label className="caption">Supervisor</Label>
+          <Input name="supervisor_name_raw" className="border-[--rule] bg-[--surface]" placeholder="Name as listed on the roster" />
         </div>
         <div className="space-y-1">
           <Label className="caption">Exit interview</Label>
