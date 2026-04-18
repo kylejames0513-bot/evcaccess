@@ -24,7 +24,7 @@ export async function finalizeSessionCompletions(
 
   const { data: session, error: sErr } = await supabase
     .from("sessions")
-    .select("id, training_id, scheduled_start")
+    .select("id, training_id, scheduled_start, session_kind")
     .eq("id", sessionId)
     .maybeSingle();
   if (sErr || !session) {
@@ -97,6 +97,46 @@ export async function finalizeSessionCompletions(
         })
         .eq("id", row.id);
       written += 1;
+    }
+  }
+
+  // For orientation sessions, advance new_hires whose employee_id is on the
+  // roster and who are currently in the "orientation" stage. They move to
+  // "thirty_day" (first probation milestone per the current template).
+  // Also tick their checklist item if the template exposes an orientation key.
+  if (session.session_kind === "orientation" && written > 0) {
+    const attendedIds = (enrolls ?? [])
+      .filter((e) => {
+        const s = e.status ?? "enrolled";
+        return s !== "no_show" && s !== "cancelled" && s !== "waitlisted";
+      })
+      .map((e) => e.employee_id);
+    if (attendedIds.length > 0) {
+      const { data: hires } = await supabase
+        .from("new_hires")
+        .select("id, employee_id, stage")
+        .in("employee_id", attendedIds)
+        .eq("stage", "orientation");
+      const hireIds = (hires ?? []).map((h) => h.id);
+      if (hireIds.length > 0) {
+        await supabase
+          .from("new_hires")
+          .update({
+            stage: "thirty_day",
+            stage_entry_date: new Date().toISOString().slice(0, 10),
+          })
+          .in("id", hireIds);
+        // Mark any orientation checklist item as completed (idempotent).
+        await supabase
+          .from("new_hire_checklist")
+          .update({
+            completed: true,
+            completed_on: completedOn,
+            completed_by: "hub_class_finalize",
+          })
+          .in("new_hire_id", hireIds)
+          .eq("item_key", "orientation");
+      }
     }
   }
 
