@@ -22,8 +22,8 @@ export interface Database {
   public: {
     Tables: {
       organizations: {
-        Row: { id: string; name: string; slug: string; regulator: string; fiscal_year_start_month: number; logo_storage_path: string | null; primary_color: string | null; paylocity_field_map: Json; phs_field_map: Json; created_at: string; updated_at: string; };
-        Insert: { id?: string; name: string; slug: string; regulator?: string; fiscal_year_start_month?: number; logo_storage_path?: string | null; primary_color?: string | null; paylocity_field_map?: Json; phs_field_map?: Json; };
+        Row: { id: string; name: string; slug: string; regulator: string; fiscal_year_start_month: number; logo_storage_path: string | null; primary_color: string | null; paylocity_field_map: Json; phs_field_map: Json; memo_signoff: string | null; created_at: string; updated_at: string; };
+        Insert: { id?: string; name: string; slug: string; regulator?: string; fiscal_year_start_month?: number; logo_storage_path?: string | null; primary_color?: string | null; paylocity_field_map?: Json; phs_field_map?: Json; memo_signoff?: string | null; };
         Update: Partial<Database["public"]["Tables"]["organizations"]["Insert"]>;
         Relationships: [];
       };
@@ -67,6 +67,12 @@ export interface Database {
         Row: { id: string; session_id: string; employee_id: string; source: string | null; status: string | null; enrolled_at: string | null; enrolled_by: string | null; attendance_marked_at: string | null; attendance_marked_by: string | null; completion_id: string | null; notes: string | null; };
         Insert: { id?: string; session_id: string; employee_id: string; source?: string | null; status?: string | null; enrolled_at?: string | null; enrolled_by?: string | null; attendance_marked_at?: string | null; attendance_marked_by?: string | null; completion_id?: string | null; notes?: string | null; };
         Update: Partial<Database["public"]["Tables"]["session_enrollments"]["Insert"]>;
+        Relationships: [];
+      };
+      memo_templates: {
+        Row: { id: string; slug: string; name: string; subject_template: string; body_template: string; active: boolean; is_default: boolean; created_at: string; updated_at: string; };
+        Insert: { id?: string; slug: string; name: string; subject_template: string; body_template: string; active?: boolean; is_default?: boolean; };
+        Update: Partial<Database["public"]["Tables"]["memo_templates"]["Insert"]>;
         Relationships: [];
       };
       new_hires: {
