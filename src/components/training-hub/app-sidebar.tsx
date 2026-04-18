@@ -62,6 +62,7 @@ const configure: NavLink[] = [
   { href: "/ingestion", label: "Ingestion", icon: Database },
   { href: "/review", label: "Review queue", icon: UserCircle2 },
   { href: "/reports", label: "Reports", icon: ClipboardList },
+  { href: "/settings/memos", label: "Memo templates", icon: BookOpen },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
