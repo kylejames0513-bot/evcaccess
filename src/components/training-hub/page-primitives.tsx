@@ -174,16 +174,23 @@ export function Section({
   label,
   children,
   action,
+  hint,
 }: {
   label?: string;
   children: React.ReactNode;
   action?: React.ReactNode;
+  hint?: string;
 }) {
   return (
     <section className="space-y-3">
       {(label || action) && (
-        <div className="flex items-center justify-between gap-3">
-          {label && <p className="caption">{label}</p>}
+        <div className="flex items-start justify-between gap-3">
+          {(label || hint) && (
+            <div>
+              {label && <p className="caption">{label}</p>}
+              {hint && <p className="mt-0.5 text-xs text-[--ink-muted]">{hint}</p>}
+            </div>
+          )}
           {action}
         </div>
       )}

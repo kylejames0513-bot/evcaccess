@@ -10,7 +10,9 @@ import {
 } from "@/components/training-hub/page-primitives";
 import { RosterPanel } from "@/components/training-hub/roster-panel";
 import { ClassStatusBar } from "@/components/training-hub/class-status-bar";
+import { ClassMemo } from "@/components/training-hub/class-memo";
 import { getRosterCandidates } from "@/lib/roster-candidates";
+import { renderClassMemo, type ClassMemoInput } from "@/lib/memos/render";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -89,6 +91,53 @@ export default async function ClassDetailPage({
     ...e,
     employee: empMap.get(e.employee_id) ?? null,
   }));
+
+  // Roster attendees that go on the memo (exclude no_show / cancelled / waitlisted)
+  const memoRoster = hydratedEnrollments
+    .filter((e) => {
+      const s = e.status ?? "enrolled";
+      return s !== "no_show" && s !== "cancelled" && s !== "waitlisted";
+    })
+    .map((e) => e.employee)
+    .filter((emp): emp is NonNullable<typeof emp> => Boolean(emp))
+    .sort((a, b) => {
+      if (a.legal_last_name.toLowerCase() !== b.legal_last_name.toLowerCase()) {
+        return a.legal_last_name.localeCompare(b.legal_last_name);
+      }
+      return a.legal_first_name.localeCompare(b.legal_first_name);
+    });
+
+  // Default memo template + org signoff
+  const { data: memoTemplate } = await supabase
+    .from("memo_templates")
+    .select("id, name, subject_template, body_template, is_default")
+    .eq("is_default", true)
+    .eq("active", true)
+    .maybeSingle();
+
+  const { data: orgRow } = await supabase
+    .from("organizations")
+    .select("memo_signoff, name")
+    .maybeSingle();
+
+  const memoInput: ClassMemoInput = {
+    session: {
+      scheduled_start: session.scheduled_start,
+      scheduled_end: session.scheduled_end,
+      location: session.location,
+      trainer_name: session.trainer_name,
+    },
+    training: {
+      code: training?.code ?? null,
+      title: training?.title ?? null,
+    },
+    roster: memoRoster,
+    signoff: orgRow?.memo_signoff ?? null,
+  };
+
+  const rendered = memoTemplate
+    ? renderClassMemo(memoTemplate, memoInput)
+    : { subject: "", body: "", plainText: "" };
 
   // Candidates to add to the roster
   const candidates = await getRosterCandidates({
@@ -181,6 +230,25 @@ export default async function ClassDetailPage({
             </div>
           )}
         </dl>
+      </Section>
+
+      <Section
+        label="Memo"
+        hint="Plain-text memo for this class. Copy and paste into email, Paylocity, Teams, wherever."
+      >
+        {memoTemplate ? (
+          <ClassMemo
+            preview={rendered.plainText}
+            plainText={rendered.plainText}
+            rosterEmpty={memoRoster.length === 0}
+            templateName={memoTemplate.name}
+          />
+        ) : (
+          <EmptyPanel
+            title="No default memo template."
+            hint="Create or mark one as default at /settings/memos."
+          />
+        )}
       </Section>
 
       <Section label={`Roster · ${attending}${session.capacity ? ` / ${session.capacity}` : ""}`}>
