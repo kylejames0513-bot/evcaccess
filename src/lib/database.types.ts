@@ -77,7 +77,7 @@ export interface Database {
       };
       sync_failures: {
         Row: { id: string; kind: string; target: string; payload: Json; error: string | null; attempts: number; created_at: string; last_attempt_at: string; resolved: boolean; resolved_at: string | null; resolved_by: string | null; resolution_notes: string | null; };
-        Insert: { id?: string; kind: string; target: string; payload: Json; error?: string | null; attempts?: number; resolved?: boolean; resolved_at?: string | null; resolved_by?: string | null; resolution_notes?: string | null; };
+        Insert: { id?: string; kind: string; target: string; payload: Json; error?: string | null; attempts?: number; last_attempt_at?: string; resolved?: boolean; resolved_at?: string | null; resolved_by?: string | null; resolution_notes?: string | null; };
         Update: Partial<Database["public"]["Tables"]["sync_failures"]["Insert"]>;
         Relationships: [];
       };
