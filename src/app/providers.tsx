@@ -10,7 +10,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [qc] = useState(() => new QueryClient());
   return (
     <QueryClientProvider client={qc}>
-      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+      {/* Locked to the light stone+indigo palette. The design system lives
+          entirely in globals.css via CSS variables; no dark tokens yet. */}
+      <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" enableSystem={false}>
         <TooltipProvider>
           {children}
           <Toaster richColors closeButton />

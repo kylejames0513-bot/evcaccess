@@ -50,7 +50,13 @@ export default async function DashboardPage() {
     .eq("id", user.id)
     .maybeSingle();
 
-  const firstName = (profile?.full_name ?? "").split(" ")[0] || "there";
+  // The shared HR login lands here as full_name="General HR", which makes
+  // the header read "Good evening, General." — silly. Treat any placeholder
+  // name as missing and drop the salutation instead.
+  const rawFirst = (profile?.full_name ?? "").split(" ")[0] ?? "";
+  const PLACEHOLDER = new Set(["", "hr", "general", "admin", "user", "operator", "there"]);
+  const firstName = PLACEHOLDER.has(rawFirst.toLowerCase()) ? "" : rawFirst;
+  const greet = firstName ? `${greeting()}, ${firstName}.` : `${greeting()}.`;
 
   // --- Counts --------------------------------------------------------------
   const now = new Date();
@@ -182,7 +188,7 @@ export default async function DashboardPage() {
     <div className="space-y-10">
       <PageHeader
         eyebrow={today()}
-        title={`${greeting()}, ${firstName}.`}
+        title={greet}
         subtitle={
           feed.length === 0
             ? "Nothing urgent. A rare quiet day."
@@ -191,11 +197,19 @@ export default async function DashboardPage() {
       />
 
       {/* Quick actions strip */}
-      <div className="flex flex-wrap gap-2">
-        <PrimaryLink href="/classes/new">Schedule class</PrimaryLink>
-        <SecondaryLink href="/new-hires/new">Start a new hire</SecondaryLink>
-        <SecondaryLink href="/separations/new">Log separation</SecondaryLink>
-        <SecondaryLink href="/employees">Find an employee</SecondaryLink>
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
+        <PrimaryLink href="/classes/new" className="shrink-0 whitespace-nowrap">
+          Schedule class
+        </PrimaryLink>
+        <SecondaryLink href="/new-hires/new" className="shrink-0 whitespace-nowrap">
+          Start a new hire
+        </SecondaryLink>
+        <SecondaryLink href="/separations/new" className="shrink-0 whitespace-nowrap">
+          Log separation
+        </SecondaryLink>
+        <SecondaryLink href="/employees" className="shrink-0 whitespace-nowrap">
+          Find an employee
+        </SecondaryLink>
       </div>
 
       {/* Two-column workspace */}

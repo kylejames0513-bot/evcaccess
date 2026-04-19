@@ -237,8 +237,8 @@ export default async function CompliancePage() {
 
           {emps.length > 0 && requiredTrainings.length > 0 && (
             <Section label="Employee × Required Training Matrix">
-              <div className="panel max-h-[600px] overflow-auto">
-                <table className="w-full border-collapse text-xs">
+              <div className="panel max-h-[70vh] overflow-auto sm:max-h-[600px]">
+                <table className="w-full min-w-[560px] border-collapse text-xs">
                   <thead className="sticky top-0 z-10 bg-[--surface]">
                     <tr className="border-b border-[--rule]">
                       <th className="caption sticky left-0 z-20 min-w-[180px] border-r border-[--rule] bg-[--surface] px-3 py-2 text-left">

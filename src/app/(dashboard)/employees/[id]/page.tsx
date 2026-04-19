@@ -69,7 +69,7 @@ export default async function EmployeeDetailPage({ params }: { params: Promise<{
         <p className="caption mb-3">Training history · {(completions ?? []).length} records</p>
         {(completions ?? []).length > 0 ? (
           <div className="overflow-x-auto rounded-lg border border-[--rule] bg-[--surface]">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-[--rule]">
                   <th className="caption px-4 py-3 text-left">Training</th>

@@ -31,15 +31,19 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <header className="flex flex-col gap-4 border-b border-[--rule] pb-6 md:flex-row md:items-end md:justify-between">
+    <header className="flex flex-col gap-4 border-b border-[--rule] pb-5 sm:pb-6 md:flex-row md:items-end md:justify-between">
       <div className="min-w-0">
         {eyebrow && <p className="caption">{eyebrow}</p>}
-        <h1 className="mt-1">{title}</h1>
+        <h1 className="mt-2 break-words sm:mt-1">{title}</h1>
         {subtitle && (
-          <p className="mt-2 text-sm text-[--ink-soft]">{subtitle}</p>
+          <p className="mt-3 break-words text-sm text-[--ink-soft] sm:mt-2">{subtitle}</p>
         )}
       </div>
-      {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+      {actions && (
+        <div className="flex flex-wrap items-center gap-2 md:shrink-0">
+          {actions}
+        </div>
+      )}
     </header>
   );
 }
@@ -58,9 +62,9 @@ export function StatCard({
   tone?: Tone;
 }) {
   const body = (
-    <div className="panel p-5 transition-colors hover:border-[--rule-strong]">
-      <p className="caption">{label}</p>
-      <p className={cn("stat-big mt-2", toneInk[tone])}>{value}</p>
+    <div className="panel p-4 transition-colors hover:border-[--rule-strong] sm:p-5">
+      <p className="caption truncate">{label}</p>
+      <p className={cn("stat-big mt-2 truncate", toneInk[tone])}>{value}</p>
       {hint && <p className="mt-2 text-xs text-[--ink-muted]">{hint}</p>}
     </div>
   );

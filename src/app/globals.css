@@ -71,13 +71,28 @@
 
 @layer base {
   * { @apply border-[--rule]; }
-  html { font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif; }
-  body { @apply bg-[--bg] text-[--ink] antialiased; }
+  html {
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    -webkit-text-size-adjust: 100%;   /* prevent iOS Safari auto-resize */
+    text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-[--bg] text-[--ink] antialiased;
+    /* Honor iOS safe-area so the sidebar trigger + header don't sit under
+       the notch in landscape. The dashboard-shell header uses px-3 / px-6,
+       this adds the env inset on top of that. */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
   h1, h2, h3, .font-display { font-family: var(--font-display), Georgia, serif; font-weight: 500; letter-spacing: -0.015em; }
-  h1 { @apply text-[28px] leading-[1.15]; }
-  h2 { @apply text-[20px] leading-[1.25]; }
+  h1 { @apply text-[24px] leading-[1.15] sm:text-[28px]; }
+  h2 { @apply text-[18px] leading-[1.25] sm:text-[20px]; }
   h3 { @apply text-[16px] leading-[1.3]; }
   ::selection { background: var(--accent-soft); color: var(--accent); }
+
+  /* Tap targets on mobile — iOS ignores hover; make sure interactive
+     elements feel clickable. */
+  button, [role="button"], a { -webkit-tap-highlight-color: transparent; }
 }
 
 @layer utilities {
@@ -88,7 +103,7 @@
   }
   .stat-big {
     font-family: var(--font-display), Georgia, serif;
-    @apply text-[44px] leading-none font-normal tracking-tight;
+    @apply text-[28px] leading-none font-normal tracking-tight sm:text-[40px] md:text-[44px];
     font-variant-numeric: tabular-nums;
   }
   .hairline {
@@ -114,5 +129,14 @@
   }
   textarea.input {
     @apply py-2 leading-6;
+  }
+  /* Wraps a `<table>` and gives it a horizontal scroll with a subtle
+     edge gradient on mobile — so long tables don't blow out the layout. */
+  .table-scroll {
+    @apply -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0;
+    scrollbar-width: thin;
+  }
+  .table-scroll > table {
+    @apply w-full min-w-[640px];
   }
 }
